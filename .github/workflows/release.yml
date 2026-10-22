@@ -3,10 +3,12 @@ name: ROAS Pilot Release
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-  
+    inputs:
+      version:
+        description: '배포 버전 (예: v2.8.0-test1)'
+        required: true
+        type: string
+
 permissions:
   contents: write
 
@@ -18,17 +20,20 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Create release ZIP
+      - name: Create ZIP
         run: |
           zip -r roas-pilot.zip \
             package.json server.js \
             START_ROAS_PILOT.bat public
 
-      - name: Publish GitHub Release
+      - name: Publish test release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "$VERSION" \
             roas-pilot.zip \
-            --title "${GITHUB_REF_NAME}" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --prerelease \
             --generate-notes
