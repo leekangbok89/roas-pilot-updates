@@ -1,0 +1,1 @@
+GitHub 저장소 Code → Add file → Upload files에서 server.js, package.json, public 폴더의 index.html을 같은 경로로 덮어쓰세요. 로컬 데이터 및 토큰은 절대 업로드하지 마세요. 변경을 커밋한 다음 Actions → ROAS Pilot Release → Run workflow → version v2.8.2로 실행하세요. 자동적용 체크는 끈 상태로 새 버전 확인부터 시험하세요.
