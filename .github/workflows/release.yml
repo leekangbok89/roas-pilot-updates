@@ -21,11 +21,12 @@ permissions:
 
 concurrency:
   group: roas-pilot-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout source
@@ -57,10 +58,21 @@ jobs:
           node -e "const m=require('./server'); if(!m.server)process.exit(1)"
           node -e 'const b=require("./vendor/bcrypt.min.js"); const h=b.hashSync("test_password","$2a$04$abcdefghijklmnopqrstuv"); if(!b.compareSync("test_password",h))process.exit(1)'
 
-      - name: Verify profit API, table, and chart in Chromium
+      - name: Prepare browser verification library
+        timeout-minutes: 3
         run: |
           npm install --prefix "$RUNNER_TEMP/roas-ui-tests" --no-audit --no-fund --ignore-scripts --package-lock=false playwright@1.56.1
-          "$RUNNER_TEMP/roas-ui-tests/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+
+      - name: Verify profit API, table, and chart in Chromium
+        timeout-minutes: 5
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            export BROWSER_EXECUTABLE="$(command -v google-chrome)"
+          elif command -v chromium >/dev/null 2>&1; then
+            export BROWSER_EXECUTABLE="$(command -v chromium)"
+          else
+            "$RUNNER_TEMP/roas-ui-tests/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+          fi
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-profit-browser.cjs
 
       - name: Package ROAS Pilot
