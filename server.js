@@ -363,6 +363,7 @@ async function naverRun(mode){
     if(i>0&&i%70===0)token=(await naverAccessToken()).token;
     const ids=await naverChangedIds(d,token);
     const details=await naverDetails(ids,token);
+    if(details.length!==ids.length)throw Error('변경 주문 '+ids.length+'건 중 상세 '+details.length+'건만 조회됨. 해당 날짜를 미완료로 유지합니다.');
     let changed=0;
     for(const detail of details){const x=naverNormalize(detail);if(x){source.orders[x.id]=x;changed++;}}
     // Atomic daily checkpoint; zero-order days are marked as checked only after success.
