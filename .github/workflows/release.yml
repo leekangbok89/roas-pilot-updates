@@ -19,6 +19,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: roas-pilot-release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -26,6 +30,11 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Resolve and validate version
         env:
@@ -43,8 +52,16 @@ jobs:
           node --check server.js
           node --check public/app.js
           node --check public/naver-settings.js
+          node scripts/check-inline-scripts.js
+          npm test
           node -e "const m=require('./server'); if(!m.server)process.exit(1)"
           node -e 'const b=require("./vendor/bcrypt.min.js"); const h=b.hashSync("test_password","$2a$04$abcdefghijklmnopqrstuv"); if(!b.compareSync("test_password",h))process.exit(1)'
+
+      - name: Verify profit API, table, and chart in Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/roas-ui-tests" --no-audit --no-fund --ignore-scripts --package-lock=false playwright@1.56.1
+          "$RUNNER_TEMP/roas-ui-tests/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-profit-browser.cjs
 
       - name: Package ROAS Pilot
         run: |
@@ -80,10 +97,16 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp manifest.json "$RUNNER_TEMP/roas-pilot-manifest.json"
+          git restore --worktree manifest.json
           git fetch origin main
           git checkout -B main origin/main
-          cp manifest.json manifest.tmp
-          mv manifest.tmp manifest.json
+          if [[ "$(node -p "require('./package.json').version")" != "${VERSION#v}" ]]; then
+            echo "Newer source version is on main; skip publishing an older manifest."
+            exit 0
+          fi
+          cp "$RUNNER_TEMP/roas-pilot-manifest.json" manifest.json
           git add manifest.json
           git commit -m "Update release manifest" || exit 0
           git push origin main
+
