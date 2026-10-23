@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.16';
+const appVersion='2.8.17';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -122,7 +122,14 @@ async function insights(query){
  const dates=[];for(let ts=dayUTC(since);ts<=dayUTC(until);ts+=86400000)dates.push(dayString(ts));
  const snapshots=new Map(dates.map(d=>[d,loadDay(account,d)]));
  const force=query.get('force')==='1';
- const requested=dates.filter(d=>force||needsRefresh(snapshots.get(d),d,today));
+ // One Meta attempt per account per Seoul calendar day, regardless of success.
+ // Ordinary date changes are cache-only; only a recent-seven-day overlap can trigger the daily sync.
+ const recentStart=dayString(dayUTC(today)-6*86400000);
+ const dailyFile=path.join(safeAccountFolder(account),'daily-sync.json');
+ let lastAttempt='';try{lastAttempt=JSON.parse(fs.readFileSync(dailyFile,'utf8')).date||'';}catch{}
+ const shouldSync=!force&&lastAttempt!==today&&dates.some(d=>d>=recentStart&&d<=today);
+ let requested=force?dates:shouldSync?dates.filter(d=>d>=recentStart&&d<=today):[];
+ if(shouldSync&&token){fs.mkdirSync(safeAccountFolder(account),{recursive:true});fs.writeFileSync(dailyFile,JSON.stringify({date:today,attemptedAt:new Date().toISOString()}));}
  const issues=[];let updated=0;
  // Do not make hundreds of API calls: group uncached/stale consecutive days in windows of <=7 days.
  for(let i=0;i<requested.length;){let j=i;while(j+1<requested.length&&j-i<6&&dayUTC(requested[j+1])-dayUTC(requested[j])===86400000)j++;
