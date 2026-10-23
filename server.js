@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css'];
-const appVersion='2.8.5';
+const appVersion='2.8.6';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -121,7 +121,8 @@ async function insights(query){
  const token=process.env.META_ACCESS_TOKEN, today=todaySeoul();
  const dates=[];for(let ts=dayUTC(since);ts<=dayUTC(until);ts+=86400000)dates.push(dayString(ts));
  const snapshots=new Map(dates.map(d=>[d,loadDay(account,d)]));
- const requested=dates.filter(d=>needsRefresh(snapshots.get(d),d,today));
+ const force=query.get('force')==='1';
+ const requested=dates.filter(d=>force||needsRefresh(snapshots.get(d),d,today));
  const issues=[];let updated=0;
  // Do not make hundreds of API calls: group uncached/stale consecutive days in windows of <=7 days.
  for(let i=0;i<requested.length;){let j=i;while(j+1<requested.length&&j-i<6&&dayUTC(requested[j+1])-dayUTC(requested[j])===86400000)j++;
