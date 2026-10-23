@@ -155,18 +155,42 @@ const plusDays=(date,n)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate
 const compMetrics=[['spend','광고비',x=>dual(x)],['purchases','구매',x=>x==null?'—':num(x)+'건'],['revenue','구매 매출',x=>dual(x)],['roas','ROAS',pct],['cpa','CPA',dual],['cpc','링크 CPC',dual],['ctr','링크 CTR',pct]];
 function availableAds(){const all=aggregate(visibleRows());return all.sort((a,b)=>a.channel.localeCompare(b.channel)||a.ad.localeCompare(b.ad));}
 function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
+
+let compareFetchedRows=null;
+function compareData(){return Array.isArray(compareFetchedRows)?compareFetchedRows:visibleRows();}
+function comparePickValue(r,level){
+ if(level==='campaign')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음']);
+ if(level==='adset')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음',r.adset||'세트명 없음']);
+ return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음',r.adset||'세트명 없음',String(r.id||r.ad||'')]);
+}
+function setCompareOptions(select,rows,level,allLabel){
+ const previous=select.value,unique=new Map();
+ for(const r of rows){const val=comparePickValue(r,level);if(!unique.has(val))unique.set(val,level==='campaign'?r.campaign||'캠페인명 없음':level==='adset'?r.adset||'세트명 없음':r.ad||'광고명 없음');}
+ select.innerHTML='<option value="">'+safe(allLabel)+'</option>'+[...unique].sort((a,b)=>a[1].localeCompare(b[1],'ko')).map(([value,label])=>'<option value="'+safe(value)+'">'+safe(label)+'</option>').join('');
+ if([...select.options].some(o=>o.value===previous))select.value=previous;
+}
+function filteredCompareRows(source){
+ const campaign=$('compare-campaign').value,adset=$('compare-adset').value,creative=$('compare-creative').value;
+ return source.filter(r=>(!campaign||comparePickValue(r,'campaign')===campaign)&&(!adset||comparePickValue(r,'adset')===adset)&&(!creative||comparePickValue(r,'creative')===creative));
+}
+function syncCompareOptions(changed){
+ const data=compareData(),c=$('compare-campaign'),s=$('compare-adset'),a=$('compare-creative');
+ if(changed==='campaign'){s.value='';a.value='';}else if(changed==='adset'){a.value='';}
+ setCompareOptions(c,data,'campaign','전체 캠페인');
+ const inCampaign=data.filter(r=>!c.value||comparePickValue(r,'campaign')===c.value);
+ setCompareOptions(s,inCampaign,'adset','전체 광고 세트');
+ const inSet=inCampaign.filter(r=>!s.value||comparePickValue(r,'adset')===s.value);
+ setCompareOptions(a,inSet,'creative','전체 광고 소재');
+}
 function renderComparison(rowsOverride){
  if(!Array.isArray(rowsOverride))rowsOverride=null;
- const select=$('compare-ad');if(!select)return;
- const old=select.value;const list=availableAds();
- select.innerHTML='<option value="all">전체 광고</option>'+list.map(r=>'<option value="'+safe(compKey(r))+'">'+safe((r.channel==='naver'?'네이버':r.channel==='cafe'?'카페24':'전체')+' · '+r.ad)+'</option>').join('');
- if([...select.options].some(o=>o.value===old))select.value=old;
+ const source=rowsOverride||compareData();
+ syncCompareOptions();
  renderChangeHistory();
  const ranges=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
  if(ranges.some(([s,e])=>!s||!e||s>e)){$('compare-result').textContent='기간 A와 B의 시작일·종료일을 올바르게 선택하세요.';return;}
- if(!state.rows.length&&!rowsOverride){$('compare-result').textContent='저장 데이터 조회 버튼을 눌러 두 기간을 불러오세요.';return;}
- const selected=select.value;
- const rows=(rowsOverride||visibleRows()).filter(r=>selected==='all'||compKey(r)===selected);
+ if(!source.length){$('compare-result').textContent='저장 데이터 조회 버튼을 눌러 두 기간을 불러오세요.';return;}
+ const rows=filteredCompareRows(source);
  const byDate=new Map();
  for(const r of rows){if(!r.date)continue;let arr=byDate.get(r.date);if(!arr){arr=[];byDate.set(r.date,arr);}arr.push(r);}
  function period(from,to){
@@ -220,7 +244,8 @@ function readChanges(){try{const v=JSON.parse(localStorage.getItem(CHANGE_KEY)||
 function renderChangeHistory(){const el=$('change-history');if(!el)return;const items=readChanges();if(!items.length){el.textContent='아직 저장된 변경 기록이 없습니다.';return}el.innerHTML='<table><thead><tr><th>날짜</th><th>광고</th><th>변경</th><th>메모</th><th></th></tr></thead><tbody>'+items.map((item,i)=>`<tr><td>${safe(item.date)}</td><td>${safe(item.ad)}</td><td>${safe(item.kind)}</td><td>${safe(item.note)}</td><td><button class="button ghost" type="button" data-del-change="${i}">삭제</button></td></tr>`).join('')+'</tbody></table>';el.querySelectorAll('[data-del-change]').forEach(b=>b.addEventListener('click',()=>{const a=readChanges();a.splice(Number(b.dataset.delChange),1);localStorage.setItem(CHANGE_KEY,JSON.stringify(a));renderChangeHistory()}));}
 if(typeof document!=='undefined'){
  const today=isoDay(new Date());$('compare-b-end').value=today;$('compare-b-start').value=plusDays(today,-6);$('compare-a-end').value=plusDays(today,-7);$('compare-a-start').value=plusDays(today,-13);$('compare-date').value=plusDays(today,-7);
- for(const k of ['compare-ad','compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
+ for(const k of ['compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
+ for(const id of ['compare-campaign','compare-adset','compare-creative'])$(id).addEventListener('change',()=>{syncCompareOptions(id==='compare-campaign'?'campaign':id==='compare-adset'?'adset':'creative');renderComparison();});
  $('compare-run').addEventListener('click',async()=>{
  const b=$('compare-run'),startA=$('compare-a-start').value,endA=$('compare-a-end').value,startB=$('compare-b-start').value,endB=$('compare-b-end').value;
  if(!startA||!endA||!startB||!endB||startA>endA||startB>endB){renderComparison();return;}
@@ -237,12 +262,14 @@ if(typeof document!=='undefined'){
    rows.push(...(data.rows||[]).map(row=>({...normalizeApi(row),channel})));
    if(data.cache?.missingDays?.length)warnings.push(channel+' 미저장 '+data.cache.missingDays.length+'일 ('+data.cache.missingDays.join(', ')+')');
   }
+  compareFetchedRows=rows;
+  syncCompareOptions();
   renderComparison(rows);
   if(warnings.length){const node=$('compare-result');node.insertAdjacentHTML('afterbegin','<p style="color:#ad5a21;font-weight:700">'+safe(warnings.join(' / '))+'</p>');}
  }catch(e){$('compare-result').textContent='저장 데이터 조회 실패: '+e.message;}
  finally{b.disabled=false;b.textContent='전후 비교';}
 });
- $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const select=$('compare-ad'),ad=select.options[select.selectedIndex]?.textContent||'전체 광고';const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
+ $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const campaign=$('compare-campaign'),set=$('compare-adset'),creative=$('compare-creative');const ad=[campaign,set,creative].map(x=>x.options[x.selectedIndex]?.textContent).filter(Boolean).join(' / ');const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
 
 
