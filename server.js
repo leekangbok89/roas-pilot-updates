@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.11';
+const appVersion='2.8.12';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -116,7 +116,7 @@ async function insights(query){
  const account=String(query.get('account')||process.env.META_AD_ACCOUNT_ID||'').replace(/^act_/,'');
  if(!/^\d{5,30}$/.test(account))throw Object.assign(Error('광고 계정 ID를 숫자로 입력하세요.'),{status:400});
  const since=query.get('since'),until=query.get('until');
- if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>365)throw Object.assign(Error('유효한 기간을 선택하세요(최대 366일).'),{status:400});
+ if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('유효한 기간을 선택하세요(최대 732일).'),{status:400});
  const version=process.env.META_API_VERSION||'v24.0';if(!/^v\d+\.\d+$/.test(version))throw Error('META_API_VERSION 설정이 잘못되었습니다.');
  const token=process.env.META_ACCESS_TOKEN, today=todaySeoul();
  const dates=[];for(let ts=dayUTC(since);ts<=dayUTC(until);ts+=86400000)dates.push(dayString(ts));
