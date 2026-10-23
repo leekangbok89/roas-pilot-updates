@@ -574,10 +574,12 @@ function cafeAutoCollect(){
 function combinedAnalysis(start,end,pivot){
  if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
  const c=cafeSalesState(),n=naverPublicState();
+ const cafeCompleted=cafeCache(cafeSyncFile,{days:{}}).days||{},naverCompleted=naverRead(naverSyncFile,{days:{}}).days||{};
  const nMap=new Map(n.days.map(x=>[x.date,x])),cMap=new Map(c.days.map(x=>[x.date,x]));
  const result=[];for(let ts=dayUTC(start);ts<=dayUTC(end);ts+=86400000){
   const d=dayString(ts),nv=nMap.get(d),cv=cMap.get(d);
-  result.push({date:d,naver:nv?.net??null,cafe24:cv?.net??null,total:nv&&cv?nv.net+cv.net:null,complete:!!(nv&&cv)});
+  const complete=!!(naverCompleted[d]&&cafeCompleted[d]);const nVal=naverCompleted[d]?(nv?.net??0):null,cVal=cafeCompleted[d]?(cv?.net??0):null;
+  result.push({date:d,naver:nVal,cafe24:cVal,total:complete?nVal+cVal:null,complete});
  }
  const metrics=arr=>{
   const covered=arr.filter(x=>x.complete),revenue=covered.reduce((s,x)=>s+x.total,0);
