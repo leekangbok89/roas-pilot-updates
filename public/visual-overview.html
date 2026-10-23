@@ -18,7 +18,7 @@ button.active{background:#e9e7ff;color:#4e42d5;border-color:#c8c3ff}
 .panel{padding:20px;margin-bottom:16px}.panelhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:15px}
 #graph{width:100%;height:310px}.legend{display:flex;gap:12px;font-size:12px;color:#66758d}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
-.charttools{display:flex;gap:9px}.charttools select{min-width:150px}
+.chartpicker{width:100%;display:grid;gap:9px}.presetbar{display:flex;gap:7px;align-items:end;flex-wrap:wrap}.presetbar button{padding:8px;font-size:12px}.presetbar button.active{background:#e9e7ff;color:#4e42d5}.presetbar label{margin-left:auto}.metric-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.metric-choices select{width:100%;min-width:0}.panelhead:has(.chartpicker){align-items:stretch;flex-direction:column}@media(max-width:950px){.metric-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.metric-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.presetbar label{margin-left:0}}
 .summary{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.summary .panel{margin-bottom:0}
 table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;padding:11px;border-bottom:1px solid #e8edf5}th:first-child,td:first-child{text-align:left}th{color:#71819b;background:#f8faff}
 .alert{border:1px solid #eadab4;background:#fff8e9;color:#956c24;border-radius:9px;padding:10px;margin-bottom:15px;display:none}
@@ -33,7 +33,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 <div id="alert" class="alert"></div>
 <section class="metrics"><div class="metric"><small>총 광고비</small><strong id="spend">—</strong><small id="spendSub">—</small></div><div class="metric"><small>구매 전환매출</small><strong id="revenue">—</strong><small id="revenueSub">—</small></div><div class="metric highlight"><small>구매 ROAS</small><strong id="roas">—</strong><small>Meta 귀속 구매 전환값 기준</small></div><div class="metric"><small>구매 CPA</small><strong id="cpa">—</strong><small id="purchaseSub">—</small></div>
 <div class="metric"><small>구매 건수</small><strong id="purchases">—</strong></div><div class="metric"><small>링크 CTR</small><strong id="ctr">—</strong></div><div class="metric"><small>노출수</small><strong id="impressions">—</strong></div><div class="metric"><small>링크 클릭수</small><strong id="clicks">—</strong></div></section>
-<section class="panel"><div class="panelhead"><div><h2>일별 성과 그래프</h2><span class="small">서로 다른 단위는 각각의 축으로 표시합니다.</span></div><div class="charttools"><select id="leftmetric"><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="purchases">구매수</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option></select><select id="rightmetric"><option value="revenue">구매 매출</option><option value="spend">광고비</option><option value="roas">ROAS</option><option value="purchases">구매수</option><option value="clicks">클릭수</option><option value="ctr">CTR</option></select></div></div><div id="graph"></div><div id="legend" class="legend"></div></section>
+<section class="panel"><div class="panelhead"><div><h2>일별 성과 그래프</h2><span class="small">최대 7개 지표 선택 · 시작값 100 기준으로 변화를 비교할 수 있습니다.</span></div><div class="chartpicker"><div class="presetbar"><button type="button" data-chart-preset="revenue">매출 분석</button><button type="button" data-chart-preset="efficiency">효율 분석</button><button type="button" data-chart-preset="traffic">유입 분석</button><button type="button" data-chart-preset="all">전체 보기</button><label>표시 방식 <select id="chart-scale"><option value="relative">시작값 100 기준</option><option value="absolute">각 지표별 축</option></select></label></div><div class="metric-choices"><label>선택 1<select class="metric-choice" data-index="0"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 2<select class="metric-choice" data-index="1"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 3<select class="metric-choice" data-index="2"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 4<select class="metric-choice" data-index="3"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 5<select class="metric-choice" data-index="4"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 6<select class="metric-choice" data-index="5"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 7<select class="metric-choice" data-index="6"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label></div></div></div><div id="graph"></div><div id="legend" class="legend"></div></section>
 <div class="summary"><section class="panel"><div class="panelhead"><h2>채널별 성과 비교</h2></div><div id="channels" class="small">데이터 조회 후 표시됩니다.</div></section><section class="panel"><div class="panelhead"><h2>일별 요약</h2></div><div id="daily" class="small">데이터 조회 후 표시됩니다.</div></section></div>
 <p class="small">광고 데이터는 Meta API와 ASUS 노트북의 로컬 캐시에서 읽습니다. 조회 오류 또는 구매 이벤트 미수집은 0으로 처리하지 않고 누락으로 표시합니다.</p></main>
 <script>
@@ -43,7 +43,7 @@ const types=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase'],
 const iso=d=>{const v=new Date(d.getTime()-d.getTimezoneOffset()*60000);return v.toISOString().slice(0,10)};
 function value(a){if(!Array.isArray(a))return null;for(const type of types){const x=a.find(y=>y.action_type===type);if(x)return n(x.value);}return null;}
 const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350;
-const metrics={spend:'광고비',revenue:'구매 매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR'};
+const metrics={spend:'광고비',revenue:'구매 매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR',cpa:'구매 CPA'};
 function normalize(row,channel){let spend=n(row.spend),purchases=value(row.actions),revenue=value(row.action_values);if(revenue==null){let ratios=row.website_purchase_roas||row.purchase_roas;const r=Array.isArray(ratios)?ratios.find(x=>types.includes(x.action_type)):null;if(r)revenue=spend*n(r.value);}
 const usd=(row.account_currency||currency[channel])==='USD',factor=usd?rates:1;return {date:row.date_start,spend:spend*factor,revenue:revenue==null?null:revenue*factor,purchases,clicks:n(row.inline_link_clicks),impressions:n(row.impressions),channel};}
 function sum(rows){let s={spend:0,revenue:0,purchases:0,clicks:0,impressions:0,hasRevenue:false,hasPurchases:false};for(const r of rows){s.spend+=r.spend;s.clicks+=r.clicks;s.impressions+=r.impressions;if(r.revenue!=null){s.revenue+=r.revenue;s.hasRevenue=true}if(r.purchases!=null){s.purchases+=r.purchases;s.hasPurchases=true}}s.roas=s.hasRevenue&&s.spend>0?s.revenue/s.spend*100:null;s.ctr=s.impressions>0?s.clicks/s.impressions*100:null;s.cpa=s.hasPurchases&&s.purchases>0?s.spend/s.purchases:null;return s;}
@@ -58,14 +58,41 @@ const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
 $('channels').innerHTML='<table><thead><tr><th>채널</th><th>광고비</th><th>매출</th><th>ROAS</th><th>구매</th></tr></thead><tbody>'+channelRows.map(([name,s])=>'<tr><td>'+name+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td><td>'+ (s.hasPurchases?num(s.purchases):'—')+'</td></tr>').join('')+'</tbody></table>';
 $('daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>매출</th><th>ROAS</th></tr></thead><tbody>'+series.map(s=>'<tr><td>'+s.date.slice(5)+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td></tr>').join('')+'</tbody></table>';
 }
-function draw(rows){const a=$('leftmetric').value,b=$('rightmetric').value,colors=['#526bed','#1ac16a'],w=1020,h=300,pad=46;if(!rows.length){$('graph').textContent='조회한 날짜의 데이터가 없습니다.';return}
-let vals=[a,b].map(k=>rows.map(r=>k==='revenue'&&!r.hasRevenue?null:r[k])),max=vals.map(v=>Math.max(1,...v.filter(x=>x!=null)));
-const x=i=>pad+(w-2*pad)*(rows.length===1?.5:i/(rows.length-1)),y=(v,j)=>h-pad-(h-pad-20)*v/max[j];
-let svg='<svg width="100%" height="310" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="일별 광고 성과 비교 그래프">';
-for(let z=0;z<=4;z++){let yp=20+z*(h-pad-20)/4;svg+='<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+yp+'" y2="'+yp+'" stroke="#e8edf6"/>'}
-for(let j=0;j<2;j++){let parts=[];rows.forEach((r,i)=>{const v=vals[j][i];if(v!=null)parts.push((parts.length?'L':'M')+x(i)+','+y(v,j))});if(parts.length)svg+='<path d="'+parts.join(' ')+'" fill="none" stroke="'+colors[j]+'" stroke-width="3" stroke-linecap="round"/>';rows.forEach((r,i)=>{const v=vals[j][i];if(v!=null)svg+='<circle cx="'+x(i)+'" cy="'+y(v,j)+'" r="3" fill="'+colors[j]+'"/>'})}
-rows.forEach((r,i)=>{if(rows.length<=14||i%Math.ceil(rows.length/14)===0)svg+='<text x="'+x(i)+'" y="'+(h-8)+'" text-anchor="middle" fill="#8693a8" font-size="12">'+r.date.slice(5)+'</text>'});svg+='</svg>';$('graph').innerHTML=svg;
-$('legend').innerHTML='<span><i style="background:'+colors[0]+'"></i>'+metrics[a]+' (좌측)</span><span><i style="background:'+colors[1]+'"></i>'+metrics[b]+' (우측)</span>';
+
+const chartKeys=["spend","revenue","roas","clicks","ctr","purchases","cpa"];
+const chartColors=['#526bed','#16b96b','#f59e0b','#dd5fd1','#06a5b5','#ed6676','#8060ef'];
+let activeMetricKeys=['spend','revenue'],hiddenMetricKeys=new Set();
+function setChartMetrics(keys){
+ activeMetricKeys=[...new Set(keys.filter(k=>chartKeys.includes(k)))].slice(0,7);
+ document.querySelectorAll('.metric-choice').forEach((s,i)=>{s.value=activeMetricKeys[i]||'';});
+ hiddenMetricKeys=new Set([...hiddenMetricKeys].filter(k=>activeMetricKeys.includes(k)));
+ document.querySelectorAll('[data-chart-preset]').forEach(b=>b.classList.toggle('active',JSON.stringify(activeMetricKeys)===JSON.stringify(chartPresets[b.dataset.chartPreset])));
+}
+const chartPresets={"revenue":["spend","revenue"],"efficiency":["roas","cpa","purchases"],"traffic":["spend","clicks","ctr"],"all":["spend","revenue","roas","clicks","ctr","purchases","cpa"]};
+function syncChartControls(){
+ const used=new Set(activeMetricKeys);
+ document.querySelectorAll('.metric-choice').forEach(s=>{for(const opt of s.options){opt.disabled=!!opt.value&&used.has(opt.value)&&s.value!==opt.value;}});
+}
+function draw(rows){
+ const keys=activeMetricKeys.filter(k=>!hiddenMetricKeys.has(k));
+ const graph=$('graph'),legend=$('legend');
+ if(!rows.length){graph.textContent='조회한 날짜의 데이터가 없습니다.';legend.innerHTML='';return;}
+ if(!keys.length){graph.textContent='선택된 지표가 없습니다.';legend.innerHTML='';return;}
+ const scale=$('chart-scale').value,w=1020,h=300,left=55,right=48,top=25,bottom=45;
+ const x=i=>left+(w-left-right)*(rows.length===1?.5:i/(rows.length-1));
+ const value=(r,k)=>k==='revenue'&&!r.hasRevenue?null:k==='purchases'&&!r.hasPurchases?null:k==='cpa'&&!r.hasPurchases?null:r[k];
+ const sequences=keys.map(k=>rows.map(r=>value(r,k)));
+ const series=sequences.map(vals=>{if(scale==='absolute'){let max=Math.max(1,...vals.filter(Number.isFinite));return vals.map(v=>v==null?null:v/max*100);}
+ const base=vals.find(v=>v!=null&&v!==0);return vals.map(v=>v==null||!base?null:v/base*100);});
+ const values=series.flat().filter(Number.isFinite),max=Math.max(110,...values),min=scale==='relative'?Math.min(0,...values):0;
+ const y=v=>top+(h-top-bottom)*(max-v)/(max-min||1);
+ let svg='<svg width="100%" height="310" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="광고 일별 지표 비교 그래프">';
+ for(let i=0;i<=4;i++){const yy=top+i*(h-top-bottom)/4;svg+='<line x1="'+left+'" x2="'+(w-right)+'" y1="'+yy+'" y2="'+yy+'" stroke="#e8edf6"/><text x="'+(left-6)+'" y="'+(yy+4)+'" text-anchor="end" fill="#8893a7" font-size="10">'+(max-(max-min)*i/4).toFixed(0)+(scale==='relative'?'':'%')+'</text>';}
+ keys.forEach((k,j)=>{const col=chartColors[chartKeys.indexOf(k)],vals=series[j];let path='',drawing=false;vals.forEach((v,i)=>{if(v==null){drawing=false;return;}path+=(drawing?'L':'M')+x(i)+','+y(v)+' ';drawing=true;});if(path)svg+='<path d="'+path+'" fill="none" stroke="'+col+'" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';vals.forEach((v,i)=>{if(v!=null&&rows.length<=35)svg+='<circle cx="'+x(i)+'" cy="'+y(v)+'" r="2.5" fill="'+col+'"><title>'+rows[i].date+' · '+metrics[k]+': '+fmt(k,sequences[j][i])+'</title></circle>';});});
+ rows.forEach((r,i)=>{if(rows.length<=14||i%Math.ceil(rows.length/14)===0)svg+='<text x="'+x(i)+'" y="'+(h-10)+'" text-anchor="middle" fill="#8693a8" font-size="11">'+r.date.slice(5)+'</text>';});
+ svg+='</svg>';graph.innerHTML=svg;
+ legend.innerHTML=activeMetricKeys.map(k=>'<button type="button" data-legend="'+k+'" style="background:transparent;border:0;color:'+(hiddenMetricKeys.has(k)?'#a9b2c0':'#45536c')+';text-decoration:'+(hiddenMetricKeys.has(k)?'line-through':'none')+'"><i style="background:'+chartColors[chartKeys.indexOf(k)]+'"></i>'+metrics[k]+'</button>').join('')+'<span class="small">'+(scale==='relative'?'각 지표의 첫 유효값=100 · 변화율 비교':'지표별 최대값=100 · 상대적 흐름 비교')+'</span>';
+ legend.querySelectorAll('[data-legend]').forEach(button=>button.onclick=()=>{const k=button.dataset.legend;hiddenMetricKeys.has(k)?hiddenMetricKeys.delete(k):hiddenMetricKeys.add(k);draw(rows);});
 }
 async function run(){const ids=JSON.parse(localStorage.getItem('roas-account-ids')||'{}');let targets=$('channel').value==='all'?['naver','cafe']:[$('channel').value],warnings=[],available=0;$('reload').disabled=true;$('updated').textContent='데이터 조회 중…';try{
 for(const key of targets){let id=String(ids[key]||'').replace(/\D/g,'');if(!id){warnings.push(key+' 광고 계정 ID 없음');data[key]=[];continue}
@@ -75,5 +102,5 @@ if(!available)throw Error(warnings.join(' / ')||'수집된 데이터가 없습�
 }catch(e){$('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';}finally{$('reload').disabled=false}}
 let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
 document.querySelectorAll('[data-days]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-days]').forEach(t=>t.classList.toggle('active',t===b));let d=new Date();$('until').value=iso(d);d.setDate(d.getDate()-(Number(b.dataset.days)-1));$('since').value=iso(d);run()});
-$('reload').onclick=run;$('channel').onchange=run;for(const k of ['leftmetric','rightmetric'])$(k).onchange=render;run();setInterval(()=>{if(!document.hidden)run()},3600000);
+$('reload').onclick=run;$('channel').onchange=run;document.querySelectorAll('.metric-choice').forEach((s,i)=>s.onchange=()=>{const next=[...activeMetricKeys];if(!s.value){next.splice(i,1);}else if(!next.includes(s.value)){next[i]=s.value;}setChartMetrics(next);syncChartControls();render();});document.querySelectorAll('[data-chart-preset]').forEach(b=>b.onclick=()=>{setChartMetrics(chartPresets[b.dataset.chartPreset]);syncChartControls();render();});$('chart-scale').onchange=render;setChartMetrics(['spend','revenue']);syncChartControls();run();setInterval(()=>{if(!document.hidden)run()},3600000);
 </script></body></html>
