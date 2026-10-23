@@ -42,7 +42,7 @@ jobs:
         run: |
           zip -r roas-pilot.zip \
             package.json server.js \
-            START_ROAS_PILOT.bat public
+            START_ROAS_PILOT.bat public vendor
 
       - name: Create manifest
         env:
