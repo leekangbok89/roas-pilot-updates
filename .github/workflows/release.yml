@@ -9,6 +9,8 @@ on:
       - 'server.js'
       - 'package.json'
       - '.github/workflows/release.yml'
+      - 'tests/**'
+      - 'scripts/**'
   workflow_dispatch:
     inputs:
       version:
