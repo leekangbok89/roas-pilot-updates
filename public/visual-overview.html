@@ -97,9 +97,24 @@ const customPresetStorage='roas-custom-chart-presets-v1';
 function readCustomPresets(){try{const p=JSON.parse(localStorage.getItem(customPresetStorage)||'[]');return Array.isArray(p)?p.filter(x=>typeof x.name==='string'&&Array.isArray(x.keys)).slice(0,20):[]}catch{return []}}
 let customPresets=readCustomPresets();
 function saveCustomPresets(){localStorage.setItem(customPresetStorage,JSON.stringify(customPresets));renderCustomPresets()}
+let editingPreset=-1;
 function renderCustomPresets(){
  const host=$('custom-preset-buttons');if(!host)return;host.replaceChildren();
- customPresets.forEach((p,i)=>{const b=document.createElement('button');b.type='button';b.textContent=p.name;b.classList.toggle('active',JSON.stringify(activeMetricKeys)===JSON.stringify(p.keys));b.onclick=()=>{setChartMetrics(p.keys);if(p.window)$('chart-window').value=String(p.window);if(p.scale)$('chart-scale').value=p.scale;syncChartControls();render();renderCustomPresets()};host.append(b)});
+ customPresets.forEach((p,i)=>{
+  const wrap=document.createElement('span');wrap.style.cssText='display:inline-flex;align-items:center;gap:2px;margin-right:6px;vertical-align:middle';
+  const name=document.createElement('button');name.type='button';name.textContent=p.name;name.classList.toggle('active',editingPreset===i||JSON.stringify(activeMetricKeys)===JSON.stringify(p.keys));
+  name.onclick=()=>{if(editingPreset>=0)return;setChartMetrics(p.keys);if(p.window)$('chart-window').value=String(p.window);if(p.scale)$('chart-scale').value=p.scale;syncChartControls();render();renderCustomPresets()};
+  const edit=document.createElement('button');edit.type='button';edit.textContent=editingPreset===i?'✓':'✎';edit.title=editingPreset===i?'수정 저장':'이 분석 수정';edit.setAttribute('aria-label',p.name+(editingPreset===i?' 수정 저장':' 수정'));
+  edit.style.cssText='padding:8px 10px;color:#6259ec';
+  edit.onclick=()=>{
+   if(editingPreset===i){const input=wrap.querySelector('input');const newName=input?.value.trim().slice(0,30);if(!newName||!activeMetricKeys.length)return alert('이름과 지표를 입력하세요.');p.name=newName;p.keys=[...activeMetricKeys];p.window=Number($('chart-window').value);p.scale=$('chart-scale').value;editingPreset=-1;saveCustomPresets();render();return;}
+   if(editingPreset>=0)return alert('현재 수정 중인 분석부터 저장해 주세요.');
+   editingPreset=i;setChartMetrics(p.keys);if(p.window)$('chart-window').value=String(p.window);if(p.scale)$('chart-scale').value=p.scale;syncChartControls();render();renderCustomPresets();
+  };
+  wrap.append(name,edit);
+  if(editingPreset===i){name.style.display='none';const input=document.createElement('input');input.value=p.name;input.maxLength=30;input.setAttribute('aria-label','분석 이름 수정');input.style.cssText='width:130px;padding:9px';input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();edit.click()}});wrap.insertBefore(input,edit);}
+  host.append(wrap);
+ });
 }
 function addPreset(){if(!activeMetricKeys.length){alert('먼저 그래프 지표를 선택하세요.');return}const name=prompt('새 그래프 버튼의 이름을 입력하세요.','내 분석');if(name==null)return;const clean=name.trim().slice(0,30);if(!clean){alert('이름을 입력하세요.');return}if(customPresets.length>=20){alert('최대 20개까지 저장할 수 있습니다.');return}customPresets.push({name:clean,keys:[...activeMetricKeys],window:Number($('chart-window').value),scale:$('chart-scale').value});saveCustomPresets();}
 function managePresets(){if(!customPresets.length){alert('저장된 사용자 프리셋이 없습니다.');return}const menu=customPresets.map((p,i)=>(i+1)+'. '+p.name).join('\\n');const choice=prompt('수정할 프리셋 번호를 입력하세요.\\n'+menu);if(choice==null)return;const i=Number(choice)-1;if(!Number.isInteger(i)||i<0||i>=customPresets.length){alert('올바른 번호를 입력하세요.');return}
