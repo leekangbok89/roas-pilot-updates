@@ -24,6 +24,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 .alert{border:1px solid #eadab4;background:#fff8e9;color:#956c24;border-radius:9px;padding:10px;margin-bottom:15px;display:none}
 @media(max-width:950px){aside{width:160px}main{margin-left:160px}.metrics{grid-template-columns:repeat(2,1fr)}.summary{grid-template-columns:1fr}}
 @media(max-width:620px){aside{position:static;width:100%;height:auto}.logo{margin-bottom:10px}nav{display:flex;overflow:auto}nav a{white-space:nowrap}main{margin:0;padding:12px}.metrics{gap:8px}.metric strong{font-size:20px}}
+
+/* Unified typography and side navigation across ROAS Pilot pages */
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif!important;font-size:14px;line-height:1.5;background:#f5f7fb}
+aside{width:236px!important;background:#121c33!important;padding:28px 17px!important}
+main{margin-left:236px!important;padding:35px 40px!important;max-width:1740px}
+aside .logo{font-size:22px!important;margin:0 8px 49px!important}
+nav a{font-size:13px!important;padding:13px 16px!important;border-radius:11px!important;margin-bottom:5px!important}
+button,input,select{font-family:inherit}
+@media(max-width:750px){aside{position:static!important;width:100%!important;height:auto!important}main{margin-left:0!important;padding:15px!important}}
 </style></head><body><aside><div class="logo">ROAS<span>Pilot</span><small>Meta Performance Intelligence</small></div><nav><a class="active" href="/visual-overview.html">◉ 한눈에 보기</a><a href="/#overview">◫ 성과 개요</a><a href="/#ads-section">▤ 광고별 진단</a><a href="/#daily-compare">◷ 날짜별 비교</a><a href="/#funnel">⌁ 구매 퍼널</a><a href="/cost-management.html">▦ 원가관리</a><a href="/#data-source">⛓ 데이터 연결 · 설정</a></nav></aside>
 <main><h1>한눈에 보기</h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
 <section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
@@ -141,9 +150,9 @@ function draw(rows){
  const graph=$('graph'),legend=$('legend');
  if(!rows.length){graph.textContent='조회한 날짜의 데이터가 없습니다.';legend.innerHTML='';return;}
  if(!keys.length){graph.textContent='선택된 지표가 없습니다.';legend.innerHTML='';return;}
- const scale=$('chart-scale').value,w=1020,h=300,left=55,right=48,top=25,bottom=45;
+ const scale=keys.includes('profit')?'absolute':$('chart-scale').value,w=1020,h=300,left=55,right=48,top=25,bottom=45;
  const x=i=>left+(w-left-right)*(plotted.length===1?.5:i/(plotted.length-1));
- const value=(r,k)=>['smartstoreRevenue','mallRevenue','totalStoreRevenue'].includes(k)?r[k]:k==='revenue'&&!r.hasRevenue?null:k==='purchases'&&!r.hasPurchases?null:k==='cpa'&&!r.hasPurchases?null:r[k];
+ const value=(r,k)=>['smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'].includes(k)?r[k]:k==='revenue'&&!r.hasRevenue?null:k==='purchases'&&!r.hasPurchases?null:k==='cpa'&&!r.hasPurchases?null:r[k];
  const windowSize=Number($('chart-window')?.value||1);
  // Non-overlapping, month-anchored buckets: 9/1–3, 9/4–6, etc.
  const buckets=[];
@@ -175,9 +184,10 @@ function draw(rows){
  };
  const sequences=keys.map(k=>buckets.map(b=>metricForBucket(b,k)));
  const plotted=buckets;
- const series=sequences.map(vals=>{if(scale==='absolute'){let max=Math.max(1,...vals.filter(Number.isFinite));return vals.map(v=>v==null?null:v/max*100);}
+ if(keys.includes('profit')&&!sequences[keys.indexOf('profit')].some(Number.isFinite))graph.setAttribute('title','예상 이익이 확인된 날짜가 없습니다. 아래 이익 표의 상태·사유를 확인하세요.');else graph.removeAttribute('title');
+ const series=sequences.map(vals=>{if(scale==='absolute'){let max=Math.max(1,...vals.filter(Number.isFinite).map(Math.abs));return vals.map(v=>v==null?null:v/max*100);}
  const base=vals.find(v=>v!=null&&v!==0);return vals.map(v=>v==null||!base?null:v/base*100);});
- const values=series.flat().filter(Number.isFinite),max=Math.max(110,...values),min=scale==='relative'?Math.min(0,...values):0;
+ const values=series.flat().filter(Number.isFinite),max=Math.max(110,...values),min=Math.min(0,...values);
  const y=v=>top+(h-top-bottom)*(max-v)/(max-min||1);
  let svg='<svg width="100%" height="310" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="광고 일별 지표 비교 그래프">';
  for(let i=0;i<=4;i++){const yy=top+i*(h-top-bottom)/4;svg+='<line x1="'+left+'" x2="'+(w-right)+'" y1="'+yy+'" y2="'+yy+'" stroke="#e8edf6"/><text x="'+(left-6)+'" y="'+(yy+4)+'" text-anchor="end" fill="#8893a7" font-size="10">'+(max-(max-min)*i/4).toFixed(0)+(scale==='relative'?'':'%')+'</text>';}
