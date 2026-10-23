@@ -264,27 +264,48 @@ if(typeof document!=='undefined'){
  $('compare-channel').addEventListener('change',()=>{syncCompareOptions('campaign');renderComparison();});
  for(const id of ['compare-campaign','compare-adset','compare-creative'])$(id).addEventListener('change',()=>{syncCompareOptions(id==='compare-campaign'?'campaign':id==='compare-adset'?'adset':'creative');renderComparison();});
  $('compare-run').addEventListener('click',async()=>{
- const b=$('compare-run'),startA=$('compare-a-start').value,endA=$('compare-a-end').value,startB=$('compare-b-start').value,endB=$('compare-b-end').value;
- if(!startA||!endA||!startB||!endB||startA>endA||startB>endB){renderComparison();return;}
- const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
- const channels=['naver','cafe']; // load both cached channels; channel selector filters locally
- const from=[startA,startB].sort()[0],to=[endA,endB].sort().at(-1);
- const rows=[],warnings=[];b.disabled=true;b.textContent='저장 데이터 조회 중…';
+ const button=$('compare-run'),dates=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
+ if(dates.some(([s,e])=>!s||!e||s>e)){renderComparison();return;}
+ const channelIds={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
+ const selected=$('compare-channel').value,channels=selected==='all'?['naver','cafe']:[selected],rows=[],errors=[],summary=[];
+ const windows=[];
+ for(const [start,end] of dates){
+   for(let d=start;d<=end;){const last=plusDays(d,6),stop=last<end?last:end;windows.push([d,stop]);d=plusDays(stop,1);}
+ }
+ button.disabled=true;button.textContent='기간별 저장 데이터 확인 중…';
+ const output=$('compare-result');
+ output.textContent='기존 파일에서 날짜별 데이터 조회를 시작합니다. Meta API 호출 없이 저장된 파일만 확인합니다.';
  try{
   for(const channel of channels){
-   if(!/^\d{5,30}$/.test(ids[channel])){warnings.push(channel+' 계정 ID 없음');continue;}
-   const params=new URLSearchParams({account:ids[channel],since:from,until:to,cacheOnly:'1'});
-   const resp=await fetch('/api/insights?'+params.toString());const data=await resp.json();
-   if(!resp.ok){warnings.push(channel+': '+(data.error||'조회 실패'));continue;}
-   rows.push(...(data.rows||[]).map(row=>({...normalizeApi(row),channel})));
-   if(data.cache?.missingDays?.length)warnings.push(channel+' 미저장 '+data.cache.missingDays.length+'일 ('+data.cache.missingDays.join(', ')+')');
+   const id=channelIds[channel],label=channel==='naver'?'네이버 스마트스토어':'카페24 자사몰';
+   if(!/^\d{5,30}$/.test(id)){errors.push(label+' 계정 ID가 올바르지 않습니다.');continue;}
+   let saved=0,missing=0,raw=0,ok=0,failed=0;
+   for(let i=0;i<windows.length;i++){
+    const [since,until]=windows[i];
+    button.textContent='저장 데이터 조회 '+(i+1)+'/'+windows.length+' · '+label;
+    const query=new URLSearchParams({account:id,since,until,cacheOnly:'1'});
+    try{
+     const response=await fetch('/api/insights?'+query,{cache:'no-store'});
+     const data=await response.json();
+     if(!response.ok)throw Error(data.error||'HTTP '+response.status);
+     const items=Array.isArray(data.rows)?data.rows:[];
+     raw+=items.length;saved+=Number(data.cache?.storedDays||0);missing+=(data.cache?.missingDays||[]).length;ok++;
+     rows.push(...items.map(row=>({...normalizeApi(row),channel})));
+    }catch(e){failed++;errors.push(label+' '+since+'~'+until+' '+e.message);}
+    output.textContent='조회 진행 '+label+' '+(i+1)+'/'+windows.length+'주 · 광고 행 '+raw+'개 · 저장 날짜 '+saved+'일';
+   }
+   summary.push(label+' (계정 끝 4자리 '+id.slice(-4)+'): 저장 '+saved+'일 · 파일 미확인 '+missing+'일 · 광고 행 '+raw+'개 · 조회 성공 '+ok+'구간 · 실패 '+failed+'구간');
   }
   compareFetchedRows=rows;
   syncCompareOptions();
   renderComparison(rows);
-  if(warnings.length){const node=$('compare-result');node.insertAdjacentHTML('afterbegin','<p style="color:#ad5a21;font-weight:700">'+safe(warnings.join(' / '))+'</p>');}
- }catch(e){$('compare-result').textContent='저장 데이터 조회 실패: '+e.message;}
- finally{b.disabled=false;b.textContent='전후 비교';}
+  const filtered=filteredCompareRows(compareData());
+  const node=document.createElement('div');node.className='helper';node.style.whiteSpace='pre-wrap';
+  node.style.margin='10px 0';node.style.padding='10px';node.style.border='1px solid #dce3ed';node.style.borderRadius='8px';
+  node.textContent='저장 데이터 진단 (비교 기간 A/B만 확인)\n'+summary.join('\n')+'\n필터 통과 '+filtered.length+'개 광고 행'+(errors.length?'\n조회 오류: '+errors.slice(0,12).join(' | '):'')+'\n※ 저장 날짜는 광고가 실제 집행된 날짜와 다를 수 있습니다. 표시된 값은 현재 실행 중인 프로그램의 저장소 기준입니다.';
+  $('compare-result').prepend(node);
+ }catch(e){output.textContent='날짜별 비교 오류: '+e.message;}
+ finally{button.disabled=false;button.textContent='저장 데이터 비교';}
 });
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const campaign=$('compare-campaign'),set=$('compare-adset'),creative=$('compare-creative');const ad=[campaign,set,creative].map(x=>x.options[x.selectedIndex]?.textContent).filter(Boolean).join(' / ');const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
