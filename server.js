@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.39';
+const appVersion='2.8.40';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -250,7 +250,7 @@ function saveNaverCredentials(input){
  finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
  return naverCredentialStatus();
 }
-async function testNaverToken(){
+async function naverAccessToken(){
  const saved=readNaverCredentials();
  if(!saved)throw Object.assign(Error('네이버 애플리케이션 ID와 시크릿을 먼저 저장하세요.'),{status:400});
  const bcrypt=naverBcrypt;
@@ -266,7 +266,127 @@ async function testNaverToken(){
   const label=String(result.code||result.error||'인증 거절').replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,70);
   throw Object.assign(Error('네이버 토큰 발급 실패 (HTTP '+response.status+', '+label+'). ID·시크릿·호출 IP를 확인하세요.'),{status:502});
  }
- return {ok:true,message:'네이버 커머스API 인증 토큰 발급 성공',expiresIn:Number(result.expires_in)||null,checkedAt:new Date().toISOString(),scope:'인증 확인만 수행 (주문 조회 권한·매출 동기화는 아직 검증 전)'};
+ return {token:result.access_token,expiresIn:Number(result.expires_in)||null};
+}
+
+
+// Read-only Naver order reconciliation. Stores only the minimum fields for analytics:
+// order/product-order identifiers, dates, status and amounts (no customer PII).
+const naverOrderDir=path.join(__dirname,'.roas-data','naver-orders');
+const naverOrderFile=path.join(naverOrderDir,'orders.json');
+const naverSyncFile=path.join(naverOrderDir,'sync.json');
+const naverJobs={running:false,startedAt:null,finishedAt:null,mode:null,progress:'대기',error:null,daysCompleted:0,totalDays:0,changedOrders:0};
+let naverNextAutomaticAt=0;
+function naverRead(file,fallback){try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return fallback;}}
+function naverAtomic(file,obj){fs.mkdirSync(path.dirname(file),{recursive:true});const tmp=file+'.tmp-'+process.pid;try{fs.writeFileSync(tmp,JSON.stringify(obj),{mode:0o600});fs.renameSync(tmp,file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}}
+function naverCleanDate(value){const s=String(value||'');return /^\d{4}-\d\d-\d\d/.test(s)?s.slice(0,10):null;}
+function naverKstDate(date){return date+'T00:00:00.000+09:00';}
+function naverAfterDate(date){const d=new Date(date+'T00:00:00.000+09:00');return new Date(d.getTime()+86400000).toISOString().replace('Z','+00:00');}
+function naverIsoEnd(date){const d=new Date(date+'T00:00:00.000+09:00');return new Date(d.getTime()+86399999).toISOString();}
+function naverPublicState(){
+ const data=naverRead(naverOrderFile,{orders:{}}),sync=naverRead(naverSyncFile,{days:{}});
+ const values=Object.values(data.orders||{});
+ const byDate={};for(const x of values){if(!x.paymentDate)continue;const d=x.paymentDate;const m=byDate[d]||(byDate[d]={date:d,orders:0,gross:0,refund:0,net:0,canceled:0,returned:0});
+  m.orders++;m.gross+=x.gross||0;m.refund+=x.refund||0;m.net+=x.net||0;if(x.status==='CANCELED'||x.status==='CANCELED_BY_NOPAYMENT')m.canceled++;if(x.status==='RETURNED')m.returned++;}
+ return {job:{...naverJobs},totalOrders:values.length,datesChecked:Object.keys(sync.days||{}).length,lastSync:sync.lastSync||null,days:Object.values(byDate).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,180)};
+}
+function naverNormalize(detail){
+ const x=detail.productOrder||detail.content?.productOrder||detail;
+ const order=detail.order||detail.content?.order||{};
+ const id=String(x.productOrderId||detail.productOrderId||'');
+ const status=String(x.productOrderStatus||'');
+ const paymentDate=naverCleanDate(order.paymentDate||x.paymentDate);
+ if(!/^\d{8,25}$/.test(id)||!paymentDate)return null;
+ const gross=Number(x.initialPaymentAmount??x.totalPaymentAmount);
+ const remain=Number(x.remainPaymentAmount??x.totalPaymentAmount);
+ const validGross=Number.isFinite(gross)&&gross>=0?gross:0;
+ const validRemain=Number.isFinite(remain)&&remain>=0?remain:0;
+ const canceled=['CANCELED','RETURNED','CANCELED_BY_NOPAYMENT'].includes(status);
+ const net=canceled?0:Math.min(validGross,validRemain);
+ return {id,paymentDate,status,gross:validGross,net,refund:Math.max(0,validGross-net),updatedAt:new Date().toISOString()};
+}
+async function naverAPI(endpoint,token,options={}){
+ const response=await fetch('https://api.commerce.naver.com/external'+endpoint,{...options,headers:{Accept:'application/json',Authorization:'Bearer '+token,...(options.body?{'Content-Type':'application/json'}:{})},redirect:'error',signal:AbortSignal.timeout(30000)});
+ let data;try{data=await response.json();}catch{data={};}
+ if(!response.ok)throw Error('네이버 주문 API HTTP '+response.status+' · '+String(data.code||'요청 실패').slice(0,60));
+ return data;
+}
+function naverWindow(date){
+ const start=new Date(date+'T00:00:00+09:00');
+ const end=new Date(start.getTime()+86399999);
+ return {from:start.toISOString(),to:end.toISOString()};
+}
+async function naverChangedIds(date,token){
+ const win=naverWindow(date);
+ let from=win.from,moreSequence=null,ids=new Set();
+ for(let page=0;page<200;page++){
+  const q=new URLSearchParams({lastChangedFrom:from,lastChangedTo:win.to,limitCount:'300'});
+  if(moreSequence)q.set('moreSequence',moreSequence);
+  const result=await naverAPI('/v1/pay-order/seller/product-orders/last-changed-statuses?'+q,token);
+  const entries=result.data?.lastChangeStatuses||[];
+  if(!Array.isArray(entries))throw Error('변경 주문 API 응답 형식 확인 필요');
+  for(const x of entries)if(x.productOrderId)ids.add(String(x.productOrderId));
+  const more=result.data?.more;
+  if(!more) return [...ids];
+  if(!more.moreFrom||!more.moreSequence)throw Error('페이지 커서 형식 오류');
+  const cursor=new Date(more.moreFrom);if(Number.isNaN(cursor.valueOf()))throw Error('페이지 커서 날짜 오류');
+  const key=cursor.toISOString()+'|'+more.moreSequence;
+  if(key===from+'|'+moreSequence)throw Error('중복 페이지 커서 감지');
+  from=cursor.toISOString();moreSequence=String(more.moreSequence);
+ }
+ throw Error('주문 내역 페이지 최대치 도달: 해당 날짜 재확인 필요');
+}
+async function naverDetails(ids,token){
+ const found=[];
+ for(let i=0;i<ids.length;i+=100){
+  const data=await naverAPI('/v1/pay-order/seller/product-orders/query',token,{method:'POST',body:JSON.stringify({productOrderIds:ids.slice(i,i+100),quantityClaimCompatibility:true})});
+  if(!Array.isArray(data.data))throw Error('상품 주문 상세 조회 응답 형식 오류');
+  found.push(...data.data);
+ }
+ return found;
+}
+async function naverRun(mode){
+ if(naverJobs.running)throw Object.assign(Error('네이버 주문 동기화가 이미 실행 중입니다.'),{status:409});
+ if(!readNaverCredentials())throw Object.assign(Error('네이버 인증정보를 먼저 저장하세요.'),{status:400});
+ naverJobs.running=true;naverJobs.startedAt=new Date().toISOString();naverJobs.finishedAt=null;naverJobs.mode=mode;naverJobs.progress='네이버 인증 중';naverJobs.error=null;naverJobs.daysCompleted=0;naverJobs.changedOrders=0;
+ const first=mode==='backfill'?'2026-06-01':dayString(Date.now()-7*86400000),last=todaySeoul();
+ let dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
+ naverJobs.totalDays=dates.length;
+ // Background task runs in the user's local server; process failures are visible in UI.
+ try{
+  let token=(await naverAccessToken()).token;
+  const source=naverRead(naverOrderFile,{orders:{}}),synced=naverRead(naverSyncFile,{days:{}});
+  source.orders=source.orders||{};synced.days=synced.days||{};
+  for(let i=0;i<dates.length;i++){
+   const d=dates[i];naverJobs.progress=d+' 변경 주문 검사 ('+(i+1)+'/'+dates.length+')';
+   try{
+    if(i>0&&i%70===0)token=(await naverAccessToken()).token;
+    const ids=await naverChangedIds(d,token);
+    const details=await naverDetails(ids,token);
+    let changed=0;
+    for(const detail of details){const x=naverNormalize(detail);if(x){source.orders[x.id]=x;changed++;}}
+    // Atomic daily checkpoint; zero-order days are marked as checked only after success.
+    naverAtomic(naverOrderFile,source);synced.days[d]={checkedAt:new Date().toISOString(),ids:ids.length,details:details.length};
+    synced.lastSync=new Date().toISOString();naverAtomic(naverSyncFile,synced);
+    naverJobs.changedOrders+=changed;naverJobs.daysCompleted++;
+   }catch(error){
+    naverJobs.error=d+': '+error.message;naverJobs.progress='실패 · '+naverJobs.error;
+    break; // Never mark failed/incomplete windows as synchronized.
+   }
+  }
+  if(!naverJobs.error)naverJobs.progress='동기화 완료 · '+naverJobs.daysCompleted+'일 확인';
+ }catch(e){naverJobs.error=e.message;naverJobs.progress='동기화 실패 · '+e.message;}
+ finally{naverJobs.running=false;naverJobs.finishedAt=new Date().toISOString();}
+}
+async function naverOrderTest(){
+ const token=(await naverAccessToken()).token;
+ const ids=await naverChangedIds(todaySeoul(),token);
+ return {ok:true,message:'네이버 주문 조회 API 응답 성공',changedOrdersToday:ids.length,checkedDate:todaySeoul(),note:'최근 변경 주문 API 권한만 검증했습니다. 결제/취소 상세 수집은 동기화 시 검증됩니다.'};
+}
+function naverAutomaticStart(){
+ if(naverJobs.running||!fs.existsSync(naverSecretsPath)||Date.now()<naverNextAutomaticAt)return;
+ naverNextAutomaticAt=Date.now()+6*3600000;
+ naverRun('recent').catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
 }
 
 const server=http.createServer(async (req,res)=> {
@@ -274,6 +394,16 @@ const server=http.createServer(async (req,res)=> {
     if (!authenticated(req)) {res.writeHead(401, {'WWW-Authenticate':'Basic realm=ROAS-Pilot', 'Content-Type':'text/plain; charset=utf-8'});res.end('로그인이 필요합니다.');return;}
     const u = new URL(req.url,'http://localhost');
 
+    if(u.pathname==='/api/naver/orders/status'&&req.method==='GET')return json(res,200,naverPublicState());
+    if(u.pathname==='/api/naver/orders/test'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 연결 테스트만 허용됩니다.'});return json(res,200,await naverOrderTest());}
+    if(u.pathname==='/api/naver/orders/sync'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬에서만 주문을 동기화할 수 있습니다.'});
+      const body=JSON.parse((await payload(req)).toString('utf8'));
+      const mode=body.mode==='backfill'?'backfill':'recent';
+      if(naverJobs.running)return json(res,409,{error:'기존 주문 동기화가 진행 중입니다.'});
+      naverRun(mode).catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
+      return json(res,202,{ok:true,message:'주문 데이터 수집 시작',mode});
+    }
     if(u.pathname==='/api/naver/status'&&req.method==='GET')return json(res,200,naverCredentialStatus());
     if(u.pathname==='/api/naver/credentials'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬 ROAS Pilot에서만 인증정보를 저장할 수 있습니다.'});
@@ -338,5 +468,5 @@ const server=http.createServer(async (req,res)=> {
     fs.readFile(file,(err,data)=>{if(err)return json(res,404,{error:'Not found'});res.writeHead(200,{'Content-Type':mime[ext],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(data);});
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
-if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);});
+if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);});
 module.exports={server,isDate};
