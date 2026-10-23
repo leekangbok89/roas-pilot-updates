@@ -77,7 +77,7 @@ test('missing profit displays actionable reason without manufacturing a zero-pro
  const h=harness();h.context.input=[profit('2026-09-01',null,{cost:null,reasons:['스마트스토어: 상품·옵션 원가 미확정 1건']})];
  h.run('profitDays=new Map(input.map(p=>[p.date,p]));render();');
  assert.doesNotMatch(h.node('graph').innerHTML,/<path data-metric="profit"/);
- assert.match(h.node('profit-chart-status').textContent,/상품·옵션 원가 미확정 1건/);
+ assert.match(h.node('profit-chart-diagnostic').children.flatMap(x=>[x.textContent,...x.children.map(y=>y.textContent)]).join(' '),/상품·옵션 원가 미확정 1건/);
  assert.equal(h.node('profit-total').textContent,'산출 불가');
 });
 
