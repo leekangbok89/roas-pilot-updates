@@ -296,7 +296,7 @@ if(typeof document!=='undefined'){
      if(!response.ok)throw Error(data.error||'HTTP '+response.status);
      const items=Array.isArray(data.rows)?data.rows:[];
      raw+=items.length;saved+=Number(data.cache?.storedDays||0);missing+=(data.cache?.missingDays||[]).length;ok++;
-     rows.push(...items.map(row=>({...normalizeApi(row),channel})));
+     rows.push(...items.map(row=>{const normalized=normalizeApi(row),fx=normalized.currency==='USD'?state.fxRate:1;return {...normalized,channel,rawSpend:normalized.spend,rawRevenue:normalized.revenue,spend:normalized.spend*fx,revenue:normalized.revenue==null?null:normalized.revenue*fx};}));
     }catch(e){failed++;errors.push(label+' '+since+'~'+until+' '+e.message);}
     diagnostic.textContent='조회 진행 '+label+' '+(i+1)+'/'+windows.length+'구간 · 광고 행 '+raw+'개 · 저장 날짜 '+saved+'일';
    }
@@ -308,7 +308,7 @@ if(typeof document!=='undefined'){
   const filtered=filteredCompareRows(compareData());
   const node=document.createElement('div');node.className='helper';node.style.whiteSpace='pre-wrap';
   node.style.margin='10px 0';node.style.padding='10px';node.style.border='1px solid #dce3ed';node.style.borderRadius='8px';
-  node.textContent='저장 데이터 진단 (비교 기간 A/B만 확인)\n'+summary.join('\n')+'\n필터 통과 '+filtered.length+'개 광고 행'+(errors.length?'\n조회 오류: '+errors.slice(0,12).join(' | '):'')+'\n※ 저장 날짜는 광고가 실제 집행된 날짜와 다를 수 있습니다. 표시된 값은 현재 실행 중인 프로그램의 저장소 기준입니다.';
+  node.textContent='저장 데이터 진단 (비교 기간 A/B만 확인 · Meta 원본 통화 기준 합산 후 USD→KRW 환산)\n'+summary.join('\n')+'\n필터 통과 '+filtered.length+'개 광고 행'+(errors.length?'\n조회 오류: '+errors.slice(0,12).join(' | '):'')+'\n※ 저장 날짜는 광고가 실제 집행된 날짜와 다를 수 있습니다. 표시된 값은 현재 실행 중인 프로그램의 저장소 기준입니다.';
   diagnostic.replaceChildren(node);
  }catch(e){diagnostic.textContent='날짜별 비교 실행 오류: '+e.message;output.textContent='날짜별 비교 오류: '+e.message;}
  finally{button.disabled=false;button.textContent='저장 데이터 비교';}
