@@ -156,6 +156,7 @@ const compMetrics=[['spend','광고비',x=>dual(x)],['purchases','구매',x=>x==
 function availableAds(){const all=aggregate(visibleRows());return all.sort((a,b)=>a.channel.localeCompare(b.channel)||a.ad.localeCompare(b.ad));}
 function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
 function renderComparison(rowsOverride){
+ if(!Array.isArray(rowsOverride))rowsOverride=null;
  const select=$('compare-ad');if(!select)return;
  const old=select.value;const list=availableAds();
  select.innerHTML='<option value="all">전체 광고</option>'+list.map(r=>'<option value="'+safe(compKey(r))+'">'+safe((r.channel==='naver'?'네이버':r.channel==='cafe'?'카페24':'전체')+' · '+r.ad)+'</option>').join('');
