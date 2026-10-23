@@ -270,7 +270,8 @@ if(typeof document!=='undefined'){
  try {
  const button=$('compare-run'),dates=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
  if(dates.some(([s,e])=>!s||!e||s>e)){$('compare-diagnostics').textContent='기간 A와 B의 날짜 범위가 올바르지 않습니다.';renderComparison();return;}
- const channelIds={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
+ const getAccountId=value=>String(value||'').trim().replace(/^act_/,'');
+ const channelIds={naver:getAccountId($('naver-account').value),cafe:getAccountId($('cafe-account').value)};
  const selected=$('compare-channel').value,channels=selected==='all'?['naver','cafe']:[selected],rows=[],errors=[],summary=[];
  const windows=[];
  for(const [start,end] of dates){
