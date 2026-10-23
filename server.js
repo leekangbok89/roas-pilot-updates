@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.28';
+const appVersion='2.8.29';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -97,7 +97,19 @@ function dayUTC(value){return Date.parse(value+'T00:00:00Z');}
 function dayString(ts){return new Date(ts).toISOString().slice(0,10);}
 function todaySeoul(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function safeAccountFolder(account){return path.join(snapshotsDir,account);}
-function loadDay(account,date){try{const o=JSON.parse(fs.readFileSync(path.join(safeAccountFolder(account),date+'.json'),'utf8'));return Array.isArray(o.rows)&&o.date===date&&o.account===account?o:null;}catch{return null;}}
+function loadDay(account,date){
+ // File and folder account IDs can diverge after a historical import.
+ // Trust only the validated account stored inside the snapshot; never mix accounts.
+ const read=(file)=>{try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(o.rows)&&o.date===date&&String(o.account)===String(account)?o:null;}catch{return null;}};
+ const direct=read(path.join(safeAccountFolder(account),date+'.json'));if(direct)return direct;
+ try{
+  for(const folder of fs.readdirSync(snapshotsDir,{withFileTypes:true})){
+   if(!folder.isDirectory()||!/^\d{5,30}$/.test(folder.name)||folder.name===account)continue;
+   const match=read(path.join(snapshotsDir,folder.name,date+'.json'));if(match)return match;
+  }
+ }catch{}
+ return null;
+}
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
 function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
 async function fetchMetaRange(account,since,until,token,version){
