@@ -44,7 +44,7 @@ jobs:
           node --check public/app.js
           node --check public/naver-settings.js
           node -e "const m=require('./server'); if(!m.server)process.exit(1)"
-          node -e "const b=require('./vendor/bcrypt.min.js'); const h=b.hashSync('test_password','$2a$04$abcdefghijklmnopqrstuv'); if(!b.compareSync('test_password',h))process.exit(1)"
+          node -e 'const b=require("./vendor/bcrypt.min.js"); const h=b.hashSync("test_password","$2a$04$abcdefghijklmnopqrstuv"); if(!b.compareSync("test_password",h))process.exit(1)'
 
       - name: Package ROAS Pilot
         run: |
