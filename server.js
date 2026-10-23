@@ -128,7 +128,7 @@ async function insights(query){
  const recentStart=dayString(dayUTC(today)-6*86400000);
  const dailyFile=path.join(safeAccountFolder(account),'daily-sync.json');
  let lastAttempt='';try{lastAttempt=JSON.parse(fs.readFileSync(dailyFile,'utf8')).date||'';}catch{}
- const shouldSync=!force&&lastAttempt!==today&&dates.some(d=>d>=recentStart&&d<=today);
+ const shouldSync=!force&&!cacheOnly&&lastAttempt!==today&&dates.some(d=>d>=recentStart&&d<=today);
  let requested=cacheOnly?[]:force?dates:shouldSync?Array.from({length:7},(_,i)=>dayString(dayUTC(recentStart)+i*86400000)):[];
  if(shouldSync)for(const d of requested)if(!snapshots.has(d))snapshots.set(d,loadDay(account,d));
  if(shouldSync&&token){fs.mkdirSync(safeAccountFolder(account),{recursive:true});fs.writeFileSync(dailyFile,JSON.stringify({date:today,attemptedAt:new Date().toISOString()}));}
