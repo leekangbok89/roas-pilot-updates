@@ -11,11 +11,11 @@ const safe=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>'
 const parseNum=v=>{if(typeof v==='number')return v;if(v==null||v==='')return null;const t=String(v).replace(/[,₩$%\s]/g,'').replace(/[−–]/g,'-');const n=Number(t);return Number.isFinite(n)?n:null;};
 const get=(o,...keys)=>{for(const k of keys){if(o[k]!==undefined&&o[k]!==null&&o[k]!=='')return o[k];}return null;};
 function valueAction(actions,types){if(!Array.isArray(actions))return null;for(const type of types){const found=actions.find(a=>a.action_type===type);if(found)return parseNum(found.value);}return null;}
-const purchaseTypes=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase'];
+const purchaseTypes=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase','onsite_web_purchase','onsite_conversion.purchase'];
 const checkoutTypes=['offsite_conversion.fb_pixel_initiate_checkout','omni_initiated_checkout','initiate_checkout'];
 const cartTypes=['offsite_conversion.fb_pixel_add_to_cart','omni_add_to_cart','add_to_cart'];
 const landingTypes=['landing_page_view','omni_landing_page_view'];
-function normalizeApi(r){const actions=r.actions||[],values=r.action_values||[];let purchases=valueAction(actions,purchaseTypes);let revenue=valueAction(values,purchaseTypes);const fallbackRoas=valueAction(r.website_purchase_roas,['offsite_conversion.fb_pixel_purchase'])??valueAction(r.purchase_roas,['omni_purchase','purchase']);const spend=parseNum(r.spend)||0;
+function normalizeApi(r){const actions=r.actions||[],values=r.action_values||[];let purchases=valueAction(actions,purchaseTypes);let revenue=valueAction(values,purchaseTypes);const fallbackRoas=valueAction(r.website_purchase_roas,purchaseTypes)??valueAction(r.purchase_roas,purchaseTypes);const spend=parseNum(r.spend)||0;
 if(revenue==null&&fallbackRoas!=null) revenue=spend*fallbackRoas;
 return {id:r.ad_id||r.ad_name,ad:r.ad_name||'광고 이름 없음',adset:r.adset_name||'',campaign:r.campaign_name||'',date:r.date_start||'',spend,impressions:parseNum(r.impressions),reach:parseNum(r.reach),clicks:parseNum(r.inline_link_clicks),landing:valueAction(actions,landingTypes),cart:valueAction(actions,cartTypes),checkout:valueAction(actions,checkoutTypes),purchases,revenue,quality:r.quality_ranking||'',convQuality:r.conversion_rate_ranking||'',currency:r.account_currency||'KRW',source:'api'};}
 function parseCSV(text){text=text.replace(/^\uFEFF/,'');const out=[];let row=[],cell='',quoted=false;
