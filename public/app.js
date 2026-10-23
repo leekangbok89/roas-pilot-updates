@@ -158,30 +158,68 @@ function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
 function renderComparison(){
  const select=$('compare-ad');if(!select)return;
  const old=select.value;const list=availableAds();
- select.innerHTML='<option value="all">전체 광고</option>'+list.map(r=>`<option value="${safe(compKey(r))}">${safe((r.channel==='naver'?'네이버':r.channel==='cafe'?'카페24':'전체')+' · '+r.ad)}</option>`).join('');
+ select.innerHTML='<option value="all">전체 광고</option>'+list.map(r=>'<option value="'+safe(compKey(r))+'">'+safe((r.channel==='naver'?'네이버':r.channel==='cafe'?'카페24':'전체')+' · '+r.ad)+'</option>').join('');
  if([...select.options].some(o=>o.value===old))select.value=old;
  renderChangeHistory();
- const when=$('compare-date').value,windowDays=Number($('compare-window').value);if(!when||!state.rows.length){$('compare-result').textContent='API 데이터를 조회한 후 변경일을 선택해 주세요.';$('compare-daily').textContent='데이터 없음';return;}
- const selected=select.value;const rows=visibleRows().filter(r=>selected==='all'||compKey(r)===selected);
- const start=plusDays(when,-windowDays),beforeEnd=plusDays(when,-1),afterStart=plusDays(when,1),end=plusDays(when,windowDays);
- const byDate=new Map();for(const r of rows){if(!r.date)continue;let ar=byDate.get(r.date);if(!ar){ar=[];byDate.set(r.date,ar)}ar.push(r)}
- function period(from,to){const dates=[];let aggRows=[];for(let d=from;d<=to;d=plusDays(d,1)){if(byDate.has(d)){dates.push(d);aggRows.push(...byDate.get(d));}}
- const metrics=totals(aggregate(aggRows));const a=aggregate(aggRows);const impressions=a.reduce((n,v)=>n+(v.impressions||0),0),clicks=a.reduce((n,v)=>n+(v.clicks||0),0);metrics.cpc=clicks>0?metrics.spend/clicks:null;metrics.ctr=impressions>0?clicks/impressions*100:null;
- return {dates,metrics,expected:windowDays};}
- const before=period(start,beforeEnd),after=period(afterStart,end);
- const complete=before.dates.length===windowDays&&after.dates.length===windowDays;
- const showDiff=(key)=>{const a=before.metrics[key],b=after.metrics[key];if(a==null||b==null)return '—';const delta=b-a;const rel=a!==0?` (${delta>=0?'+':''}${(delta/Math.abs(a)*100).toFixed(1)}%)`:'';if(key==='purchases')return (delta>=0?'+':'')+num(delta)+'건'+rel;if(['roas','ctr'].includes(key))return (delta>=0?'+':'')+delta.toFixed(1)+'%p';return (delta>=0?'+':'')+won(delta)+rel};
- $('compare-result').innerHTML=`<p class="helper"><b>변경일 ${safe(when)}</b> · 변경 전 ${start} ~ ${beforeEnd} (${before.dates.length}/${windowDays}일) · 변경 후 ${afterStart} ~ ${end} (${after.dates.length}/${windowDays}일)</p>`+
- (complete?'<p class="helper">양쪽 날짜 데이터가 확보되었습니다. 구매 기여 지연과 다른 변경 요인을 고려해 해석하세요.</p>':'<p style="color:#ad4f20;font-weight:700">주의: 비교 기간에 누락 날짜가 있습니다. 표는 확보된 날짜만 합산했으며 증감은 신뢰도가 낮습니다. 조회 기간을 넓혀 새로고침하세요.</p>')+
- '<table><thead><tr><th>지표</th><th>변경 전</th><th>변경 후</th><th>차이</th></tr></thead><tbody>'+compMetrics.map(([k,label,fmt])=>`<tr><td>${label}</td><td>${fmt(before.metrics[k])}</td><td>${fmt(after.metrics[k])}</td><td>${showDiff(k)}</td></tr>`).join('')+'</tbody></table>'+
- '<p class="helper">증감은 인과관계 증명이 아닙니다. 예산·시즌성·학습단계·타겟·소재 변화와 구매 기여 지연을 함께 확인하세요.</p>';
- const keys=[...byDate.keys()].sort();$('compare-daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>구매</th><th>매출</th><th>ROAS</th><th>CPA</th><th>CPC</th><th>CTR</th><th>빈도</th></tr></thead><tbody>'+keys.map(date=>{const a=totals(aggregate(byDate.get(date)));const one=aggregate(byDate.get(date));const impressions=one.reduce((n,x)=>n+(x.impressions||0),0),clicks=one.reduce((n,x)=>n+(x.clicks||0),0);const single=one.length===1?one[0]:null;return `<tr><td>${date}${date===when?' · 변경일':''}</td><td>${dual(a.spend)}</td><td>${a.purchases==null?'—':num(a.purchases)}</td><td>${dual(a.revenue)}</td><td>${pct(a.roas)}</td><td>${dual(a.cpa)}</td><td>${dual(clicks>0?a.spend/clicks:null)}</td><td>${pct(impressions>0?clicks/impressions*100:null)}</td><td>${single?.frequency==null?'—':single.frequency.toFixed(2)}</td></tr>`}).join('')+'</tbody></table><p class="helper">빈도는 광고 1개의 하루 자료에만 표시됩니다. 여러 광고의 도달 수를 합쳐 빈도를 계산하지 않습니다.</p>';
+ const ranges=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
+ if(ranges.some(([s,e])=>!s||!e||s>e)){$('compare-result').textContent='기간 A와 B의 시작일·종료일을 올바르게 선택하세요.';return;}
+ if(!state.rows.length){$('compare-result').textContent='조회된 데이터가 없습니다. 상단 조회 기간을 두 비교 기간이 포함되도록 선택하고 새로고침하세요.';return;}
+ const selected=select.value;
+ const rows=visibleRows().filter(r=>selected==='all'||compKey(r)===selected);
+ const byDate=new Map();
+ for(const r of rows){if(!r.date)continue;let arr=byDate.get(r.date);if(!arr){arr=[];byDate.set(r.date,arr);}arr.push(r);}
+ function period(from,to){
+  let dates=[],zero=[],unknown=[],items=[];
+  for(let d=from;d<=to;d=plusDays(d,1)){
+   const values=byDate.get(d);
+   if(!values){unknown.push(d);continue;}
+   dates.push(d);items.push(...values);
+   if(values.reduce((x,r)=>x+(r.spend||0),0)===0)zero.push(d);
+  }
+  const aggregateRows=aggregate(items),t=totals(aggregateRows),days=Math.round((Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z'))/86400000)+1;
+  const active=dates.length-zero.length,clicks=aggregateRows.reduce((s,r)=>s+(r.clicks||0),0),impressions=aggregateRows.reduce((s,r)=>s+(r.impressions||0),0);
+  t.cpc=clicks>0?t.spend/clicks:null;t.ctr=impressions>0?clicks/impressions*100:null;
+  return {from,to,days,dates,zero,unknown,active,metrics:t};
+ }
+ const [a,b]=ranges.map(([s,e])=>period(s,e));
+ const fmt=(k,p)=>{
+  const v=p.metrics[k];if(v==null)return '—';
+  if(k==='purchases')return num(v)+'건';
+  if(k==='roas'||k==='ctr')return pct(v);
+  return dual(v);
+ };
+ const avg=(k,p)=>{
+  if(!p.active)return '—';
+  const v=p.metrics[k];if(v==null)return '—';
+  return k==='purchases'?(v/p.active).toFixed(2)+'건/집행일':dual(v/p.active)+'/집행일';
+ };
+ const keys=[['spend','광고비'],['purchases','구매 건수'],['revenue','구매 매출'],['roas','ROAS'],['cpa','CPA'],['cpc','링크 CPC'],['ctr','링크 CTR']];
+ const diff=k=>{
+  const x=a.metrics[k],y=b.metrics[k];if(x==null||y==null)return '—';
+  const delta=y-x;
+  if(['roas','ctr'].includes(k))return (delta>=0?'+':'')+delta.toFixed(1)+'%p';
+  if(k==='purchases')return (delta>=0?'+':'')+num(delta)+'건';
+  return (delta>=0?'+':'')+won(delta)+(x!==0?' ('+(delta/x*100).toFixed(1)+'%)':'');
+ };
+ const incomplete=a.unknown.length||b.unknown.length||a.zero.length||b.zero.length;
+ const warning=(p,label)=>label+': '+p.days+'일 중 기록 '+p.dates.length+'일 / 광고비 0원 '+p.zero.length+'일'+(p.zero.length?' ('+p.zero.join(', ')+')':'')+' / 기록 없는 날짜 '+p.unknown.length+'일'+(p.unknown.length?' ('+p.unknown.join(', ')+')':'');
+ const bounds=($('since').value<=a.from&&$('since').value<=b.from&&$('until').value>=a.to&&$('until').value>=b.to);
+ $('compare-result').innerHTML='<p class="helper"><b>기간 A '+safe(a.from)+' ~ '+safe(a.to)+'</b> · <b>기간 B '+safe(b.from)+' ~ '+safe(b.to)+'</b></p>'+
+ (bounds?'':'<p style="color:#a75321;font-weight:700">상단 조회 기간에 비교 날짜가 포함되지 않았습니다. 날짜 범위를 넓혀 데이터를 불러온 뒤 비교하세요.</p>')+
+ (incomplete?'<p style="color:#ad5a21;font-weight:700">주의: 0원 또는 기록 없는 날짜가 있습니다. 품절·광고 중지·API 미수집 여부를 확인하세요. 기록 없는 날짜는 0원으로 계산하지 않습니다.</p>':'')+
+ '<p class="helper">'+safe(warning(a,'기간 A'))+'<br>'+safe(warning(b,'기간 B'))+'</p>'+
+ '<table><thead><tr><th>지표</th><th>기간 A 합계/비율</th><th>A 집행일 평균</th><th>기간 B 합계/비율</th><th>B 집행일 평균</th><th>B-A 차이</th></tr></thead><tbody>'+
+ keys.map(([k,label])=>'<tr><td>'+label+'</td><td>'+fmt(k,a)+'</td><td>'+(['roas','cpa','cpc','ctr'].includes(k)?'기간 합산 비율':avg(k,a))+'</td><td>'+fmt(k,b)+'</td><td>'+(['roas','cpa','cpc','ctr'].includes(k)?'기간 합산 비율':avg(k,b))+'</td><td>'+diff(k)+'</td></tr>').join('')+'</tbody></table>'+
+ '<p class="helper">집행일 평균은 광고비가 0원보다 큰 기록이 확인된 날짜만 분모에 포함합니다. 비율(ROAS·CPA·CPC·CTR)은 일별 단순평균이 아닌 기간 전체 금액·건수·클릭·노출의 합계로 계산합니다. 0원 날짜의 사유는 광고 관리자에서 확인해야 합니다.</p>';
+ const dates=[...new Set([...a.dates,...b.dates])].sort();
+ $('compare-daily').innerHTML='<table><thead><tr><th>날짜</th><th>구분</th><th>광고비</th><th>구매</th><th>매출</th><th>ROAS</th><th>상태</th></tr></thead><tbody>'+
+ dates.map(date=>{const v=totals(aggregate(byDate.get(date)||[])),isA=date>=a.from&&date<=a.to;return '<tr><td>'+date+'</td><td>'+(isA?'A':'B')+'</td><td>'+dual(v.spend)+'</td><td>'+(v.purchases==null?'—':num(v.purchases))+'</td><td>'+dual(v.revenue)+'</td><td>'+pct(v.roas)+'</td><td>'+(v.spend===0?'광고비 0원':'기록 있음')+'</td></tr>';}).join('')+'</tbody></table>';
 }
 function readChanges(){try{const v=JSON.parse(localStorage.getItem(CHANGE_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return []}}
 function renderChangeHistory(){const el=$('change-history');if(!el)return;const items=readChanges();if(!items.length){el.textContent='아직 저장된 변경 기록이 없습니다.';return}el.innerHTML='<table><thead><tr><th>날짜</th><th>광고</th><th>변경</th><th>메모</th><th></th></tr></thead><tbody>'+items.map((item,i)=>`<tr><td>${safe(item.date)}</td><td>${safe(item.ad)}</td><td>${safe(item.kind)}</td><td>${safe(item.note)}</td><td><button class="button ghost" type="button" data-del-change="${i}">삭제</button></td></tr>`).join('')+'</tbody></table>';el.querySelectorAll('[data-del-change]').forEach(b=>b.addEventListener('click',()=>{const a=readChanges();a.splice(Number(b.dataset.delChange),1);localStorage.setItem(CHANGE_KEY,JSON.stringify(a));renderChangeHistory()}));}
 if(typeof document!=='undefined'){
- $('compare-date').value=isoDay(new Date(Date.now()-7*86400000));
- for(const k of ['compare-ad','compare-date','compare-window'])$(k).addEventListener('change',renderComparison);
+ const today=isoDay(new Date());$('compare-b-end').value=today;$('compare-b-start').value=plusDays(today,-6);$('compare-a-end').value=plusDays(today,-7);$('compare-a-start').value=plusDays(today,-13);$('compare-date').value=plusDays(today,-7);
+ for(const k of ['compare-ad','compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
  $('compare-run').addEventListener('click',renderComparison);
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const select=$('compare-ad'),ad=select.options[select.selectedIndex]?.textContent||'전체 광고';const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
