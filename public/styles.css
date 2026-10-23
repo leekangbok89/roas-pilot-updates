@@ -4,8 +4,17 @@
 
 .fx-bar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:#f5f7ff;border:1px solid #dde4fa;padding:15px 20px;border-radius:16px;margin:18px 0}.fx-bar>div{flex:1;min-width:220px}.fx-bar label{display:flex;flex-direction:column;gap:4px;font-size:12px}.fx-bar input,.fx-bar select{min-width:120px;max-width:165px;padding:10px;border:1px solid #d8deed;border-radius:9px;background:white}.fx-bar .helper{margin:4px 0;color:#64748b}.kpi small{display:block;line-height:1.5}.table-wrap td{font-size:13px}
 
-/* v2.2 API-only: date selector is visible and sticky at the top of the main view */
-.date-controls{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.97);border:1px solid #cbd5e1;border-radius:14px;padding:15px 19px;margin-bottom:16px;box-shadow:0 8px 24px #1e293b19;backdrop-filter:blur(12px)}
-.date-header{display:flex;justify-content:space-between;gap:15px;align-items:center}.date-header b{font-size:15px}.date-header p{font-size:11px;margin-top:3px}.date-header #auto-status{margin:0;text-align:right}
-.date-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:12px}.date-actions label{font-size:11px;font-weight:700;color:#64748b;display:flex;flex-direction:column;gap:4px}.date-actions select,.date-actions input{padding:9px;min-width:140px}.date-presets{display:flex;flex-wrap:wrap;gap:4px}.preset{border:1px solid #dce3ee;color:#4b5871;background:#fff;border-radius:7px;padding:10px 9px;font-size:11px;font-weight:700}.preset.active{background:#5750d8;color:#fff;border-color:#5750d8}#data-source .source-pane{margin-top:10px}#auto-status{color:#475569}
-@media(max-width:750px){.date-controls{top:0;padding:12px}.date-header{align-items:start;flex-direction:column}.date-header #auto-status{text-align:left}.date-actions{gap:8px}.date-actions label{flex:1;min-width:130px}.date-actions input,.date-actions select{width:100%}}
+/* v2.8.4 compact sticky date selector */
+.date-controls{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.97);border:1px solid #dfe5ef;border-radius:13px;padding:10px 14px 8px;margin-bottom:13px;box-shadow:0 6px 18px #1e293b12;backdrop-filter:blur(10px)}
+.date-main{display:flex;flex-wrap:wrap;gap:7px;align-items:flex-end}
+.date-field{display:flex;flex-direction:column;gap:3px;font-size:10px;font-weight:700;color:#64748b}
+.date-field select,.date-field input{height:36px;padding:6px 9px;min-width:125px}
+.date-field select{min-width:168px}
+.date-presets{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.preset{height:36px;border:1px solid #dce3ee;color:#4b5871;background:#fff;border-radius:7px;padding:7px 8px;font-size:11px;font-weight:700}
+.preset.active{background:#5750d8;color:#fff;border-color:#5750d8}
+.compact-refresh{height:36px;padding:0 12px;border-radius:8px;font-size:12px}
+.date-meta{display:flex;justify-content:flex-end;margin-top:5px;min-height:15px}
+#auto-status{display:block;margin:0;color:#718096;font-size:10px;line-height:1.35;text-align:right}
+#data-source .source-pane{margin-top:10px}
+@media(max-width:750px){.date-controls{padding:9px 10px;top:0}.date-main{gap:6px}.date-field{flex:1 1 135px}.date-field select,.date-field input{width:100%}.date-presets{order:2;width:100%}.compact-refresh{flex:1}.date-meta{justify-content:flex-start}#auto-status{text-align:left}}
