@@ -273,7 +273,8 @@ if(typeof document!=='undefined'){
    for(let d=start;d<=end;){const last=plusDays(d,6),stop=last<end?last:end;windows.push([d,stop]);d=plusDays(stop,1);}
  }
  button.disabled=true;button.textContent='기간별 저장 데이터 확인 중…';
- const output=$('compare-result');
+ const output=$('compare-result'),diagnostic=$('compare-diagnostics');
+ diagnostic.textContent='조회 시작 · 프로그램 v2.8.31 · 선택 기간의 로컬 저장소를 읽는 중입니다.';
  output.textContent='기존 파일에서 날짜별 데이터 조회를 시작합니다. Meta API 호출 없이 저장된 파일만 확인합니다.';
  try{
   for(const channel of channels){
@@ -292,7 +293,7 @@ if(typeof document!=='undefined'){
      raw+=items.length;saved+=Number(data.cache?.storedDays||0);missing+=(data.cache?.missingDays||[]).length;ok++;
      rows.push(...items.map(row=>({...normalizeApi(row),channel})));
     }catch(e){failed++;errors.push(label+' '+since+'~'+until+' '+e.message);}
-    output.textContent='조회 진행 '+label+' '+(i+1)+'/'+windows.length+'주 · 광고 행 '+raw+'개 · 저장 날짜 '+saved+'일';
+    diagnostic.textContent='조회 진행 '+label+' '+(i+1)+'/'+windows.length+'구간 · 광고 행 '+raw+'개 · 저장 날짜 '+saved+'일';
    }
    summary.push(label+' (계정 끝 4자리 '+id.slice(-4)+'): 저장 '+saved+'일 · 파일 미확인 '+missing+'일 · 광고 행 '+raw+'개 · 조회 성공 '+ok+'구간 · 실패 '+failed+'구간');
   }
@@ -303,8 +304,8 @@ if(typeof document!=='undefined'){
   const node=document.createElement('div');node.className='helper';node.style.whiteSpace='pre-wrap';
   node.style.margin='10px 0';node.style.padding='10px';node.style.border='1px solid #dce3ed';node.style.borderRadius='8px';
   node.textContent='저장 데이터 진단 (비교 기간 A/B만 확인)\n'+summary.join('\n')+'\n필터 통과 '+filtered.length+'개 광고 행'+(errors.length?'\n조회 오류: '+errors.slice(0,12).join(' | '):'')+'\n※ 저장 날짜는 광고가 실제 집행된 날짜와 다를 수 있습니다. 표시된 값은 현재 실행 중인 프로그램의 저장소 기준입니다.';
-  $('compare-result').prepend(node);
- }catch(e){output.textContent='날짜별 비교 오류: '+e.message;}
+  diagnostic.replaceChildren(node);
+ }catch(e){diagnostic.textContent='날짜별 비교 실행 오류: '+e.message;output.textContent='날짜별 비교 오류: '+e.message;}
  finally{button.disabled=false;button.textContent='저장 데이터 비교';}
 });
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const campaign=$('compare-campaign'),set=$('compare-adset'),creative=$('compare-creative');const ad=[campaign,set,creative].map(x=>x.options[x.selectedIndex]?.textContent).filter(Boolean).join(' / ');const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
