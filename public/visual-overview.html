@@ -1,0 +1,79 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROAS Pilot | 한눈에 보기</title>
+<style>
+:root{--navy:#131e35;--purple:#6559ee;--ink:#1e2940;--line:#e2e7f0;--mute:#7f8da4}*{box-sizing:border-box}
+body{margin:0;font:14px 'Segoe UI','Noto Sans KR',sans-serif;background:#f5f7fc;color:var(--ink)}
+aside{width:220px;background:var(--navy);color:#c6d1e5;height:100vh;position:fixed;padding:27px 16px}
+.logo{font-size:23px;color:white;font-weight:800;margin:0 10px 44px}.logo span{color:#a7a1ff}.logo small{display:block;font-size:10px;letter-spacing:1px;color:#899ab9;font-weight:400}
+nav a{display:block;padding:13px 15px;color:#b2c0dc;text-decoration:none;border-radius:9px;margin:4px 0;font-weight:600}nav a.active,nav a:hover{color:white;background:#2c3761}
+main{margin-left:220px;padding:24px 28px;max-width:1800px}h1{font-size:24px;margin:0 0 5px}h2{font-size:17px;margin:0}p{color:var(--mute)}
+.toolbar,.panel,.metric{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 12px #17243b05}
+.toolbar{display:flex;gap:9px;align-items:end;flex-wrap:wrap;padding:14px;margin:16px 0}
+label{font-size:11px;font-weight:700;color:#6f7e98;display:flex;flex-direction:column;gap:5px}
+input,select,button{font:inherit;border-radius:8px;padding:10px;border:1px solid #dce3ee;background:#fff;color:var(--ink)}
+button{cursor:pointer;font-weight:700}button.primary{background:var(--purple);color:white;border-color:var(--purple)}
+button.active{background:#e9e7ff;color:#4e42d5;border-color:#c8c3ff}
+.small{font-size:11px;color:var(--mute)}.status{margin-left:auto;max-width:300px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:15px}
+.metric{padding:18px;min-height:113px}.metric strong{display:block;font-size:25px;margin:9px 0 0}.metric small{color:#8794a9}.metric.highlight{background:linear-gradient(120deg,#6c60f2,#4c58cd);color:white}.metric.highlight small{color:#e2e3ff}
+.panel{padding:20px;margin-bottom:16px}.panelhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:15px}
+#graph{width:100%;height:310px}.legend{display:flex;gap:12px;font-size:12px;color:#66758d}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.charttools{display:flex;gap:9px}.charttools select{min-width:150px}
+.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.summary .panel{margin-bottom:0}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;padding:11px;border-bottom:1px solid #e8edf5}th:first-child,td:first-child{text-align:left}th{color:#71819b;background:#f8faff}
+.alert{border:1px solid #eadab4;background:#fff8e9;color:#956c24;border-radius:9px;padding:10px;margin-bottom:15px;display:none}
+@media(max-width:950px){aside{width:160px}main{margin-left:160px}.metrics{grid-template-columns:repeat(2,1fr)}.summary{grid-template-columns:1fr}}
+@media(max-width:620px){aside{position:static;width:100%;height:auto}.logo{margin-bottom:10px}nav{display:flex;overflow:auto}nav a{white-space:nowrap}main{margin:0;padding:12px}.metrics{gap:8px}.metric strong{font-size:20px}}
+</style></head><body><aside><div class="logo">ROAS<span>Pilot</span><small>Meta Performance Intelligence</small></div><nav><a class="active" href="/visual-overview.html">◉ 한눈에 보기</a><a href="/#overview">◫ 성과 개요</a><a href="/#ads-section">▤ 광고별 진단</a><a href="/#daily-compare">◷ 날짜별 비교</a><a href="/#funnel">⌁ 구매 퍼널</a><a href="/#data-source">⛓ 데이터 연결 · 설정</a></nav></aside>
+<main><h1>한눈에 보기</h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
+<section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
+<button data-days="7" class="active">최근 7일</button><button data-days="14">최근 14일</button><button data-days="30">최근 30일</button><button data-days="1">오늘</button>
+<label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
+<button id="reload" class="primary">데이터 조회 ↻</button><span class="status small" id="updated">조회 대기</span></section>
+<div id="alert" class="alert"></div>
+<section class="metrics"><div class="metric"><small>총 광고비</small><strong id="spend">—</strong><small id="spendSub">—</small></div><div class="metric"><small>구매 전환매출</small><strong id="revenue">—</strong><small id="revenueSub">—</small></div><div class="metric highlight"><small>구매 ROAS</small><strong id="roas">—</strong><small>Meta 귀속 구매 전환값 기준</small></div><div class="metric"><small>구매 CPA</small><strong id="cpa">—</strong><small id="purchaseSub">—</small></div>
+<div class="metric"><small>구매 건수</small><strong id="purchases">—</strong></div><div class="metric"><small>링크 CTR</small><strong id="ctr">—</strong></div><div class="metric"><small>노출수</small><strong id="impressions">—</strong></div><div class="metric"><small>링크 클릭수</small><strong id="clicks">—</strong></div></section>
+<section class="panel"><div class="panelhead"><div><h2>일별 성과 그래프</h2><span class="small">서로 다른 단위는 각각의 축으로 표시합니다.</span></div><div class="charttools"><select id="leftmetric"><option value="spend">광고비</option><option value="revenue">구매 매출</option><option value="purchases">구매수</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option></select><select id="rightmetric"><option value="revenue">구매 매출</option><option value="spend">광고비</option><option value="roas">ROAS</option><option value="purchases">구매수</option><option value="clicks">클릭수</option><option value="ctr">CTR</option></select></div></div><div id="graph"></div><div id="legend" class="legend"></div></section>
+<div class="summary"><section class="panel"><div class="panelhead"><h2>채널별 성과 비교</h2></div><div id="channels" class="small">데이터 조회 후 표시됩니다.</div></section><section class="panel"><div class="panelhead"><h2>일별 요약</h2></div><div id="daily" class="small">데이터 조회 후 표시됩니다.</div></section></div>
+<p class="small">광고 데이터는 Meta API와 ASUS 노트북의 로컬 캐시에서 읽습니다. 조회 오류 또는 구매 이벤트 미수집은 0으로 처리하지 않고 누락으로 표시합니다.</p></main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id),n=v=>{let x=Number(v);return Number.isFinite(x)?x:0};
+const types=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase'],format=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
+const iso=d=>{const v=new Date(d.getTime()-d.getTimezoneOffset()*60000);return v.toISOString().slice(0,10)};
+function value(a){if(!Array.isArray(a))return null;for(const type of types){const x=a.find(y=>y.action_type===type);if(x)return n(x.value);}return null;}
+const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350;
+const metrics={spend:'광고비',revenue:'구매 매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR'};
+function normalize(row,channel){let spend=n(row.spend),purchases=value(row.actions),revenue=value(row.action_values);if(revenue==null){let ratios=row.website_purchase_roas||row.purchase_roas;const r=Array.isArray(ratios)?ratios.find(x=>types.includes(x.action_type)):null;if(r)revenue=spend*n(r.value);}
+const usd=(row.account_currency||currency[channel])==='USD',factor=usd?rates:1;return {date:row.date_start,spend:spend*factor,revenue:revenue==null?null:revenue*factor,purchases,clicks:n(row.inline_link_clicks),impressions:n(row.impressions),channel};}
+function sum(rows){let s={spend:0,revenue:0,purchases:0,clicks:0,impressions:0,hasRevenue:false,hasPurchases:false};for(const r of rows){s.spend+=r.spend;s.clicks+=r.clicks;s.impressions+=r.impressions;if(r.revenue!=null){s.revenue+=r.revenue;s.hasRevenue=true}if(r.purchases!=null){s.purchases+=r.purchases;s.hasPurchases=true}}s.roas=s.hasRevenue&&s.spend>0?s.revenue/s.spend*100:null;s.ctr=s.impressions>0?s.clicks/s.impressions*100:null;s.cpa=s.hasPurchases&&s.purchases>0?s.spend/s.purchases:null;return s;}
+const won=v=>v==null?'—':format.format(v)+'원',num=v=>v==null?'—':format.format(v),pct=v=>v==null?'—':v.toFixed(1)+'%';
+function fmt(metric,v){return ['spend','revenue','cpa'].includes(metric)?won(v):['roas','ctr'].includes(metric)?pct(v):num(v)}
+function render(){let choice=$('channel').value,selected=choice==='all'?[...data.naver,...data.cafe]:data[choice],all=sum(selected);
+for(const key of ['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks'])$(key).textContent=fmt(key,key==='revenue'&&!all.hasRevenue?null:key==='purchases'&&!all.hasPurchases?null:all[key]);
+$('purchaseSub').textContent=all.hasPurchases?'구매 '+num(all.purchases)+'건':'구매 데이터 없음';
+$('spendSub').textContent='환율 1 USD = '+format.format(rates)+' KRW (USD 계정에만 적용)';$('revenueSub').textContent=all.hasRevenue?'Meta 귀속 매출':'구매 매출 미수집';
+let days=[...new Set(selected.map(r=>r.date))].sort(),series=days.map(date=>({date,...sum(selected.filter(r=>r.date===date))}));draw(series);
+const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
+$('channels').innerHTML='<table><thead><tr><th>채널</th><th>광고비</th><th>매출</th><th>ROAS</th><th>구매</th></tr></thead><tbody>'+channelRows.map(([name,s])=>'<tr><td>'+name+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td><td>'+ (s.hasPurchases?num(s.purchases):'—')+'</td></tr>').join('')+'</tbody></table>';
+$('daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>매출</th><th>ROAS</th></tr></thead><tbody>'+series.map(s=>'<tr><td>'+s.date.slice(5)+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td></tr>').join('')+'</tbody></table>';
+}
+function draw(rows){const a=$('leftmetric').value,b=$('rightmetric').value,colors=['#526bed','#1ac16a'],w=1020,h=300,pad=46;if(!rows.length){$('graph').textContent='조회한 날짜의 데이터가 없습니다.';return}
+let vals=[a,b].map(k=>rows.map(r=>k==='revenue'&&!r.hasRevenue?null:r[k])),max=vals.map(v=>Math.max(1,...v.filter(x=>x!=null)));
+const x=i=>pad+(w-2*pad)*(rows.length===1?.5:i/(rows.length-1)),y=(v,j)=>h-pad-(h-pad-20)*v/max[j];
+let svg='<svg width="100%" height="310" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="일별 광고 성과 비교 그래프">';
+for(let z=0;z<=4;z++){let yp=20+z*(h-pad-20)/4;svg+='<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+yp+'" y2="'+yp+'" stroke="#e8edf6"/>'}
+for(let j=0;j<2;j++){let parts=[];rows.forEach((r,i)=>{const v=vals[j][i];if(v!=null)parts.push((parts.length?'L':'M')+x(i)+','+y(v,j))});if(parts.length)svg+='<path d="'+parts.join(' ')+'" fill="none" stroke="'+colors[j]+'" stroke-width="3" stroke-linecap="round"/>';rows.forEach((r,i)=>{const v=vals[j][i];if(v!=null)svg+='<circle cx="'+x(i)+'" cy="'+y(v,j)+'" r="3" fill="'+colors[j]+'"/>'})}
+rows.forEach((r,i)=>{if(rows.length<=14||i%Math.ceil(rows.length/14)===0)svg+='<text x="'+x(i)+'" y="'+(h-8)+'" text-anchor="middle" fill="#8693a8" font-size="12">'+r.date.slice(5)+'</text>'});svg+='</svg>';$('graph').innerHTML=svg;
+$('legend').innerHTML='<span><i style="background:'+colors[0]+'"></i>'+metrics[a]+' (좌측)</span><span><i style="background:'+colors[1]+'"></i>'+metrics[b]+' (우측)</span>';
+}
+async function run(){const ids=JSON.parse(localStorage.getItem('roas-account-ids')||'{}');let targets=$('channel').value==='all'?['naver','cafe']:[$('channel').value],warnings=[],available=0;$('reload').disabled=true;$('updated').textContent='데이터 조회 중…';try{
+for(const key of targets){let id=String(ids[key]||'').replace(/\D/g,'');if(!id){warnings.push(key+' 광고 계정 ID 없음');data[key]=[];continue}
+try{const p=new URLSearchParams({account:id,since:$('since').value,until:$('until').value});const resp=await fetch('/api/insights?'+p,{signal:AbortSignal.timeout(120000)});const body=await resp.json();if(!resp.ok)throw Error(body.error||'조회 실패');currency[key]=body.currency||'USD';data[key]=(body.rows||[]).map(row=>normalize(row,key));available++;if(body.cache?.missingDays?.length||body.cache?.warnings?.length)warnings.push(key+' 누락 '+(body.cache.missingDays||[]).length+'일 · '+(body.cache.warnings||[]).join('; '));}catch(e){warnings.push(key+': '+e.message);data[key]=[];}
+}
+if(!available)throw Error(warnings.join(' / ')||'수집된 데이터가 없습니다.');$('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();$('updated').textContent='마지막 조회: '+new Date().toLocaleString('ko-KR');
+}catch(e){$('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';}finally{$('reload').disabled=false}}
+let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
+document.querySelectorAll('[data-days]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-days]').forEach(t=>t.classList.toggle('active',t===b));let d=new Date();$('until').value=iso(d);d.setDate(d.getDate()-(Number(b.dataset.days)-1));$('since').value=iso(d);run()});
+$('reload').onclick=run;$('channel').onchange=run;for(const k of ['leftmetric','rightmetric'])$(k).onchange=render;run();setInterval(()=>{if(!document.hidden)run()},3600000);
+</script></body></html>
