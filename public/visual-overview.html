@@ -39,7 +39,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 <script>
 'use strict';
 const $=id=>document.getElementById(id),n=v=>{let x=Number(v);return Number.isFinite(x)?x:0};
-const types=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase'],format=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
+const types=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase','onsite_web_purchase','onsite_conversion.purchase'],format=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
 const iso=d=>{const v=new Date(d.getTime()-d.getTimezoneOffset()*60000);return v.toISOString().slice(0,10)};
 function value(a){if(!Array.isArray(a))return null;for(const type of types){const x=a.find(y=>y.action_type===type);if(x)return n(x.value);}return null;}
 const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350;
