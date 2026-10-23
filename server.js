@@ -8,8 +8,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
-const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.38';
+const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/naver-settings.js','vendor/bcrypt.min.js','vendor/BCRYPT-LICENSE.txt'];
+const appVersion='2.8.39';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -161,10 +161,80 @@ async function insights(query){
  return {rows,account,currency:currencies[0]||'',since,until,cache:{storedDays:dates.length-missing.length,totalDays:dates.length,updatedDays:updated,missingDays:missing,staleDays:stale,warnings:issues,latestSavedAt:dates.map(d=>snapshots.get(d)?.savedAt||'').sort().at(-1)||null}};
 }
 
+
+// Naver Commerce seller self-app credentials. Only Windows DPAPI ciphertext is stored.
+// The existing Meta token, snapshots, and update settings remain separate and unchanged.
+const naverSecretsPath=path.join(__dirname,'.roas-private','naver-commerce.dpapi');
+function dpapi(mode,data){
+ if(process.platform!=='win32')throw Object.assign(Error('Windows 사용자 계정 암호화가 필요한 기능입니다.'),{status:501});
+ const body=mode==='encrypt'?String(data):String(data).trim();
+ const ps=mode==='encrypt'
+  ? "[Console]::InputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8;Add-Type -AssemblyName System.Security;$v=[Console]::In.ReadToEnd();$b=[Text.Encoding]::UTF8.GetBytes($v);[Console]::Write([Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)))"
+  : "[Console]::InputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8;Add-Type -AssemblyName System.Security;$v=[Console]::In.ReadToEnd();$b=[Convert]::FromBase64String($v.Trim());[Console]::Write([Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)))";
+ const encoded=Buffer.from(ps,'utf16le').toString('base64');
+ const ret=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded],{input:body,encoding:'utf8',timeout:20000,maxBuffer:1024*1024,windowsHide:true});
+ if(ret.error||ret.status!==0||!ret.stdout?.trim())throw Object.assign(Error('Windows 암호화 처리에 실패했습니다. 같은 Windows 사용자로 ROAS Pilot을 실행해 주세요.'),{status:500});
+ return ret.stdout.trim();
+}
+function readNaverCredentials(){
+ if(!fs.existsSync(naverSecretsPath))return null;
+ try{const raw=dpapi('decrypt',fs.readFileSync(naverSecretsPath,'utf8'));const v=JSON.parse(raw);
+  if(typeof v.clientId!=='string'||typeof v.clientSecret!=='string')throw Error('invalid');
+  return v;
+ }catch{throw Object.assign(Error('저장된 네이버 인증정보를 복호화할 수 없습니다. 저장 당시 Windows 사용자 계정을 확인해 주세요.'),{status:500});}
+}
+function naverCredentialStatus(){
+ const v=readNaverCredentials();
+ return {configured:!!v,maskedId:v?'••••'+v.clientId.slice(-4):'',savedAt:v?.savedAt||null,security:'Windows DPAPI CurrentUser'};
+}
+function saveNaverCredentials(input){
+ const clientId=String(input.clientId||'').trim(),clientSecret=String(input.clientSecret||'').trim();
+ if(!/^[a-zA-Z0-9_-]{8,128}$/.test(clientId))throw Object.assign(Error('올바른 네이버 애플리케이션 ID를 입력해 주세요.'),{status:400});
+ if(!/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{22}$/.test(clientSecret))throw Object.assign(Error('네이버 애플리케이션 시크릿 형식이 올바르지 않습니다.'),{status:400});
+ const encoded=dpapi('encrypt',JSON.stringify({clientId,clientSecret,savedAt:new Date().toISOString()}));
+ fs.mkdirSync(path.dirname(naverSecretsPath),{recursive:true});
+ const tmp=naverSecretsPath+'.tmp-'+process.pid;
+ try{fs.writeFileSync(tmp,encoded,{encoding:'utf8',mode:0o600,flag:'w'});fs.renameSync(tmp,naverSecretsPath);}
+ finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
+ return naverCredentialStatus();
+}
+async function testNaverToken(){
+ const saved=readNaverCredentials();
+ if(!saved)throw Object.assign(Error('네이버 애플리케이션 ID와 시크릿을 먼저 저장하세요.'),{status:400});
+ const bcrypt=require('./vendor/bcrypt.min.js');
+ const timestamp=Date.now();
+ const hashed=bcrypt.hashSync(saved.clientId+'_'+timestamp,saved.clientSecret);
+ const signature=Buffer.from(hashed,'utf8').toString('base64');
+ const params=new URLSearchParams({client_id:saved.clientId,timestamp:String(timestamp),client_secret_sign:signature,grant_type:'client_credentials',type:'SELF'});
+ let response;
+ try{response=await fetch('https://api.commerce.naver.com/external/v1/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:params.toString(),signal:AbortSignal.timeout(18000),redirect:'error'});}
+ catch{throw Object.assign(Error('네이버 서버 연결에 실패했습니다. 인터넷 연결과 등록한 API 호출 공인 IP를 확인하세요.'),{status:502});}
+ let result;try{result=await response.json();}catch{result={};}
+ if(!response.ok||!result.access_token){
+  const label=String(result.code||result.error||'인증 거절').replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,70);
+  throw Object.assign(Error('네이버 토큰 발급 실패 (HTTP '+response.status+', '+label+'). ID·시크릿·호출 IP를 확인하세요.'),{status:502});
+ }
+ return {ok:true,message:'네이버 커머스API 인증 토큰 발급 성공',expiresIn:Number(result.expires_in)||null,checkedAt:new Date().toISOString(),scope:'인증 확인만 수행 (주문 조회 권한·매출 동기화는 아직 검증 전)'};
+}
+
 const server=http.createServer(async (req,res)=> {
   try {
     if (!authenticated(req)) {res.writeHead(401, {'WWW-Authenticate':'Basic realm=ROAS-Pilot', 'Content-Type':'text/plain; charset=utf-8'});res.end('로그인이 필요합니다.');return;}
     const u = new URL(req.url,'http://localhost');
+
+    if(u.pathname==='/api/naver/status'&&req.method==='GET')return json(res,200,naverCredentialStatus());
+    if(u.pathname==='/api/naver/credentials'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬 ROAS Pilot에서만 인증정보를 저장할 수 있습니다.'});
+      const input=JSON.parse((await payload(req)).toString('utf8'));return json(res,200,saveNaverCredentials(input));
+    }
+    if(u.pathname==='/api/naver/test'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬 ROAS Pilot에서만 연결을 확인할 수 있습니다.'});
+      return json(res,200,await testNaverToken());
+    }
+    if(u.pathname==='/api/naver/credentials'&&req.method==='DELETE'){
+      if(!localPost(req))return json(res,403,{error:'로컬 ROAS Pilot에서만 인증정보를 삭제할 수 있습니다.'});
+      try{fs.unlinkSync(naverSecretsPath);}catch(e){if(e.code!=='ENOENT')throw e;}return json(res,200,{ok:true,configured:false});
+    }
     if (u.pathname === '/api/update/status') return json(res,200,{version:appVersion,backups:listBackups(),mode:'Windows 다운로드 폴더 자동 감시',remote:getRemoteCfg(),watcher:{...watcherSettings(),folder:downloadsFolder(),message:watcherResult}});
     if(u.pathname==='/api/update/settings'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬에서만 설정 가능합니다.'});const inp=JSON.parse((await payload(req)).toString('utf8'));if(inp.feed)remoteURL(inp.feed);const cfg={feed:String(inp.feed||'').trim(),enabled:!!inp.enabled};fs.mkdirSync(updateDir,{recursive:true});fs.writeFileSync(remoteCfgFile,JSON.stringify(cfg,null,2),'utf8');return json(res,200,{ok:true,cfg});}
     if(u.pathname==='/api/update/check'){try{const info=await remoteManifest();return json(res,200,info);}catch(e){return json(res,400,{error:e.message});}}
