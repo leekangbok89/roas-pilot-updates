@@ -58,9 +58,9 @@ test('3/5/7-day buckets clip query edges and month ends without treating interna
  h.context.rows=[{date:'2026-09-29',profit:100},{date:'2026-09-30',profit:300}];
  assert.equal(h.run("metricForBucket(chartBuckets(rows,3,'2026-09-29','2026-09-30')[0],'profit')"),200);
  h.context.rows=[{date:'2026-09-01',profit:100},{date:'2026-09-03',profit:300}];
- assert.equal(h.run("metricForBucket(chartBuckets(rows,3,'2026-09-01','2026-09-03')[0],'profit')"),null);
+ assert.equal(h.run("metricForBucket(chartBuckets(rows,3,'2026-09-01','2026-09-03')[0],'profit')"),200);
  h.context.rows=[{date:'2026-09-01',profit:100},{date:'2026-09-02',profit:null},{date:'2026-09-03',profit:300}];
- assert.equal(h.run("metricForBucket(chartBuckets(rows,3,'2026-09-01','2026-09-03')[0],'profit')"),null);
+ assert.equal(h.run("metricForBucket(chartBuckets(rows,3,'2026-09-01','2026-09-03')[0],'profit')"),200);
 });
 
 test('an isolated profit point remains visible beyond 35 plotted dates and unknown days remain gaps',()=>{
@@ -109,4 +109,32 @@ test('one account assigned to both channel labels is fetched once and never doub
  assert.equal(calls.find(u=>u.pathname==='/api/profit/daily').searchParams.get('accounts'),'111');
  assert.equal(h.node('spend').textContent,'10,000원');
  assert.equal(h.node('profit-total').textContent,'43,000원');
+});
+
+test('confirmed day shows as a clearly labeled partial 3-day average and missing day is not zero',()=>{
+ const h=harness();h.node('chart-window').value='3';
+ h.context.input=[
+ profit('2026-09-01',30000),
+ profit('2026-09-02',null,{cost:null,reasons:['자사몰: 상품·옵션 원가 미확정 1건'],naver:{revenue:100000},cafe24:{revenue:0,missingCostItems:[{name:'원가누락',option:'추가',orders:1}]} }),
+ profit('2026-09-03',60000)
+ ];
+ h.run('profitDays=new Map(input.map(p=>[p.date,p]));render();');
+ const html=h.node('graph').innerHTML;
+ assert.match(html,/<circle data-metric="profit"/);
+ assert.match(html,/45,000원/);
+ assert.match(html,/확인 2\/3일 평균 · 부분 집계/);
+ assert.match(h.node('profit-chart-status').textContent,/부분 집계 1구간/);
+ assert.equal(h.node('profit-total').textContent,'90,000원 (확인된 2일 합계)');
+ assert.match(h.node('profit-chart-diagnostic').children.map(c=>c.textContent||'').join(' '),/계산 가능 2일/);
+});
+test('when no profits are calculated, diagnostic explains failure and shows missing options',()=>{
+ const h=harness();h.context.input=[
+ profit('2026-09-01',null,{cost:null,reasons:['스마트스토어: 상품·옵션 원가 미확정 1건'],naver:{revenue:100000,missingCostItems:[{name:'백도씨',option:'화이트',orders:2}]},cafe24:{revenue:0}})
+ ];
+ h.run('profitDays=new Map(input.map(p=>[p.date,p]));render();');
+ assert.match(h.node('profit-chart-status').textContent,/통합 예상 이익: 0\/1일 계산/);
+ assert.match(h.node('profit-chart-status').children[0].textContent,/계산된 이익 0일/);
+ assert.equal(h.node('profit-chart-debug').open,true);
+ assert.equal(h.node('graph').innerHTML.includes('<circle data-metric="profit"'),false);
+ assert.ok(h.node('profit-chart-diagnostic').children.length>=3);
 });
