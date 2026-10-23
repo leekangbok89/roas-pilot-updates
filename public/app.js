@@ -290,46 +290,70 @@ if(typeof document!=='undefined'){
 }
 
 
-// Complete historical replay/audit is opt-in. Run in one-week windows to avoid
-// a single large Insights request; never discard a previously saved snapshot.
+// Historical audit/replay: explicit user action, preserve prior snapshots on failures.
+// A successful HTTP response may still contain cache.warnings; do not count it as verified.
 if(typeof document!=='undefined'){
-  const backfillButton=$('history-backfill');
-  backfillButton?.addEventListener('click',async()=>{
-    if(backfillButton.disabled)return;
-    const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
-    if(Object.values(ids).some(id=>!/^\d{5,30}$/.test(id))||ids.naver===ids.cafe){
-      $('history-backfill-report').textContent='네이버·카페24 광고 계정 ID 두 개를 확인해 주세요.';return;
-    }
-    backfillButton.disabled=true;
-    const status=$('history-backfill-status'),report=$('history-backfill-report');
-    const first='2026-06-01',last=isoDay(new Date());
-    const days=Math.floor((Date.parse(last+'T00:00:00Z')-Date.parse(first+'T00:00:00Z'))/86400000)+1;
-    const ranges=[];for(let i=0;i<days;i+=7)ranges.push([plusDays(first,i),plusDays(first,Math.min(i+6,days-1))]);
-    const failed=[],missing={naver:new Set(),cafe:new Set()},stale={naver:new Set(),cafe:new Set()};
-    let done=0,total=ranges.length*2,success=0;
-    report.textContent='과거 데이터를 수집하고 있습니다. 조회 기간을 바꾸거나 브라우저를 닫지 마세요.';
-    try{
-      for(const [channel,account] of Object.entries(ids)){
-        for(const [since,until] of ranges){
-          status.textContent=(channel==='naver'?'네이버':'카페24')+' '+since+' ~ '+until+' · '+done+'/'+total+'구간';
-          const query=new URLSearchParams({account,since,until,force:'1'});
-          try{
-            const response=await fetch('/api/insights?'+query.toString(),{signal:AbortSignal.timeout(120000)});
-            const data=await response.json();
-            if(!response.ok)throw Error(data.error||'조회 실패');
-            success++;
-            for(const day of data.cache?.missingDays||[])missing[channel].add(day);
-            for(const day of data.cache?.staleDays||[])stale[channel].add(day);
-            for(const warning of data.cache?.warnings||[])failed.push((channel==='naver'?'네이버':'카페24')+' '+since+'~'+until+': '+warning);
-          }catch(e){failed.push((channel==='naver'?'네이버':'카페24')+' '+since+'~'+until+': '+e.message);}
-          done++;await new Promise(resolve=>setTimeout(resolve,400));
-        }
+ const button=$('history-backfill');
+ button?.addEventListener('click',async()=>{
+  if(button.disabled)return;
+  const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
+  const result=$('history-backfill-report'),status=$('history-backfill-status');
+  if(Object.values(ids).some(v=>!/^\d{5,30}$/.test(v))||ids.naver===ids.cafe){result.textContent='네이버·카페24 계정 ID를 확인해 주세요.';return;}
+  button.disabled=true;
+  const first='2026-06-01',last=isoDay(new Date()),numDays=Math.round((Date.parse(last+'T00:00:00Z')-Date.parse(first+'T00:00:00Z'))/86400000)+1;
+  const ranges=[];for(let i=0;i<numDays;i+=7)ranges.push([plusDays(first,i),plusDays(first,Math.min(i+6,numDays-1))]);
+  let attempts=0,confirmed=0,halted=false;
+  const log=[],audit={naver:{beforeMissing:0,afterMissing:0,stored:0,empty:0},cafe:{beforeMissing:0,afterMissing:0,stored:0,empty:0}};
+  async function get(account,from,to,force){
+   const q=new URLSearchParams({account,since:from,until:to,...(force?{force:'1'}:{cacheOnly:'1'})});
+   const response=await fetch('/api/insights?'+q,{signal:AbortSignal.timeout(120000)});
+   const data=await response.json();if(!response.ok)throw Error(data.error||'서버 조회 오류');
+   return data;
+  }
+  try{
+   result.textContent='노트북 저장 현황을 확인한 후 Meta API로 재수집합니다. 기존 파일은 실패해도 유지됩니다.';
+   for(const [channel,account] of Object.entries(ids)){
+    for(const [from,to] of ranges){
+     status.textContent=(channel==='naver'?'네이버':'카페24')+' '+from+'~'+to+' 확인 중 · '+attempts+'/'+(ranges.length*2)+'구간';
+     const section=audit[channel];
+     let previous;
+     try{previous=await get(account,from,to,false);section.beforeMissing+=(previous.cache?.missingDays||[]).length;}
+     catch(e){log.push(channel+' '+from+'~'+to+' 사전 저장 검사 실패: '+e.message);}
+     if(halted)continue;
+     attempts++;
+     try{
+      const response=await get(account,from,to,true);
+      const warnings=response.cache?.warnings||[];
+      if(!warnings.length)confirmed++;
+      else log.push(channel+' '+from+'~'+to+': '+warnings.join('; '));
+      const messages=warnings.join(' ').toLowerCase();
+      if(/api access blocked|permission|oauth|rate limit|요청 제한|토큰/.test(messages)){
+       halted=true;log.push('Meta 접근 제한 감지: 연속 API 요청을 중단했습니다. 저장된 데이터는 그대로 유지됩니다.');
       }
-      const describe=(key,label)=>label+': 누락 '+missing[key].size+'일'+(missing[key].size?' ('+[...missing[key]].sort().join(', ')+')':'')+', 갱신 지연 '+stale[key].size+'일';
-      report.textContent='2026-06-01 ~ '+last+' · '+success+'/'+total+'구간 확인 완료. '+describe('naver','네이버')+' / '+describe('cafe','카페24')+(failed.length?' / 실패·경고 '+failed.length+'건: '+failed.slice(0,18).join(' | '):' / 조회 실패 없음')+'. 참고: 조회 실패한 전체 구간의 날짜는 재검사가 필요합니다.';
-      status.textContent='과거 데이터 확인 종료 · '+new Date().toLocaleString('ko-KR');
-      // Display the existing saved data without replacing the current date range.
-      // Fresh snapshots will be used at the next normal refresh.
-    }finally{backfillButton.disabled=false;}
-  });
+     }catch(e){
+      log.push(channel+' '+from+'~'+to+': '+e.message);
+      if(/api access blocked|permission|oauth|rate limit/i.test(e.message))halted=true;
+     }
+     await new Promise(resolve=>setTimeout(resolve,850));
+    }
+   }
+   for(const [channel,account] of Object.entries(ids)){
+    for(const [from,to] of ranges){
+     try{
+      const data=await get(account,from,to,false),summary=audit[channel];
+      summary.afterMissing+=(data.cache?.missingDays||[]).length;
+      summary.stored+=Number(data.cache?.storedDays||0);
+      const present=new Set((data.rows||[]).map(r=>r.date_start).filter(Boolean));
+      // A saved snapshot with zero rows means no reported ads, not a missing snapshot.
+      summary.empty+=Math.max(0,Number(data.cache?.storedDays||0)-present.size);
+     }catch(e){log.push(channel+' '+from+'~'+to+' 사후 저장 검사 실패: '+e.message);}
+    }
+   }
+   const line=(key,label)=>{const s=audit[key];return label+': 저장 '+s.stored+'/'+numDays+'일 · 재수집 전 미저장 '+s.beforeMissing+'일 → 현재 미저장 '+s.afterMissing+'일 · 광고 행이 없는 저장일(추정) '+s.empty+'일';};
+   result.textContent=first+' ~ '+last+' | 검증 성공 '+confirmed+'/'+attempts+'개 재수집 요청'+(halted?' · Meta 접근 제한으로 중단':'')+'\n'+line('naver','네이버')+'\n'+line('cafe','카페24')+'\n'+(log.length?'실패/주의: '+log.slice(0,24).join(' | '):'API 응답에 기록된 오류 없음')+'\n광고 선택 범위에 기록이 없다고 전체 계정의 날짜별 저장이 없다는 뜻은 아닙니다. 저장일과 실제 집행일을 구분하세요.';
+   result.style.whiteSpace='pre-wrap';
+   status.textContent=halted?'API 제한으로 중단 · 로컬 데이터 보존':'저장 현황 재검사 완료';
+  }catch(e){result.textContent='검사 중 오류: '+e.message;status.textContent='검사 실패';}
+  finally{button.disabled=false;}
+ });
 }
