@@ -54,7 +54,7 @@ function render(){let choice=$('channel').value,selected=choice==='all'?[...data
 for(const key of ['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks'])$(key).textContent=fmt(key,key==='revenue'&&!all.hasRevenue?null:key==='purchases'&&!all.hasPurchases?null:all[key]);
 $('purchaseSub').textContent=all.hasPurchases?'구매 '+num(all.purchases)+'건':'구매 데이터 없음';
 $('spendSub').textContent='환율 1 USD = '+format.format(rates)+' KRW (USD 계정에만 적용)';$('revenueSub').textContent=all.hasRevenue?'Meta 귀속 매출':'구매 매출 미수집';
-let days=[...new Set([...selected.map(r=>r.date),...storeSales.keys()])].sort(),series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date);return {date,...a,smartstoreRevenue:v?.naver??null,mallRevenue:v?.cafe24??null,totalStoreRevenue:v?.total??null,profit:profitDays.get(date)?.profit??null};});renderProfit(series);series.forEach(r=>r.profit=profitDays.get(r.date)?.profit??null);draw(series);
+let days=[...new Set([...selected.map(r=>r.date),...storeSales.keys()])].sort(),series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date);return {date,...a,smartstoreRevenue:v?.naver??null,mallRevenue:v?.cafe24??null,totalStoreRevenue:v?.total??null,profit:profitDays.get(date)?.profit??null};});try{renderProfit(series);}catch(e){console.error('이익 표시 오류:',e);$('profit-status').textContent='이익 표시 오류: '+e.message;}series.forEach(r=>r.profit=profitDays.get(r.date)?.profit??null);draw(series);
 const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
 $('channels').innerHTML='<table><thead><tr><th>채널</th><th>광고비</th><th>매출</th><th>ROAS</th><th>구매</th></tr></thead><tbody>'+channelRows.map(([name,s])=>'<tr><td>'+name+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td><td>'+ (s.hasPurchases?num(s.purchases):'—')+'</td></tr>').join('')+'</tbody></table>';
 renderBudgetAnalysis();
@@ -75,7 +75,7 @@ function renderProfit(series){
  const valid=rows.filter(r=>r.valid),total=valid.reduce((n,r)=>n+r.profit,0);
  $('profit-total').textContent=valid.length?won(total):'산출 불가';
  $('profit-status').textContent=valid.length+'/'+rows.length+'일 계산 완료 · 미확정 '+(rows.length-valid.length)+'일';
- $('profit-table').innerHTML='<table><thead><tr><th>날짜</th><th>합산 매출</th><th>판매 수수료</th><th>상품 원가·배송비</th><th>광고비</th><th>예상 이익</th><th>상태·사유</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.date+'</td><td>'+won(r.revenue)+'</td><td>'+won(r.fee)+'</td><td>'+won(r.cost)+'</td><td>'+won(r.spend)+'</td><td>'+(r.valid?won(r.profit):'미확정')+'</td><td>'+(r.valid?'완료':r.reason.map(safe).join(' / ')||'필수 데이터 부족')+'</td></tr>').join('')+'</tbody></table>';
+ $('profit-table').innerHTML='<table><thead><tr><th>날짜</th><th>합산 매출</th><th>판매 수수료</th><th>상품 원가·배송비</th><th>광고비</th><th>예상 이익</th><th>상태·사유</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.date+'</td><td>'+won(r.revenue)+'</td><td>'+won(r.fee)+'</td><td>'+won(r.cost)+'</td><td>'+won(r.spend)+'</td><td>'+(r.valid?won(r.profit):'미확정')+'</td><td>'+(r.valid?'완료':r.reason.map(x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))).join(' / ')||'필수 데이터 부족')+'</td></tr>').join('')+'</tbody></table>';
 }
 function renderBudgetAnalysis(){
  const root=$('budget-table'),note=$('budget-note');if(!root||!note)return;
