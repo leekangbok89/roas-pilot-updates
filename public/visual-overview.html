@@ -54,10 +54,10 @@ function render(){let choice=$('channel').value,selected=choice==='all'?[...data
 for(const key of ['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks'])$(key).textContent=fmt(key,key==='revenue'&&!all.hasRevenue?null:key==='purchases'&&!all.hasPurchases?null:all[key]);
 $('purchaseSub').textContent=all.hasPurchases?'구매 '+num(all.purchases)+'건':'구매 데이터 없음';
 $('spendSub').textContent='환율 1 USD = '+format.format(rates)+' KRW (USD 계정에만 적용)';$('revenueSub').textContent=all.hasRevenue?'Meta 귀속 매출':'구매 매출 미수집';
-let days=[...new Set([...selected.map(r=>r.date),...storeSales.keys()])].sort(),series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date);return {date,...a,smartstoreRevenue:v?.naver??null,mallRevenue:v?.cafe24??null,totalStoreRevenue:v?.total??null,profit:profitDays.get(date)?.profit??null};});draw(series);
+let days=[...new Set([...selected.map(r=>r.date),...storeSales.keys()])].sort(),series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date);return {date,...a,smartstoreRevenue:v?.naver??null,mallRevenue:v?.cafe24??null,totalStoreRevenue:v?.total??null,profit:profitDays.get(date)?.profit??null};});renderProfit(series);series.forEach(r=>r.profit=profitDays.get(r.date)?.profit??null);draw(series);
 const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
 $('channels').innerHTML='<table><thead><tr><th>채널</th><th>광고비</th><th>매출</th><th>ROAS</th><th>구매</th></tr></thead><tbody>'+channelRows.map(([name,s])=>'<tr><td>'+name+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td><td>'+ (s.hasPurchases?num(s.purchases):'—')+'</td></tr>').join('')+'</tbody></table>';
-renderBudgetAnalysis();renderProfit(series);
+renderBudgetAnalysis();
 $('daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>매출</th><th>ROAS</th></tr></thead><tbody>'+series.map(s=>'<tr><td>'+s.date.slice(5)+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td></tr>').join('')+'</tbody></table>';
 }
 
