@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.58';
+const appVersion='2.8.59';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -634,6 +634,29 @@ async function enrichCostCatalog(){
  finally{catalogJob.running=false;}
 }
 
+
+const feeFile=path.join(__dirname,'.roas-data','profit-fees.json');
+function profitFees(){try{const v=JSON.parse(fs.readFileSync(feeFile,'utf8'));return {naver:Number.isFinite(v.naver)?v.naver:7,cafe24:Number.isFinite(v.cafe24)?v.cafe24:3.5};}catch{return {naver:7,cafe24:3.5};}}
+function profitDaily(since,until){
+ if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('유효한 조회 기간을 선택하세요.'),{status:400});
+ const nv=naverRead(naverOrderFile,{orders:{}}).orders||{},cv=cafeCache(cafeOrdersFile,{orders:{}}).orders||{},ns=naverRead(naverSyncFile,{days:{}}).days||{},cs=cafeCache(cafeSyncFile,{days:{}}).days||{},costs=costRead(),fees=profitFees();
+ const summaries=new Map();
+ const add=(channel,o)=>{const d=channel==='naver'?o.paymentDate:o.date;if(!d||d<since||d>until||o.unverified||!Number.isFinite(o.net))return;
+  const key=d+':'+channel,rec=summaries.get(key)||{revenue:0,cost:0,missingOrders:0,orders:0};rec.revenue+=o.net;
+  if(o.net>0){rec.orders++;if(!o.items?.length)rec.missingOrders++;else{let subtotal=0,valid=true;for(const item of o.items){const row=costs[productKey(channel,cleanCostText(item.name),cleanCostText(item.option))];if(!row||row.cost==null){valid=false;break}subtotal+=(Number(row.cost)+Number(row.delivery||0))*(Number(item.quantity)||1);}if(valid)rec.cost+=subtotal;else rec.missingOrders++;}}
+  summaries.set(key,rec);
+ };
+ Object.values(nv).forEach(x=>add('naver',x));Object.values(cv).forEach(x=>add('cafe24',x));
+ let days=[];for(let t=dayUTC(since);t<=dayUTC(until);t+=86400000){const date=dayString(t),n=summaries.get(date+':naver'),c=summaries.get(date+':cafe24');let row={date};
+  for(const [channel,rec,complete] of [['naver',n,!!ns[date]],['cafe24',c,!!cs[date]]]){const sum=rec||{revenue:0,cost:0,missingOrders:0,orders:0};row[channel]={revenue:complete?sum.revenue:null,cost:complete&&sum.missingOrders===0?sum.cost:null,fee:complete?Math.round(sum.revenue*fees[channel]/100):null,complete:complete&&sum.missingOrders===0,missingOrders:sum.missingOrders,orders:sum.orders};}
+  row.revenue=row.naver.revenue!=null&&row.cafe24.revenue!=null?row.naver.revenue+row.cafe24.revenue:null;
+  row.cost=row.naver.cost!=null&&row.cafe24.cost!=null?row.naver.cost+row.cafe24.cost:null;
+  row.fee=row.naver.fee!=null&&row.cafe24.fee!=null?row.naver.fee+row.cafe24.fee:null;
+  days.push(row);
+ }
+ return {fees,days,note:'예상 이익 = 실주문 순매출 - 채널별 평균 수수료 - 등록 옵션 원가·배송비 - Meta 실제 광고비. 부가세·기타 비용은 별도.'};
+}
+
 function combinedAnalysis(start,end,pivot){
  if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
  const c=cafeSalesState(),n=naverPublicState();
@@ -696,6 +719,13 @@ const server=http.createServer(async (req,res)=> {
 
 
 
+
+    if(u.pathname==='/api/profit/daily'&&req.method==='GET')return json(res,200,profitDaily(u.searchParams.get('since'),u.searchParams.get('until')));
+    if(u.pathname==='/api/profit/fees'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});const p=JSON.parse((await payload(req)).toString('utf8'));
+      if(!Number.isFinite(Number(p.naver))||!Number.isFinite(Number(p.cafe24))||Number(p.naver)<0||Number(p.cafe24)<0||Number(p.naver)>40||Number(p.cafe24)>40)throw Object.assign(Error('수수료율은 0~40% 숫자여야 합니다.'),{status:400});
+      const v={naver:Number(p.naver),cafe24:Number(p.cafe24)};fs.mkdirSync(path.dirname(feeFile),{recursive:true});fs.writeFileSync(feeFile,JSON.stringify(v));return json(res,200,{ok:true,fees:v});
+    }
     if(u.pathname==='/api/strategy/status'&&req.method==='GET')return json(res,200,{connected:!!aiKey(),provider:'OpenAI API',note:'채팅 답변 시 집계된 광고/주문/원가 데이터가 OpenAI API로 전송됩니다.'});
     if(u.pathname==='/api/strategy/settings'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 설정할 수 있습니다.'});const b=JSON.parse((await payload(req)).toString('utf8'));const key=String(b.apiKey||'').trim();
