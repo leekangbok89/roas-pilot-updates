@@ -173,7 +173,7 @@ function availableAds(){const all=aggregate(visibleRows());return all.sort((a,b)
 function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
 
 let compareFetchedRows=null;
-function compareData(){const all=Array.isArray(compareFetchedRows)?compareFetchedRows:state.rows;const channel=$('compare-channel')?.value||'all';return channel==='all'?all:all.filter(r=>r.channel===channel);}
+function compareData(){const all=Array.isArray(compareFetchedRows)?compareFetchedRows:[];const channel=$('compare-channel')?.value||'all';return channel==='all'?all:all.filter(r=>r.channel===channel);}
 function comparePickValue(r,level){
  if(level==='campaign')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음']);
  if(level==='adset')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음',r.adset||'세트명 없음']);
@@ -205,7 +205,8 @@ function renderComparison(rowsOverride){
  renderChangeHistory();
  const ranges=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
  if(ranges.some(([s,e])=>!s||!e||s>e)){$('compare-result').textContent='기간 A와 B의 시작일·종료일을 올바르게 선택하세요.';return;}
- if(!source.length){$('compare-result').textContent='저장 데이터 조회 버튼을 눌러 두 기간을 불러오세요.';return;}
+ if(!Array.isArray(compareFetchedRows)&&!rowsOverride){$('compare-result').textContent='기간을 선택한 후 저장 데이터 비교 버튼을 눌러주세요. 아직 결과를 조회하지 않았습니다.';$('compare-daily').textContent='조회 전';return;}
+ if(!source.length){$('compare-result').textContent='조회된 광고 행이 없습니다. 상단 저장 데이터 진단에서 저장 날짜와 계정별 조회 오류를 확인하세요.';$('compare-daily').textContent='조회된 일별 광고 행 없음';return;}
  const rows=filteredCompareRows(source);
  const byDate=new Map();
  for(const r of rows){if(!r.date)continue;let arr=byDate.get(r.date);if(!arr){arr=[];byDate.set(r.date,arr);}arr.push(r);}
@@ -260,12 +261,13 @@ function readChanges(){try{const v=JSON.parse(localStorage.getItem(CHANGE_KEY)||
 function renderChangeHistory(){const el=$('change-history');if(!el)return;const items=readChanges();if(!items.length){el.textContent='아직 저장된 변경 기록이 없습니다.';return}el.innerHTML='<table><thead><tr><th>날짜</th><th>광고</th><th>변경</th><th>메모</th><th></th></tr></thead><tbody>'+items.map((item,i)=>`<tr><td>${safe(item.date)}</td><td>${safe(item.ad)}</td><td>${safe(item.kind)}</td><td>${safe(item.note)}</td><td><button class="button ghost" type="button" data-del-change="${i}">삭제</button></td></tr>`).join('')+'</tbody></table>';el.querySelectorAll('[data-del-change]').forEach(b=>b.addEventListener('click',()=>{const a=readChanges();a.splice(Number(b.dataset.delChange),1);localStorage.setItem(CHANGE_KEY,JSON.stringify(a));renderChangeHistory()}));}
 if(typeof document!=='undefined'){
  const today=isoDay(new Date());$('compare-b-end').value=today;$('compare-b-start').value=plusDays(today,-6);$('compare-a-end').value=plusDays(today,-7);$('compare-a-start').value=plusDays(today,-13);$('compare-date').value=plusDays(today,-7);
- for(const k of ['compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
- $('compare-channel').addEventListener('change',()=>{syncCompareOptions('campaign');renderComparison();});
+ const invalidateComparison=()=>{compareFetchedRows=null;$('compare-diagnostics').textContent='조회 조건이 변경되었습니다. 저장 데이터 비교 버튼을 눌러 새로 조회하세요.';renderComparison();};
+ for(const k of ['compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',invalidateComparison);
+ $('compare-channel').addEventListener('change',()=>{compareFetchedRows=null;syncCompareOptions('campaign');invalidateComparison();});
  for(const id of ['compare-campaign','compare-adset','compare-creative'])$(id).addEventListener('change',()=>{syncCompareOptions(id==='compare-campaign'?'campaign':id==='compare-adset'?'adset':'creative');renderComparison();});
  $('compare-run').addEventListener('click',async()=>{
  const button=$('compare-run'),dates=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
- if(dates.some(([s,e])=>!s||!e||s>e)){renderComparison();return;}
+ if(dates.some(([s,e])=>!s||!e||s>e)){$('compare-diagnostics').textContent='기간 A와 B의 날짜 범위가 올바르지 않습니다.';renderComparison();return;}
  const channelIds={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
  const selected=$('compare-channel').value,channels=selected==='all'?['naver','cafe']:[selected],rows=[],errors=[],summary=[];
  const windows=[];
