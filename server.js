@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.41';
+const appVersion='2.8.42';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -414,11 +414,80 @@ function naverAutomaticStart(){
  naverRun('recent').catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
 }
 
+
+const cafePath=path.join(__dirname,'.roas-private','cafe24-oauth.dpapi');
+let cafePending=null;
+function cafeValid(input){
+ const mallId=String(input.mallId||'').trim().toLowerCase();
+ const clientId=String(input.clientId||'').trim();
+ const clientSecret=String(input.clientSecret||'').trim();
+ const redirectUri=String(input.redirectUri||'').trim();
+ if(!/^[a-z0-9][a-z0-9-]{1,39}$/.test(mallId))throw Object.assign(Error('카페24 쇼핑몰 ID를 확인하세요.'),{status:400});
+ if(!/^[A-Za-z0-9_-]{8,150}$/.test(clientId)||clientSecret.length<8||clientSecret.length>500)throw Object.assign(Error('카페24 앱 Client ID 및 Secret을 확인하세요.'),{status:400});
+ let u;try{u=new URL(redirectUri);}catch{}
+ if(!u||u.protocol!=='https:'||!u.hostname.includes('.')||u.username||u.password||u.port||u.search||u.hash||u.hostname==='localhost'||/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname))throw Object.assign(Error('실제로 운영하는 HTTPS 도메인의 Redirect URI를 입력하세요.'),{status:400});
+ return {mallId,clientId,clientSecret,redirectUri};
+}
+function cafeRead(){
+ if(!fs.existsSync(cafePath))return null;
+ try{return JSON.parse(dpapi('decrypt',fs.readFileSync(cafePath,'utf8')));}
+ catch{throw Object.assign(Error('카페24 암호화 정보를 복호화할 수 없습니다. 저장한 Windows 사용자로 실행하세요.'),{status:500});}
+}
+function cafeStore(value){
+ const raw=dpapi('encrypt',JSON.stringify(value));
+ fs.mkdirSync(path.dirname(cafePath),{recursive:true});
+ const tmp=cafePath+'.tmp-'+process.pid;try{fs.writeFileSync(tmp,raw,{mode:0o600});fs.renameSync(tmp,cafePath);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
+}
+function cafeStatus(){
+ const x=cafeRead();return {configured:!!x,maskedId:x?'••••'+x.clientId.slice(-4):'',mallId:x?.mallId||'',redirectUri:x?.redirectUri||'',connected:!!x?.tokens?.access_token,tokenExpiresAt:x?.tokens?.expires_at||null};
+}
+function cafeStart(){
+ const x=cafeRead();if(!x)throw Object.assign(Error('카페24 앱 설정을 먼저 저장하세요.'),{status:400});
+ cafePending={state:crypto.randomBytes(24).toString('hex'),expires:Date.now()+180000,used:false};
+ const u=new URL('https://'+x.mallId+'.cafe24api.com/api/v2/oauth/authorize');
+ for(const [k,v] of Object.entries({response_type:'code',client_id:x.clientId,state:cafePending.state,redirect_uri:x.redirectUri,scope:'mall.read_order'}))u.searchParams.set(k,v);
+ return {authorizationUrl:u.toString(),message:'카페24 관리자가 권한을 승인하면 HTTPS 콜백 화면의 code 및 state 값을 1분 내에 ROAS Pilot에 입력하세요. Redirect URI는 실제 운영하는 앱 주소여야 합니다.'};
+}
+async function cafeTokenRequest(value,grant){
+ const x=cafeRead();if(!x)throw Object.assign(Error('카페24 앱 설정이 없습니다.'),{status:400});
+ const endpoint='https://'+x.mallId+'.cafe24api.com/api/v2/oauth/token';
+ const body=grant==='authorization_code'
+   ?{grant_type:grant,code:value,redirect_uri:x.redirectUri}
+   :{grant_type:'refresh_token',refresh_token:value};
+ const response=await fetch(endpoint,{method:'POST',headers:{Authorization:'Basic '+Buffer.from(x.clientId+':'+x.clientSecret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body).toString(),signal:AbortSignal.timeout(20000),redirect:'error'});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok||!result.access_token||!result.refresh_token)throw Object.assign(Error('카페24 토큰 요청 실패 HTTP '+response.status+' · '+String(result.error||'API 오류').slice(0,80)),{status:502});
+ const current=cafeRead();current.tokens={access_token:result.access_token,refresh_token:result.refresh_token,expires_at:result.expires_at||null,refresh_token_expires_at:result.refresh_token_expires_at||null};
+ cafeStore(current);
+ return {ok:true,message:'카페24 주문 읽기 OAuth 인증 완료',mallId:current.mallId,tokenExpiresAt:current.tokens.expires_at};
+}
+async function cafeFinish(input){
+ const code=String(input.code||'').trim(),state=String(input.state||'').trim();
+ if(!cafePending||cafePending.used||Date.now()>cafePending.expires||state.length!==cafePending.state.length||!crypto.timingSafeEqual(Buffer.from(state),Buffer.from(cafePending.state)))throw Object.assign(Error('인증 state 검증에 실패했습니다. 처음부터 인증을 다시 시작하세요.'),{status:400});
+ if(!/^[A-Za-z0-9._-]{5,500}$/.test(code))throw Object.assign(Error('카페24 인증 코드 형식을 확인하세요.'),{status:400});
+ cafePending.used=true;return cafeTokenRequest(code,'authorization_code');
+}
+async function cafeOrderTest(){
+ const x=cafeRead();if(!x?.tokens?.access_token)throw Object.assign(Error('카페24 OAuth 연결을 먼저 완료하세요.'),{status:400});
+ if(x.tokens.expires_at&&Date.parse(x.tokens.expires_at)<Date.now()+120000)await cafeTokenRequest(x.tokens.refresh_token,'refresh_token');
+ const current=cafeRead();
+ const api='https://'+current.mallId+'.cafe24api.com/api/v2/admin/orders/count?start_date='+todaySeoul()+'&end_date='+todaySeoul()+'&shop_no=1';
+ const response=await fetch(api,{headers:{Authorization:'Bearer '+current.tokens.access_token,'X-Cafe24-Api-Version':'2024-06-01'},signal:AbortSignal.timeout(20000)});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok)throw Object.assign(Error('카페24 주문 조회 실패 HTTP '+response.status+' · 주문 권한 및 앱 설치를 확인하세요.'),{status:502});
+ return {ok:true,message:'카페24 주문 조회 API 성공',todayOrderCount:result.count??null};
+}
+
 const server=http.createServer(async (req,res)=> {
   try {
     if (!authenticated(req)) {res.writeHead(401, {'WWW-Authenticate':'Basic realm=ROAS-Pilot', 'Content-Type':'text/plain; charset=utf-8'});res.end('로그인이 필요합니다.');return;}
     const u = new URL(req.url,'http://localhost');
 
+    if(u.pathname==='/api/cafe24/status'&&req.method==='GET')return json(res,200,cafeStatus());
+    if(u.pathname==='/api/cafe24/settings'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});const v=cafeValid(JSON.parse((await payload(req)).toString('utf8')));cafeStore(v);cafePending=null;return json(res,200,cafeStatus());}
+    if(u.pathname==='/api/cafe24/authorize'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});return json(res,200,cafeStart());}
+    if(u.pathname==='/api/cafe24/complete'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});return json(res,200,await cafeFinish(JSON.parse((await payload(req)).toString('utf8'))));}
+    if(u.pathname==='/api/cafe24/orders/test'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});return json(res,200,await cafeOrderTest());}
     if(u.pathname==='/api/naver/orders/status'&&req.method==='GET')return json(res,200,naverPublicState());
     if(u.pathname==='/api/naver/orders/test'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 연결 테스트만 허용됩니다.'});return json(res,200,await naverOrderTest());}
     if(u.pathname==='/api/naver/orders/sync'&&req.method==='POST'){
