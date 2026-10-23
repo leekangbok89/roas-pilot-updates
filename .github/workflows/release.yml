@@ -38,11 +38,19 @@ jobs:
           grep -Fq "const appVersion='$PACKAGE_VERSION'" server.js || { echo "Server version mismatch"; exit 1; }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Validate Node.js code and bundled bcrypt
+        run: |
+          node --check server.js
+          node --check public/app.js
+          node --check public/naver-settings.js
+          node -e "const m=require('./server'); if(!m.server)process.exit(1)"
+          node -e "const b=require('./vendor/bcrypt.min.js'); const h=b.hashSync('test_password','$2a$04$abcdefghijklmnopqrstuv'); if(!b.compareSync('test_password',h))process.exit(1)"
+
       - name: Package ROAS Pilot
         run: |
           zip -r roas-pilot.zip \
             package.json server.js \
-            START_ROAS_PILOT.bat public
+            START_ROAS_PILOT.bat public vendor
 
       - name: Create manifest
         env:
