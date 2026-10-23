@@ -495,13 +495,13 @@ function cafeDate(v){const m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})/);return 
 function cafeMoney(v){if(v==null||v==='')return null;const n=Number(String(v).replace(/,/g,''));return Number.isFinite(n)&&n>=0?n:null;}
 function cafeParseOrder(o){
  const id=String(o.order_id||'');
- const date=cafeDate(o.payment_date||o.pay_date||o.payment_datetime||o.order_date);
+ const date=cafeDate(o.payment_date||o.pay_date||o.payment_datetime);
  if(!id||!date)return null;
  const paid=String(o.paid||o.payment_status||'');
  const orderStatus=String(o.order_status||'');
  const gross=cafeMoney(o.initial_order_amount??o.actual_order_amount??o.payment_amount);
  const net=cafeMoney(o.payment_amount??o.actual_order_amount);
- if(gross==null||net==null)return {id,date,unverified:true,orderStatus};
+ if(gross==null||net==null||paid==='F')return {id,date,unverified:true,orderStatus};
  const canceled=/^(C|R|U)/i.test(orderStatus)||o.canceled==='T';
  const amount=canceled?0:Math.min(net,gross);
  return {id,date,gross,net:amount,refund:Math.max(0,gross-amount),orderStatus,paid,unverified:false,updatedAt:new Date().toISOString()};
