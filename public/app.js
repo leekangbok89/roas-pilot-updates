@@ -185,3 +185,48 @@ if(typeof document!=='undefined'){
  $('compare-run').addEventListener('click',renderComparison);
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const select=$('compare-ad'),ad=select.options[select.selectedIndex]?.textContent||'전체 광고';const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
+
+
+// Complete historical replay/audit is opt-in. Run in one-week windows to avoid
+// a single large Insights request; never discard a previously saved snapshot.
+if(typeof document!=='undefined'){
+  const backfillButton=$('history-backfill');
+  backfillButton?.addEventListener('click',async()=>{
+    if(backfillButton.disabled)return;
+    const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
+    if(Object.values(ids).some(id=>!/^\d{5,30}$/.test(id))||ids.naver===ids.cafe){
+      $('history-backfill-report').textContent='네이버·카페24 광고 계정 ID 두 개를 확인해 주세요.';return;
+    }
+    backfillButton.disabled=true;
+    const status=$('history-backfill-status'),report=$('history-backfill-report');
+    const first='2026-07-01',last=isoDay(new Date());
+    const days=Math.floor((Date.parse(last+'T00:00:00Z')-Date.parse(first+'T00:00:00Z'))/86400000)+1;
+    const ranges=[];for(let i=0;i<days;i+=7)ranges.push([plusDays(first,i),plusDays(first,Math.min(i+6,days-1))]);
+    const failed=[],missing={naver:new Set(),cafe:new Set()},stale={naver:new Set(),cafe:new Set()};
+    let done=0,total=ranges.length*2,success=0;
+    report.textContent='과거 데이터를 수집하고 있습니다. 조회 기간을 바꾸거나 브라우저를 닫지 마세요.';
+    try{
+      for(const [channel,account] of Object.entries(ids)){
+        for(const [since,until] of ranges){
+          status.textContent=(channel==='naver'?'네이버':'카페24')+' '+since+' ~ '+until+' · '+done+'/'+total+'구간';
+          const query=new URLSearchParams({account,since,until,force:'1'});
+          try{
+            const response=await fetch('/api/insights?'+query.toString(),{signal:AbortSignal.timeout(120000)});
+            const data=await response.json();
+            if(!response.ok)throw Error(data.error||'조회 실패');
+            success++;
+            for(const day of data.cache?.missingDays||[])missing[channel].add(day);
+            for(const day of data.cache?.staleDays||[])stale[channel].add(day);
+            for(const warning of data.cache?.warnings||[])failed.push((channel==='naver'?'네이버':'카페24')+' '+since+'~'+until+': '+warning);
+          }catch(e){failed.push((channel==='naver'?'네이버':'카페24')+' '+since+'~'+until+': '+e.message);}
+          done++;await new Promise(resolve=>setTimeout(resolve,400));
+        }
+      }
+      const describe=(key,label)=>label+': 누락 '+missing[key].size+'일'+(missing[key].size?' ('+[...missing[key]].sort().join(', ')+')':'')+', 갱신 지연 '+stale[key].size+'일';
+      report.textContent='2026-07-01 ~ '+last+' · '+success+'/'+total+'구간 확인 완료. '+describe('naver','네이버')+' / '+describe('cafe','카페24')+(failed.length?' / 실패·경고 '+failed.length+'건: '+failed.slice(0,18).join(' | '):' / 조회 실패 없음')+'. 참고: 조회 실패한 전체 구간의 날짜는 재검사가 필요합니다.';
+      status.textContent='과거 데이터 확인 종료 · '+new Date().toLocaleString('ko-KR');
+      // Display the existing saved data without replacing the current date range.
+      // Fresh snapshots will be used at the next normal refresh.
+    }finally{backfillButton.disabled=false;}
+  });
+}
