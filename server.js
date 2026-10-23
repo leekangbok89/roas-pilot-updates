@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.59';
+const appVersion='2.8.60';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -648,10 +648,11 @@ function profitDaily(since,until){
  };
  Object.values(nv).forEach(x=>add('naver',x));Object.values(cv).forEach(x=>add('cafe24',x));
  let days=[];for(let t=dayUTC(since);t<=dayUTC(until);t+=86400000){const date=dayString(t),n=summaries.get(date+':naver'),c=summaries.get(date+':cafe24');let row={date};
-  for(const [channel,rec,complete] of [['naver',n,!!ns[date]],['cafe24',c,!!cs[date]]]){const sum=rec||{revenue:0,cost:0,missingOrders:0,orders:0};row[channel]={revenue:complete?sum.revenue:null,cost:complete&&sum.missingOrders===0?sum.cost:null,fee:complete?Math.round(sum.revenue*fees[channel]/100):null,complete:complete&&sum.missingOrders===0,missingOrders:sum.missingOrders,orders:sum.orders};}
+  for(const [channel,rec,complete] of [['naver',n,!!ns[date]],['cafe24',c,!!cs[date]]]){const sum=rec||{revenue:0,cost:0,missingOrders:0,orders:0};row[channel]={revenue:complete?sum.revenue:null,cost:complete&&sum.missingOrders===0?sum.cost:null,fee:complete?Math.round(sum.revenue*fees[channel]/100):null,complete:complete&&sum.missingOrders===0,missingOrders:sum.missingOrders,orders:sum.orders,reason:!complete?'주문 수집 미완료':sum.missingOrders?'상품·옵션 원가 미확정 '+sum.missingOrders+'건':null};}
   row.revenue=row.naver.revenue!=null&&row.cafe24.revenue!=null?row.naver.revenue+row.cafe24.revenue:null;
   row.cost=row.naver.cost!=null&&row.cafe24.cost!=null?row.naver.cost+row.cafe24.cost:null;
   row.fee=row.naver.fee!=null&&row.cafe24.fee!=null?row.naver.fee+row.cafe24.fee:null;
+  row.reasons=[...['naver','cafe24'].flatMap(ch=>row[ch].reason?[(ch==='naver'?'스마트스토어':'카페24')+': '+row[ch].reason]:[])];
   days.push(row);
  }
  return {fees,days,note:'예상 이익 = 실주문 순매출 - 채널별 평균 수수료 - 등록 옵션 원가·배송비 - Meta 실제 광고비. 부가세·기타 비용은 별도.'};
