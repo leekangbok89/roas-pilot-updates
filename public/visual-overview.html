@@ -62,12 +62,20 @@ $('daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>매
 }
 
 function renderProfit(series){
- const rows=series.map(s=>{const p=profitDays.get(s.date);const valid=!!p&&p.cost!=null&&p.fee!=null&&p.revenue!=null&&Number.isFinite(s.spend)&&s.spend>0&&s.date<iso(new Date());return {date:s.date,revenue:p?.revenue??null,fee:p?.fee??null,cost:p?.cost??null,spend:s.spend,profit:valid?p.revenue-p.fee-p.cost-s.spend:null,valid};});
+ const now=iso(new Date());
+ const rows=series.map(s=>{
+  const p=profitDays.get(s.date),reason=[...(p?.reasons||[])];
+  if(!p)reason.push('이익 데이터 미수집');
+  if(!Number.isFinite(s.spend)||s.date<now&&s.spend===0&&!data.naver.some(x=>x.date===s.date)&&!data.cafe.some(x=>x.date===s.date))reason.push('광고비 미확인');
+  if(s.date>=now)reason.push('당일 집계 진행 중');
+  const valid=!!p&&p.cost!=null&&p.fee!=null&&p.revenue!=null&&Number.isFinite(s.spend)&&reason.length===0;
+  return {date:s.date,revenue:p?.revenue??null,fee:p?.fee??null,cost:p?.cost??null,spend:s.spend,profit:valid?p.revenue-p.fee-p.cost-s.spend:null,valid,reason};
+ });
  rows.forEach(r=>{const p=profitDays.get(r.date);if(p)p.profit=r.profit;});
  const valid=rows.filter(r=>r.valid),total=valid.reduce((n,r)=>n+r.profit,0);
  $('profit-total').textContent=valid.length?won(total):'산출 불가';
- $('profit-status').textContent=valid.length+'/'+rows.length+'일 계산 완료 · 누락 '+(rows.length-valid.length)+'일';
- $('profit-table').innerHTML='<table><thead><tr><th>날짜</th><th>합산 매출</th><th>판매 수수료</th><th>상품 원가·배송비</th><th>광고비</th><th>예상 이익</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.date+'</td><td>'+won(r.revenue)+'</td><td>'+won(r.fee)+'</td><td>'+won(r.cost)+'</td><td>'+won(r.spend)+'</td><td>'+(r.valid?won(r.profit):'미확정')+'</td></tr>').join('')+'</tbody></table>';
+ $('profit-status').textContent=valid.length+'/'+rows.length+'일 계산 완료 · 미확정 '+(rows.length-valid.length)+'일';
+ $('profit-table').innerHTML='<table><thead><tr><th>날짜</th><th>합산 매출</th><th>판매 수수료</th><th>상품 원가·배송비</th><th>광고비</th><th>예상 이익</th><th>상태·사유</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.date+'</td><td>'+won(r.revenue)+'</td><td>'+won(r.fee)+'</td><td>'+won(r.cost)+'</td><td>'+won(r.spend)+'</td><td>'+(r.valid?won(r.profit):'미확정')+'</td><td>'+(r.valid?'완료':r.reason.map(safe).join(' / ')||'필수 데이터 부족')+'</td></tr>').join('')+'</tbody></table>';
 }
 function renderBudgetAnalysis(){
  const root=$('budget-table'),note=$('budget-note');if(!root||!note)return;
