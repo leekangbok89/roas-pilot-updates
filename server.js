@@ -128,7 +128,8 @@ async function insights(query){
  const dailyFile=path.join(safeAccountFolder(account),'daily-sync.json');
  let lastAttempt='';try{lastAttempt=JSON.parse(fs.readFileSync(dailyFile,'utf8')).date||'';}catch{}
  const shouldSync=!force&&lastAttempt!==today&&dates.some(d=>d>=recentStart&&d<=today);
- let requested=force?dates:shouldSync?dates.filter(d=>d>=recentStart&&d<=today):[];
+ let requested=force?dates:shouldSync?Array.from({length:7},(_,i)=>dayString(dayUTC(recentStart)+i*86400000)):[];
+ if(shouldSync)for(const d of requested)if(!snapshots.has(d))snapshots.set(d,loadDay(account,d));
  if(shouldSync&&token){fs.mkdirSync(safeAccountFolder(account),{recursive:true});fs.writeFileSync(dailyFile,JSON.stringify({date:today,attemptedAt:new Date().toISOString()}));}
  const issues=[];let updated=0;
  // Do not make hundreds of API calls: group uncached/stale consecutive days in windows of <=7 days.
