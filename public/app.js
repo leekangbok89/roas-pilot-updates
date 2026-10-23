@@ -251,7 +251,7 @@ if(typeof document!=='undefined'){
  const b=$('compare-run'),startA=$('compare-a-start').value,endA=$('compare-a-end').value,startB=$('compare-b-start').value,endB=$('compare-b-end').value;
  if(!startA||!endA||!startB||!endB||startA>endA||startB>endB){renderComparison();return;}
  const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
- const chosen=$('compare-channel')?.value||'all';const channels=chosen==='all'?['naver','cafe']:[chosen];
+ const channels=['naver','cafe']; // load both cached channels; channel selector filters locally
  const from=[startA,startB].sort()[0],to=[endA,endB].sort().at(-1);
  const rows=[],warnings=[];b.disabled=true;b.textContent='저장 데이터 조회 중…';
  try{
