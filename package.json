@@ -1,13 +1,8 @@
 {
   "name": "meta-roas-analyzer",
-  "version": "2.8.59",
+  "version": "2.8.60",
   "private": true,
   "description": "CSV + Meta Marketing API ROAS analysis dashboard",
-  "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
-  },
-  "engines": {
-    "node": ">=20"
-  }
+  "scripts": {"start": "node server.js", "test": "node --test"},
+  "engines": {"node": ">=20"}
 }
