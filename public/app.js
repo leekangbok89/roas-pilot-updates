@@ -155,7 +155,7 @@ const plusDays=(date,n)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate
 const compMetrics=[['spend','광고비',x=>dual(x)],['purchases','구매',x=>x==null?'—':num(x)+'건'],['revenue','구매 매출',x=>dual(x)],['roas','ROAS',pct],['cpa','CPA',dual],['cpc','링크 CPC',dual],['ctr','링크 CTR',pct]];
 function availableAds(){const all=aggregate(visibleRows());return all.sort((a,b)=>a.channel.localeCompare(b.channel)||a.ad.localeCompare(b.ad));}
 function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
-function renderComparison(){
+function renderComparison(rowsOverride){
  const select=$('compare-ad');if(!select)return;
  const old=select.value;const list=availableAds();
  select.innerHTML='<option value="all">전체 광고</option>'+list.map(r=>'<option value="'+safe(compKey(r))+'">'+safe((r.channel==='naver'?'네이버':r.channel==='cafe'?'카페24':'전체')+' · '+r.ad)+'</option>').join('');
@@ -163,9 +163,9 @@ function renderComparison(){
  renderChangeHistory();
  const ranges=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
  if(ranges.some(([s,e])=>!s||!e||s>e)){$('compare-result').textContent='기간 A와 B의 시작일·종료일을 올바르게 선택하세요.';return;}
- if(!state.rows.length){$('compare-result').textContent='조회된 데이터가 없습니다. 상단 조회 기간을 두 비교 기간이 포함되도록 선택하고 새로고침하세요.';return;}
+ if(!state.rows.length&&!rowsOverride){$('compare-result').textContent='저장 데이터 조회 버튼을 눌러 두 기간을 불러오세요.';return;}
  const selected=select.value;
- const rows=visibleRows().filter(r=>selected==='all'||compKey(r)===selected);
+ const rows=(rowsOverride||visibleRows()).filter(r=>selected==='all'||compKey(r)===selected);
  const byDate=new Map();
  for(const r of rows){if(!r.date)continue;let arr=byDate.get(r.date);if(!arr){arr=[];byDate.set(r.date,arr);}arr.push(r);}
  function period(from,to){
@@ -203,7 +203,7 @@ function renderComparison(){
  };
  const incomplete=a.unknown.length||b.unknown.length||a.zero.length||b.zero.length;
  const warning=(p,label)=>label+': '+p.days+'일 중 기록 '+p.dates.length+'일 / 광고비 0원 '+p.zero.length+'일'+(p.zero.length?' ('+p.zero.join(', ')+')':'')+' / 기록 없는 날짜 '+p.unknown.length+'일'+(p.unknown.length?' ('+p.unknown.join(', ')+')':'');
- const bounds=($('since').value<=a.from&&$('since').value<=b.from&&$('until').value>=a.to&&$('until').value>=b.to);
+ const bounds=!!rowsOverride||($('since').value<=a.from&&$('since').value<=b.from&&$('until').value>=a.to&&$('until').value>=b.to);
  $('compare-result').innerHTML='<p class="helper"><b>기간 A '+safe(a.from)+' ~ '+safe(a.to)+'</b> · <b>기간 B '+safe(b.from)+' ~ '+safe(b.to)+'</b></p>'+
  (bounds?'':'<p style="color:#a75321;font-weight:700">상단 조회 기간에 비교 날짜가 포함되지 않았습니다. 날짜 범위를 넓혀 데이터를 불러온 뒤 비교하세요.</p>')+
  (incomplete?'<p style="color:#ad5a21;font-weight:700">주의: 0원 또는 기록 없는 날짜가 있습니다. 품절·광고 중지·API 미수집 여부를 확인하세요. 기록 없는 날짜는 0원으로 계산하지 않습니다.</p>':'')+
@@ -220,7 +220,27 @@ function renderChangeHistory(){const el=$('change-history');if(!el)return;const 
 if(typeof document!=='undefined'){
  const today=isoDay(new Date());$('compare-b-end').value=today;$('compare-b-start').value=plusDays(today,-6);$('compare-a-end').value=plusDays(today,-7);$('compare-a-start').value=plusDays(today,-13);$('compare-date').value=plusDays(today,-7);
  for(const k of ['compare-ad','compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
- $('compare-run').addEventListener('click',renderComparison);
+ $('compare-run').addEventListener('click',async()=>{
+ const b=$('compare-run'),startA=$('compare-a-start').value,endA=$('compare-a-end').value,startB=$('compare-b-start').value,endB=$('compare-b-end').value;
+ if(!startA||!endA||!startB||!endB||startA>endA||startB>endB){renderComparison();return;}
+ const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
+ const channels=state.channel==='all'?['naver','cafe']:[state.channel];
+ const from=[startA,startB].sort()[0],to=[endA,endB].sort().at(-1);
+ const rows=[],warnings=[];b.disabled=true;b.textContent='저장 데이터 조회 중…';
+ try{
+  for(const channel of channels){
+   if(!/^\\d{5,30}$/.test(ids[channel])){warnings.push(channel+' 계정 ID 없음');continue;}
+   const params=new URLSearchParams({account:ids[channel],since:from,until:to,cacheOnly:'1'});
+   const resp=await fetch('/api/insights?'+params.toString());const data=await resp.json();
+   if(!resp.ok){warnings.push(channel+': '+(data.error||'조회 실패'));continue;}
+   rows.push(...(data.rows||[]).map(row=>({...normalizeApi(row),channel})));
+   if(data.cache?.missingDays?.length)warnings.push(channel+' 미저장 '+data.cache.missingDays.length+'일 ('+data.cache.missingDays.join(', ')+')');
+  }
+  renderComparison(rows);
+  if(warnings.length){const node=$('compare-result');node.insertAdjacentHTML('afterbegin','<p style="color:#ad5a21;font-weight:700">'+safe(warnings.join(' / '))+'</p>');}
+ }catch(e){$('compare-result').textContent='저장 데이터 조회 실패: '+e.message;}
+ finally{b.disabled=false;b.textContent='전후 비교';}
+});
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const select=$('compare-ad'),ad=select.options[select.selectedIndex]?.textContent||'전체 광고';const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
 
