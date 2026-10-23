@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.14';
+const appVersion='2.8.15';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -99,7 +99,7 @@ function todaySeoul(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seo
 function safeAccountFolder(account){return path.join(snapshotsDir,account);}
 function loadDay(account,date){try{const o=JSON.parse(fs.readFileSync(path.join(safeAccountFolder(account),date+'.json'),'utf8'));return Array.isArray(o.rows)&&o.date===date&&o.account===account?o:null;}catch{return null;}}
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
-function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<=1)return Date.now()-Date.parse(snapshot.savedAt)>60*60*1000; if(ageDays<=7)return Date.now()-Date.parse(snapshot.savedAt)>24*60*60*1000;return false;}
+function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
 async function fetchMetaRange(account,since,until,token,version){
  const fields='date_start,date_stop,account_currency,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,reach,frequency,inline_link_clicks,ctr,cpm,cpc,actions,action_values,purchase_roas,website_purchase_roas,quality_ranking,conversion_rate_ranking';
  const url=new URL(`https://graph.facebook.com/${version}/act_${account}/insights`);
