@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.40';
+const appVersion='2.8.41';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -305,11 +305,34 @@ function naverNormalize(detail){
  const net=canceled?0:Math.min(validGross,validRemain);
  return {id,paymentDate,status,gross:validGross,net,refund:Math.max(0,validGross-net),updatedAt:new Date().toISOString()};
 }
+const naverDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let naverLastRequestAt=0;
+let naverQueue=Promise.resolve();
+async function naverGate(){
+ // Serialize all order API requests (including manual tests) well below 2 calls/second.
+ const prev=naverQueue;let release;naverQueue=new Promise(resolve=>release=resolve);
+ await prev;
+ const delay=Math.max(0,1100-(Date.now()-naverLastRequestAt));
+ if(delay)await naverDelay(delay);
+ naverLastRequestAt=Date.now();
+ release();
+}
 async function naverAPI(endpoint,token,options={}){
- const response=await fetch('https://api.commerce.naver.com/external'+endpoint,{...options,headers:{Accept:'application/json',Authorization:'Bearer '+token,...(options.body?{'Content-Type':'application/json'}:{})},redirect:'error',signal:AbortSignal.timeout(30000)});
- let data;try{data=await response.json();}catch{data={};}
- if(!response.ok)throw Error('네이버 주문 API HTTP '+response.status+' · '+String(data.code||'요청 실패').slice(0,60));
- return data;
+ for(let attempt=0;attempt<6;attempt++){
+  await naverGate();
+  const response=await fetch('https://api.commerce.naver.com/external'+endpoint,{...options,headers:{Accept:'application/json',Authorization:'Bearer '+token,...(options.body?{'Content-Type':'application/json'}:{})},redirect:'error',signal:AbortSignal.timeout(30000)});
+  let data;try{data=await response.json();}catch{data={};}
+  if(response.status===429){
+   if(attempt===5)throw Error('네이버 API 호출 제한(429)이 반복되어 중단했습니다. 저장된 주문은 그대로 유지됩니다.');
+   const retry=Number(response.headers.get('retry-after'));
+   const pause=Number.isFinite(retry)&&retry>0?Math.min(retry*1000,60000):Math.min(2000*Math.pow(2,attempt),30000);
+   naverJobs.progress='네이버 호출 제한 감지 · '+Math.round(pause/1000)+'초 후 자동 재시도 ('+(attempt+1)+'/5)';
+   await naverDelay(pause);
+   continue;
+  }
+  if(!response.ok)throw Error('네이버 주문 API HTTP '+response.status+' · '+String(data.code||'요청 실패').slice(0,60));
+  return data;
+ }
 }
 function naverWindow(date){
  const start=new Date(date+'T00:00:00+09:00');
@@ -360,7 +383,8 @@ async function naverRun(mode){
   for(let i=0;i<dates.length;i++){
    const d=dates[i];naverJobs.progress=d+' 변경 주문 검사 ('+(i+1)+'/'+dates.length+')';
    try{
-    if(i>0&&i%70===0)token=(await naverAccessToken()).token;
+    if(i>0&&i%60===0)token=(await naverAccessToken()).token;
+    if(mode==='backfill'&&synced.days[d]){naverJobs.daysCompleted++;continue;}
     const ids=await naverChangedIds(d,token);
     const details=await naverDetails(ids,token);
     if(details.length!==ids.length)throw Error('변경 주문 '+ids.length+'건 중 상세 '+details.length+'건만 조회됨. 해당 날짜를 미완료로 유지합니다.');
