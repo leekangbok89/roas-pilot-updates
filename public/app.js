@@ -199,7 +199,7 @@ if(typeof document!=='undefined'){
     }
     backfillButton.disabled=true;
     const status=$('history-backfill-status'),report=$('history-backfill-report');
-    const first='2026-07-01',last=isoDay(new Date());
+    const first='2026-06-01',last=isoDay(new Date());
     const days=Math.floor((Date.parse(last+'T00:00:00Z')-Date.parse(first+'T00:00:00Z'))/86400000)+1;
     const ranges=[];for(let i=0;i<days;i+=7)ranges.push([plusDays(first,i),plusDays(first,Math.min(i+6,days-1))]);
     const failed=[],missing={naver:new Set(),cafe:new Set()},stale={naver:new Set(),cafe:new Set()};
@@ -223,7 +223,7 @@ if(typeof document!=='undefined'){
         }
       }
       const describe=(key,label)=>label+': 누락 '+missing[key].size+'일'+(missing[key].size?' ('+[...missing[key]].sort().join(', ')+')':'')+', 갱신 지연 '+stale[key].size+'일';
-      report.textContent='2026-07-01 ~ '+last+' · '+success+'/'+total+'구간 확인 완료. '+describe('naver','네이버')+' / '+describe('cafe','카페24')+(failed.length?' / 실패·경고 '+failed.length+'건: '+failed.slice(0,18).join(' | '):' / 조회 실패 없음')+'. 참고: 조회 실패한 전체 구간의 날짜는 재검사가 필요합니다.';
+      report.textContent='2026-06-01 ~ '+last+' · '+success+'/'+total+'구간 확인 완료. '+describe('naver','네이버')+' / '+describe('cafe','카페24')+(failed.length?' / 실패·경고 '+failed.length+'건: '+failed.slice(0,18).join(' | '):' / 조회 실패 없음')+'. 참고: 조회 실패한 전체 구간의 날짜는 재검사가 필요합니다.';
       status.textContent='과거 데이터 확인 종료 · '+new Date().toLocaleString('ko-KR');
       // Display the existing saved data without replacing the current date range.
       // Fresh snapshots will be used at the next normal refresh.
