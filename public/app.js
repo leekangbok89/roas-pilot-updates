@@ -50,22 +50,37 @@ a.cpc=a.clicks>0&&a.spend!=null?a.spend/a.clicks:null;a.cpm=a.impressions>0&&a.s
 a.ctr=a.impressions>0&&a.clicks!=null?a.clicks/a.impressions*100:null;
 a.frequency=a.reach>0&&a.impressions!=null?a.impressions/a.reach:null;
 return a;});}
-function settings(){return {roas:Math.max(50,Number($('target-roas').value)||300),cpa:Math.max(1000,Number($('target-cpa').value)||40000),min:Math.max(1,Number($('min-purchases').value)||3)};}
-function diagnose(a,c){const reasons=[],actions=[];let status='learn';const havePurchase=a.purchases!=null,haveRevenue=a.revenue!=null;
-if(!havePurchase||!haveRevenue){reasons.push('구매 수 또는 구매 전환값 데이터가 없어 ROAS/CPA를 확정할 수 없습니다.');actions.push('Ads Manager 열 맞춤에서 웹사이트 구매와 구매 전환값을 포함해 다시 다운로드하세요.');return {status,reasons,actions};}
-if(a.spend<=0){reasons.push('광고비가 없거나 0으로 기록되었습니다.');actions.push('분석 기간과 지출 열을 확인하세요.');return {status,reasons,actions};}
-if(a.purchases===0){if(a.spend>=c.cpa*1.5){status='review';reasons.push(`구매가 0건인데 목표 CPA의 1.5배 이상 (${won(a.spend)}) 지출되었습니다.`);actions.push('픽셀 Purchase 이벤트와 기여 설정을 확인하고, 소재/랜딩 문제를 검토한 뒤 일시중단을 판단하세요.');}else{reasons.push('아직 구매가 없으며, 중단 판단에 필요한 지출 기준에 도달하지 않았습니다.');actions.push('목표 CPA 대비 충분한 학습 지출을 확보하고 관찰하세요.');}}
-else if(a.purchases<c.min){reasons.push(`구매 ${num(a.purchases)}건으로 최소 판단 기준 ${c.min}건에 미달합니다.`);actions.push('광고비 과소·학습 초기라면 더 관찰하고, CPA 추세를 함께 확인하세요.');}
-else if(a.roas>=c.roas*1.2&&a.cpa<=c.cpa){status='scale';reasons.push(`ROAS ${pct(a.roas)}가 목표 ${pct(c.roas)}보다 20% 이상 높고, CPA도 목표 이내입니다.`);actions.push('예산을 한 번에 크게 올리지 말고 10~20% 증액 후 3~7일 추적하세요.');}
-else if(a.roas>=c.roas&&a.cpa<=c.cpa){status='keep';reasons.push('ROAS와 CPA 목표를 모두 충족합니다.');actions.push('소재 유지, 빈도와 최근 ROAS 변동 모니터링을 권장합니다.');}
-else{status='improve';reasons.push(`ROAS ${pct(a.roas)} / CPA ${won(a.cpa)}로 설정한 수익성 조건 중 하나 이상을 충족하지 않습니다.`);actions.push('소재 후킹, 제품 USP, 랜딩페이지 구매 전환율을 분리 점검하세요.');}
-if(a.clicks!=null&&a.landing!=null&&a.clicks>=30){const ratio=a.landing/a.clicks;if(ratio<.65){reasons.push(`링크 클릭 대비 랜딩 조회 비율이 ${pct(ratio*100)}로 낮습니다.`);actions.push('모바일 페이지 로딩, 광고 링크 및 브라우저 호환성을 확인하세요.');}}
-if(a.landing!=null&&a.landing>=70&&a.purchases!=null&&a.purchases/a.landing<.01){reasons.push(`랜딩 조회 대비 구매율이 ${pct(a.purchases/a.landing*100)}입니다.`);actions.push('상세페이지 가격·배송·후기·결제 단계 이탈을 우선 확인하세요.');}
-if(a.cpc!=null&&a.clicks>=30){reasons.push(`링크 CPC ${won(a.cpc)} · 링크 클릭 ${num(a.clicks)}회입니다.`);actions.push('CPC만으로 광고 중단을 판단하지 말고 구매 CPA·ROAS와 함께 비교하세요.');}
-if(a.frequency==null&&a.dates?.size>1){reasons.push('전체 기간의 고유 도달을 일별 데이터만으로 복원할 수 없어 빈도를 표시하지 않습니다.');actions.push('정확한 기간 전체 빈도는 Meta 광고 관리자에서 같은 기간의 광고별 빈도를 확인하세요.');}
-if(a.frequency!=null&&a.frequency>=3.5){reasons.push(`노출 빈도 ${a.frequency.toFixed(1)}회로 반복 노출이 높습니다.`);actions.push('신규 소재/타깃 실험을 검토하세요. 빈도만으로 중단하지는 마세요.');}
-if(a.ctr!=null&&a.ctr<1&&a.impressions>=1000){reasons.push(`링크 CTR ${pct(a.ctr)}로 클릭 유도가 약할 수 있습니다.`);actions.push('첫 3초 훅, 썸네일, 제품 차별점 및 CTA를 A/B 테스트하세요.');}
-return {status,reasons,actions};}
+function settings(){return {roas:300,cpa:40000,min:Math.max(1,Number($('min-purchases')?.value)||3)};}
+function adBenchmark(ads){
+ const usable=ads.filter(a=>a.spend>0&&a.purchases!=null&&a.revenue!=null);
+ const sum=k=>usable.reduce((n,a)=>n+(Number(a[k])||0),0);
+ const spend=sum('spend'),buy=sum('purchases');
+ const all=ads.filter(a=>a.spend>0);
+ const weighted=(key,weight)=>{const arr=all.filter(a=>a[key]!=null&&a[weight]>0);const den=arr.reduce((n,a)=>n+a[weight],0);return den?arr.reduce((n,a)=>n+a[key]*a[weight],0)/den:null;};
+ return {count:usable.length,roas:spend>0?sum('revenue')/spend*100:null,cpa:buy>0?spend/buy:null,cpc:weighted('cpc','clicks'),ctr:weighted('ctr','impressions')};
+}
+function diagnose(a,c){
+ const reasons=[],actions=[];let status='learn',base=c.baseline||{};
+ if(a.purchases==null||a.revenue==null||a.spend<=0){reasons.push('구매·매출 데이터가 부족해 광고 평균을 비교할 수 없습니다.');actions.push('해당 광고의 구매 이벤트·광고비 수집 여부를 확인하세요.');return {status,reasons,actions};}
+ const cmp=(label,value,avg,higherGood,fmt)=>{
+  if(value==null||avg==null||!Number.isFinite(value)||!Number.isFinite(avg))return null;
+  const above=value>=avg;const diff=avg?((value/avg)-1)*100:null;
+  reasons.push(label+' '+fmt(value)+' / 전체 평균 '+fmt(avg)+' → '+(above?'평균 이상':'평균 이하')+(diff==null?'':' ('+(diff>=0?'+':'')+diff.toFixed(1)+'%)'));
+  return higherGood?above:!above;
+ };
+ const roasGood=cmp('ROAS',a.roas,base.roas,true,pct);
+ const cpaGood=cmp('구매 CPA',a.cpa,base.cpa,false,won);
+ cmp('링크 CPC',a.cpc,base.cpc,false,won);cmp('링크 CTR',a.ctr,base.ctr,true,pct);
+ if(base.count<3)reasons.push('비교 가능한 광고가 '+base.count+'개로 평균을 신중하게 해석해야 합니다.');
+ if(a.purchases===0){status=base.cpa!=null&&a.spend>=base.cpa*1.5?'review':'learn';actions.push('구매가 없습니다. 평균 구매당 비용 수준의 지출이 발생했는지 확인하세요.');}
+ else if(a.purchases<c.min){status='learn';reasons.push('구매 '+num(a.purchases)+'건 · 최소 판단 기준 '+c.min+'건 미달');actions.push('표본 부족이므로 판단을 유보하고 추세를 관찰하세요.');}
+ else if(roasGood===true&&cpaGood===true){status='scale';actions.push('ROAS 평균 이상, CPA 평균 이하입니다. 단계적 예산 증액 실험을 검토하세요.');}
+ else if(roasGood===true||cpaGood===true){status='keep';actions.push('지표의 장단점이 혼재합니다. 기간별 추세를 더 확인하세요.');}
+ else if(roasGood===false&&cpaGood===false){status='improve';actions.push('ROAS 평균 이하, CPA 평균 이상입니다. 소재와 구매 전환 과정을 점검하세요.');}
+ else{status='learn';actions.push('전체 평균을 계산하기 위한 데이터가 충분하지 않습니다.');}
+ if(a.frequency==null&&a.dates?.size>1)reasons.push('기간 전체 빈도는 일별 고유 도달 중복 때문에 계산하지 않습니다.');
+ return {status,reasons,actions};
+}
 const statusNames={scale:'확대 검토',keep:'유지',improve:'개선 검토',review:'중단 검토',learn:'데이터 부족'};
 function totals(ads){const out={};for(const f of ['spend','impressions','clicks','landing','cart','checkout','purchases','revenue']){let present=false;let sum=0;for(const a of ads){if(a[f]!=null){sum+=a[f];present=true;}}out[f]=present?sum:null;}out.roas=out.spend>0&&out.revenue!=null?out.revenue/out.spend*100:null;out.cpa=out.purchases>0?out.spend/out.purchases:null;return out;}
 function plot(){const dated=new Map();for(const r of visibleRows()){if(!/^\d{4}-\d{2}-\d{2}$/.test(r.date||''))continue;const o=dated.get(r.date)||{spend:0,revenue:0,hasRevenue:false};o.spend+=(r.spend||0);if(r.revenue!=null){o.revenue+=r.revenue;o.hasRevenue=true;}dated.set(r.date,o);}const days=[...dated.entries()].sort((a,b)=>a[0].localeCompare(b[0]));if(days.length<2){$('chart').innerHTML='<div class="empty">일별 데이터가 없거나 기간 합계 CSV입니다. Meta API 또는 일별 CSV를 이용하세요.</div>';return;}
@@ -73,9 +88,9 @@ const valid=days.map(([d,v])=>({date:d,value:v.spend>0&&v.hasRevenue?v.revenue/v
 const coords=valid.map((v,i)=>v.value==null?null:[x(i),y(v.value)]);let segments=[],seg=[];for(const p of coords){if(p)seg.push(p);else if(seg.length){segments.push(seg);seg=[];}}if(seg.length)segments.push(seg);
 const paths=segments.map(s=>`<polyline fill="none" stroke="#6b61ef" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${s.map(p=>p.join(',')).join(' ')}"/>`).join('');const dots=coords.map((p,i)=>p?`<circle cx="${p[0]}" cy="${p[1]}" r="3.8" fill="#6b61ef"><title>${valid[i].date}: ${pct(valid[i].value)}</title></circle>`:'').join('');const goalY=y(settings().roas);
 const labels=valid.map((v,i)=>i===0||i===valid.length-1||i%Math.max(1,Math.ceil(valid.length/5))===0?`<text x="${x(i)}" y="${h-9}" font-size="11" text-anchor="middle" fill="#9ba7b8">${v.date.slice(5)}</text>`:'').join('');
-$('chart').innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="날짜별 ROAS 선 그래프">${grid}<line x1="${l}" y1="${goalY}" x2="${w-r}" y2="${goalY}" stroke="#eba964" stroke-dasharray="4 5"/><text x="${w-r-4}" y="${goalY-5}" text-anchor="end" font-size="10" fill="#b58b49">목표 ${pct(settings().roas)}</text>${paths}${dots}${labels}</svg>`;}
-function render(){const c=settings(),ads=aggregate(visibleRows()).map(a=>({...a,diagnosis:diagnose(a,c)}));state.ads=ads;updateDiagnosisHierarchy();const t=totals(ads);$('k-spend').textContent=won(t.spend);$('k-revenue').textContent=won(t.revenue);$('k-roas').textContent=pct(t.roas);$('k-cpa').textContent=won(t.cpa);$('k-spend-usd').textContent=state.source==='api'?dollars(t.spend/state.fxRate)+' (USD 환산)':'';$('k-revenue-usd').textContent=state.source==='api'?dollars(t.revenue==null?null:t.revenue/state.fxRate)+' (USD 환산)':'Meta 귀속 구매 전환값';$('k-cpa-usd').textContent=state.source==='api'?dollars(t.cpa==null?null:t.cpa/state.fxRate)+' (USD 환산)':'';$('k-ads').textContent=`광고 ${num(ads.length)}개`;if($('channel-metrics'))$('channel-metrics').textContent=`현재 ${state.channel==='all'?'전체 통합':state.channel==='naver'?'네이버 스마트스토어':'카페24 자사몰'} · 광고 ${num(ads.length)}개`;$('k-goal').textContent=`목표 ROAS ${pct(c.roas)}`;$('k-purchases').textContent=t.purchases==null?'구매 데이터 없음':`구매 ${num(t.purchases)}건`;
-const counts={scale:0,keep:0,improve:0,review:0,learn:0};ads.forEach(a=>counts[a.diagnosis.status]++);$('summary').innerHTML=[['↗','확대 검토',`${counts.scale}개 광고 · 목표 이상이며 충분한 구매 데이터가 있는 광고`],['◇','개선 / 중단 검토',`${counts.improve+counts.review}개 광고 · 구매 전환 및 지출 효율 확인 필요`],['◷','데이터 부족',`${counts.learn}개 광고 · 성급한 중단 대신 학습 관찰 필요`]].map(q=>`<div class="summary-item"><span class="s-icon">${q[0]}</span><div><b>${q[1]}</b><p>${q[2]}</p></div></div>`).join('');
+$('chart').innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="날짜별 ROAS 선 그래프">${grid}<line x1="${l}" y1="${goalY}" x2="${w-r}" y2="${goalY}" stroke="#eba964" stroke-dasharray="4 5"/><text x="${w-r-4}" y="${goalY-5}" text-anchor="end" font-size="10" fill="#b58b49">평균 ${pct(adBenchmark(aggregate(visibleRows())).roas)}</text>${paths}${dots}${labels}</svg>`;}
+function render(){const c=settings(),rawAds=aggregate(visibleRows());c.baseline=adBenchmark(rawAds);const ads=rawAds.map(a=>({...a,diagnosis:diagnose(a,c)}));state.ads=ads;updateDiagnosisHierarchy();const t=totals(ads);$('k-spend').textContent=won(t.spend);$('k-revenue').textContent=won(t.revenue);$('k-roas').textContent=pct(t.roas);$('k-cpa').textContent=won(t.cpa);$('k-spend-usd').textContent=state.source==='api'?dollars(t.spend/state.fxRate)+' (USD 환산)':'';$('k-revenue-usd').textContent=state.source==='api'?dollars(t.revenue==null?null:t.revenue/state.fxRate)+' (USD 환산)':'Meta 귀속 구매 전환값';$('k-cpa-usd').textContent=state.source==='api'?dollars(t.cpa==null?null:t.cpa/state.fxRate)+' (USD 환산)':'';$('k-ads').textContent=`광고 ${num(ads.length)}개`;if($('channel-metrics'))$('channel-metrics').textContent=`현재 ${state.channel==='all'?'전체 통합':state.channel==='naver'?'네이버 스마트스토어':'카페24 자사몰'} · 광고 ${num(ads.length)}개`;$('k-goal').textContent=`광고 평균 ROAS ${pct(c.baseline.roas)}`;$('k-purchases').textContent=t.purchases==null?'구매 데이터 없음':`구매 ${num(t.purchases)}건`;
+const counts={scale:0,keep:0,improve:0,review:0,learn:0};ads.forEach(a=>counts[a.diagnosis.status]++);$('summary').innerHTML=[['↗','확대 검토',`${counts.scale}개 광고 · 평균 대비 우수한 효율의 광고`],['◇','개선 / 중단 검토',`${counts.improve+counts.review}개 광고 · 구매 전환 및 지출 효율 확인 필요`],['◷','데이터 부족',`${counts.learn}개 광고 · 성급한 중단 대신 학습 관찰 필요`]].map(q=>`<div class="summary-item"><span class="s-icon">${q[0]}</span><div><b>${q[1]}</b><p>${q[2]}</p></div></div>`).join('');
 const steps=[['링크 클릭',t.clicks,null],['랜딩 조회',t.landing,t.clicks],['장바구니',t.cart,t.landing],['결제 시작',t.checkout,t.cart],['구매',t.purchases,t.checkout]];
 $('funnel-grid').innerHTML=steps.map(([name,n,prior])=>`<div class="funnel-step"><small>${name}</small><strong>${n==null?'미수집':num(n)}</strong><span class="rate">${prior==null||n==null?'비율 계산 불가':prior===0?'이전 단계 0':`이전 단계 대비 ${pct(n/prior*100)}`}</span></div>`).join('');
 const q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
