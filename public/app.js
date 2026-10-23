@@ -157,7 +157,7 @@ function availableAds(){const all=aggregate(visibleRows());return all.sort((a,b)
 function compKey(r){return (r.channel||'')+'::'+String(r.id||r.ad)}
 
 let compareFetchedRows=null;
-function compareData(){return Array.isArray(compareFetchedRows)?compareFetchedRows:visibleRows();}
+function compareData(){const all=Array.isArray(compareFetchedRows)?compareFetchedRows:state.rows;const channel=$('compare-channel')?.value||'all';return channel==='all'?all:all.filter(r=>r.channel===channel);}
 function comparePickValue(r,level){
  if(level==='campaign')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음']);
  if(level==='adset')return JSON.stringify([r.channel||'',r.campaign||'캠페인명 없음',r.adset||'세트명 없음']);
@@ -235,7 +235,7 @@ function renderComparison(rowsOverride){
  '<p class="helper">'+safe(warning(a,'기간 A'))+'<br>'+safe(warning(b,'기간 B'))+'</p>'+
  '<table><thead><tr><th>지표</th><th>기간 A 합계/비율</th><th>A 집행일 평균</th><th>기간 B 합계/비율</th><th>B 집행일 평균</th><th>B-A 차이</th></tr></thead><tbody>'+
  keys.map(([k,label])=>'<tr><td>'+label+'</td><td>'+fmt(k,a)+'</td><td>'+(['roas','cpa','cpc','ctr'].includes(k)?'기간 합산 비율':avg(k,a))+'</td><td>'+fmt(k,b)+'</td><td>'+(['roas','cpa','cpc','ctr'].includes(k)?'기간 합산 비율':avg(k,b))+'</td><td>'+diff(k)+'</td></tr>').join('')+'</tbody></table>'+
- '<p class="helper">집행일 평균은 광고비가 0원보다 큰 기록이 확인된 날짜만 분모에 포함합니다. 비율(ROAS·CPA·CPC·CTR)은 일별 단순평균이 아닌 기간 전체 금액·건수·클릭·노출의 합계로 계산합니다. 0원 날짜의 사유는 광고 관리자에서 확인해야 합니다.</p>';
+ '<p class="helper">집행일 평균 = 합계 ÷ 광고비가 0원보다 큰 날짜 수입니다. 예를 들어 7일 중 5일만 광고비가 있으면 5로 나눕니다. 광고비 0원 날짜와 미수집 날짜는 따로 표시합니다. 비율(ROAS·CPA·CPC·CTR)은 일별 단순평균이 아닌 기간 전체 금액·건수·클릭·노출의 합계로 계산합니다. 0원 날짜의 사유는 광고 관리자에서 확인해야 합니다.</p>';
  const dates=[...new Set([...a.dates,...b.dates])].sort();
  $('compare-daily').innerHTML='<table><thead><tr><th>날짜</th><th>구분</th><th>광고비</th><th>구매</th><th>매출</th><th>ROAS</th><th>상태</th></tr></thead><tbody>'+
  dates.map(date=>{const v=totals(aggregate(byDate.get(date)||[])),isA=date>=a.from&&date<=a.to;return '<tr><td>'+date+'</td><td>'+(isA?'A':'B')+'</td><td>'+dual(v.spend)+'</td><td>'+(v.purchases==null?'—':num(v.purchases))+'</td><td>'+dual(v.revenue)+'</td><td>'+pct(v.roas)+'</td><td>'+(v.spend===0?'광고비 0원':'기록 있음')+'</td></tr>';}).join('')+'</tbody></table>';
@@ -245,12 +245,13 @@ function renderChangeHistory(){const el=$('change-history');if(!el)return;const 
 if(typeof document!=='undefined'){
  const today=isoDay(new Date());$('compare-b-end').value=today;$('compare-b-start').value=plusDays(today,-6);$('compare-a-end').value=plusDays(today,-7);$('compare-a-start').value=plusDays(today,-13);$('compare-date').value=plusDays(today,-7);
  for(const k of ['compare-a-start','compare-a-end','compare-b-start','compare-b-end'])$(k).addEventListener('change',renderComparison);
+ $('compare-channel').addEventListener('change',()=>{syncCompareOptions('campaign');renderComparison();});
  for(const id of ['compare-campaign','compare-adset','compare-creative'])$(id).addEventListener('change',()=>{syncCompareOptions(id==='compare-campaign'?'campaign':id==='compare-adset'?'adset':'creative');renderComparison();});
  $('compare-run').addEventListener('click',async()=>{
  const b=$('compare-run'),startA=$('compare-a-start').value,endA=$('compare-a-end').value,startB=$('compare-b-start').value,endB=$('compare-b-end').value;
  if(!startA||!endA||!startB||!endB||startA>endA||startB>endB){renderComparison();return;}
  const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
- const channels=state.channel==='all'?['naver','cafe']:[state.channel];
+ const chosen=$('compare-channel')?.value||'all';const channels=chosen==='all'?['naver','cafe']:[chosen];
  const from=[startA,startB].sort()[0],to=[endA,endB].sort().at(-1);
  const rows=[],warnings=[];b.disabled=true;b.textContent='저장 데이터 조회 중…';
  try{
