@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.43';
+const appVersion='2.8.44';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -473,7 +473,7 @@ async function cafeOrderTest(){
  const current=cafeRead();
  const day=todaySeoul(),qs=new URLSearchParams({shop_no:'1',date_type:'pay_date',start_date:day+' 00:00:00',end_date:day+' 23:59:59'});
  const api='https://'+current.mallId+'.cafe24api.com/api/v2/admin/orders/count?'+qs.toString();
- const response=await fetch(api,{headers:{Authorization:'Bearer '+current.tokens.access_token,'X-Cafe24-Api-Version':'2024-06-01'},signal:AbortSignal.timeout(20000)});
+ const response=await fetch(api,{headers:{Authorization:'Bearer '+current.tokens.access_token},signal:AbortSignal.timeout(20000)});
  const result=await response.json().catch(()=>({}));
  if(!response.ok){
   const details=String(result.message||result.error?.message||result.error||result.error_code||result.code||'응답 상세 없음').slice(0,240);
