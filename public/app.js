@@ -266,6 +266,8 @@ if(typeof document!=='undefined'){
  $('compare-channel').addEventListener('change',()=>{compareFetchedRows=null;syncCompareOptions('campaign');invalidateComparison();});
  for(const id of ['compare-campaign','compare-adset','compare-creative'])$(id).addEventListener('change',()=>{syncCompareOptions(id==='compare-campaign'?'campaign':id==='compare-adset'?'adset':'creative');renderComparison();});
  $('compare-run').addEventListener('click',async()=>{
+ const diagnostic=$('compare-diagnostics');diagnostic.textContent='버튼 클릭 확인 · 날짜별 저장 데이터 조회 준비 중';
+ try {
  const button=$('compare-run'),dates=[[$('compare-a-start').value,$('compare-a-end').value],[$('compare-b-start').value,$('compare-b-end').value]];
  if(dates.some(([s,e])=>!s||!e||s>e)){$('compare-diagnostics').textContent='기간 A와 B의 날짜 범위가 올바르지 않습니다.';renderComparison();return;}
  const channelIds={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};
@@ -275,7 +277,7 @@ if(typeof document!=='undefined'){
    for(let d=start;d<=end;){const last=plusDays(d,6),stop=last<end?last:end;windows.push([d,stop]);d=plusDays(stop,1);}
  }
  button.disabled=true;button.textContent='기간별 저장 데이터 확인 중…';
- const output=$('compare-result'),diagnostic=$('compare-diagnostics');
+ const output=$('compare-result');
  diagnostic.textContent='조회 시작 · 프로그램 v2.8.31 · 선택 기간의 로컬 저장소를 읽는 중입니다.';
  output.textContent='기존 파일에서 날짜별 데이터 조회를 시작합니다. Meta API 호출 없이 저장된 파일만 확인합니다.';
  try{
@@ -309,6 +311,7 @@ if(typeof document!=='undefined'){
   diagnostic.replaceChildren(node);
  }catch(e){diagnostic.textContent='날짜별 비교 실행 오류: '+e.message;output.textContent='날짜별 비교 오류: '+e.message;}
  finally{button.disabled=false;button.textContent='저장 데이터 비교';}
+ } catch(error){diagnostic.textContent='조회 시작 실패: '+String(error?.message||error);$('compare-run').disabled=false;$('compare-run').textContent='저장 데이터 비교';}
 });
  $('change-save').addEventListener('click',()=>{const date=$('compare-date').value,note=$('change-note').value.trim();if(!date||!note){alert('변경일과 변경 메모를 입력해 주세요.');return;}const campaign=$('compare-campaign'),set=$('compare-adset'),creative=$('compare-creative');const ad=[campaign,set,creative].map(x=>x.options[x.selectedIndex]?.textContent).filter(Boolean).join(' / ');const changes=readChanges();changes.unshift({date,kind:$('change-kind').value,ad,note});localStorage.setItem(CHANGE_KEY,JSON.stringify(changes.slice(0,500)));$('change-note').value='';renderChangeHistory();});
 }
