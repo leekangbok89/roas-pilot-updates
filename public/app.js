@@ -230,7 +230,7 @@ if(typeof document!=='undefined'){
  const rows=[],warnings=[];b.disabled=true;b.textContent='저장 데이터 조회 중…';
  try{
   for(const channel of channels){
-   if(!/^\\d{5,30}$/.test(ids[channel])){warnings.push(channel+' 계정 ID 없음');continue;}
+   if(!/^\d{5,30}$/.test(ids[channel])){warnings.push(channel+' 계정 ID 없음');continue;}
    const params=new URLSearchParams({account:ids[channel],since:from,until:to,cacheOnly:'1'});
    const resp=await fetch('/api/insights?'+params.toString());const data=await resp.json();
    if(!resp.ok){warnings.push(channel+': '+(data.error||'조회 실패'));continue;}
