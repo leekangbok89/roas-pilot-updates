@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.45';
+const appVersion='2.8.46';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -499,12 +499,18 @@ function cafeParseOrder(o){
  if(!id||!date)return null;
  const paid=String(o.paid||o.payment_status||'');
  const orderStatus=String(o.order_status||'');
- const gross=cafeMoney(o.initial_order_amount??o.actual_order_amount??o.payment_amount);
- const net=cafeMoney(o.payment_amount??o.actual_order_amount);
- if(gross==null||net==null||paid==='F')return {id,date,unverified:true,orderStatus};
- const canceled=/^(C|R|U)/i.test(orderStatus)||o.canceled==='T';
- const amount=canceled?0:Math.min(net,gross);
- return {id,date,gross,net:amount,refund:Math.max(0,gross-amount),orderStatus,paid,unverified:false,updatedAt:new Date().toISOString()};
+ // Cafe24 order amount fields are nested objects. payment_amount within each is a string.
+ const paymentFrom=x=>x&&typeof x==='object'?cafeMoney(x.payment_amount):cafeMoney(x);
+ const initial=paymentFrom(o.initial_order_amount);
+ const actual=paymentFrom(o.actual_order_amount);
+ const paidAmount=cafeMoney(o.payment_amount);
+ const gross=initial??paidAmount??actual;
+ const remainder=actual??paidAmount;
+ if(gross==null||remainder==null||paid==='F')return {id,date,unverified:true,orderStatus};
+ // Partial cancellations must retain the confirmed remaining payment.
+ const fullyCanceled=o.canceled==='T'&&remainder===0;
+ const net=fullyCanceled?0:Math.min(gross,remainder);
+ return {id,date,gross,net,refund:Math.max(0,gross-net),orderStatus,paid,unverified:false,updatedAt:new Date().toISOString()};
 }
 async function cafeAuthorizedGet(endpoint){
  let x=cafeRead();
