@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html'];
-const appVersion='2.8.44';
+const appVersion='2.8.45';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f))throw Error('업데이트 파일 누락: '+rel);const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -482,11 +482,127 @@ async function cafeOrderTest(){
  return {ok:true,message:'카페24 주문 조회 API 성공',todayOrderCount:result.count??null};
 }
 
+
+// Cafe24 order cache: only order ID, paid date, state, and monetary amounts.
+// All figures are provisional because a later cancellation may alter an earlier paid day.
+const cafeOrdersFile=path.join(__dirname,'.roas-data','cafe24-orders','orders.json');
+const cafeSyncFile=path.join(__dirname,'.roas-data','cafe24-orders','sync.json');
+const cafeJob={running:false,progress:'대기',done:0,total:0,error:null,startedAt:null,finishedAt:null};
+let cafeAutoDue=0;
+function cafeCache(file,fallback){try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return fallback;}}
+function cafeWrite(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const tmp=file+'.tmp-'+process.pid;try{fs.writeFileSync(tmp,JSON.stringify(data),{mode:0o600});fs.renameSync(tmp,file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}}
+function cafeDate(v){const m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:null;}
+function cafeMoney(v){if(v==null||v==='')return null;const n=Number(String(v).replace(/,/g,''));return Number.isFinite(n)&&n>=0?n:null;}
+function cafeParseOrder(o){
+ const id=String(o.order_id||'');
+ const date=cafeDate(o.payment_date||o.pay_date||o.payment_datetime||o.order_date);
+ if(!id||!date)return null;
+ const paid=String(o.paid||o.payment_status||'');
+ const orderStatus=String(o.order_status||'');
+ const gross=cafeMoney(o.initial_order_amount??o.actual_order_amount??o.payment_amount);
+ const net=cafeMoney(o.payment_amount??o.actual_order_amount);
+ if(gross==null||net==null)return {id,date,unverified:true,orderStatus};
+ const canceled=/^(C|R|U)/i.test(orderStatus)||o.canceled==='T';
+ const amount=canceled?0:Math.min(net,gross);
+ return {id,date,gross,net:amount,refund:Math.max(0,gross-amount),orderStatus,paid,unverified:false,updatedAt:new Date().toISOString()};
+}
+async function cafeAuthorizedGet(endpoint){
+ let x=cafeRead();
+ if(!x?.tokens?.access_token)throw Error('카페24 OAuth 인증이 필요합니다.');
+ if(x.tokens.expires_at&&Date.parse(x.tokens.expires_at)<Date.now()+120000){await cafeTokenRequest(x.tokens.refresh_token,'refresh_token');x=cafeRead();}
+ const url='https://'+x.mallId+'.cafe24api.com/api/v2/admin/'+endpoint;
+ const resp=await fetch(url,{headers:{Authorization:'Bearer '+x.tokens.access_token},signal:AbortSignal.timeout(25000)});
+ const data=await resp.json().catch(()=>({}));
+ if(!resp.ok)throw Error('카페24 주문 조회 HTTP '+resp.status+': '+String(data.error?.message||data.message||data.error||'오류').slice(0,180));
+ return data;
+}
+async function cafeFetchDate(date){
+ const q=new URLSearchParams({shop_no:'1',date_type:'pay_date',start_date:date+' 00:00:00',end_date:date+' 23:59:59',limit:'100',offset:'0'});
+ const all=[];
+ for(let offset=0;offset<10000;offset+=100){
+  q.set('offset',String(offset));
+  const data=await cafeAuthorizedGet('orders?'+q);
+  if(!Array.isArray(data.orders))throw Error('orders 응답 형식이 다릅니다.');
+  all.push(...data.orders);
+  if(data.orders.length<100)return all;
+  await new Promise(r=>setTimeout(r,700));
+ }
+ throw Error('일별 주문 10,000건 조회 한도 초과');
+}
+function cafeSalesState(){
+ const store=cafeCache(cafeOrdersFile,{orders:{}}),sync=cafeCache(cafeSyncFile,{days:{}});
+ const daily={};let unverified=0;
+ for(const o of Object.values(store.orders||{})){
+  if(o.unverified){unverified++;continue;}const d=daily[o.date]||(daily[o.date]={date:o.date,orders:0,gross:0,refund:0,net:0});
+  d.orders++;d.gross+=o.gross;d.refund+=o.refund;d.net+=o.net;
+ }
+ return {job:{...cafeJob},daysChecked:Object.keys(sync.days||{}).length,lastSync:sync.lastSync||null,totalOrders:Object.keys(store.orders||{}).length,unverified,days:Object.values(daily).sort((a,b)=>a.date.localeCompare(b.date))};
+}
+async function cafeCollect(mode){
+ if(cafeJob.running)throw Error('카페24 수집 진행 중');
+ cafeJob.running=true;cafeJob.error=null;cafeJob.progress='수집 시작';cafeJob.startedAt=new Date().toISOString();cafeJob.finishedAt=null;cafeJob.done=0;
+ const first=mode==='backfill'?'2026-06-01':dayString(Date.now()-14*86400000),last=todaySeoul();
+ const dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
+ cafeJob.total=dates.length;
+ try{
+  const saved=cafeCache(cafeOrdersFile,{orders:{}}),sync=cafeCache(cafeSyncFile,{days:{}});
+  saved.orders=saved.orders||{};sync.days=sync.days||{};
+  for(const date of dates){
+   if(mode==='backfill'&&sync.days[date]){cafeJob.done++;continue;}
+   cafeJob.progress=date+' 조회 ('+(cafeJob.done+1)+'/'+cafeJob.total+')';
+   try{
+    const rows=await cafeFetchDate(date);
+    const parsed=rows.map(cafeParseOrder);
+    if(parsed.some(v=>!v||v.unverified))throw Error('주문 상태 또는 결제금액 필드를 확인할 수 없어 미완료 처리');
+    for(const order of parsed)saved.orders[order.id]=order;
+    cafeWrite(cafeOrdersFile,saved);
+    sync.days[date]={checkedAt:new Date().toISOString(),count:parsed.length};
+    sync.lastSync=new Date().toISOString();cafeWrite(cafeSyncFile,sync);
+    cafeJob.done++;
+   }catch(e){cafeJob.error=date+' '+e.message;break;}
+   await new Promise(r=>setTimeout(r,700));
+  }
+  cafeJob.progress=cafeJob.error?'수집 중단: '+cafeJob.error:'수집 완료';
+ }catch(e){cafeJob.error=e.message;cafeJob.progress='실패: '+e.message;}
+ finally{cafeJob.running=false;cafeJob.finishedAt=new Date().toISOString();}
+}
+function cafeAutoCollect(){
+ if(cafeJob.running||Date.now()<cafeAutoDue||!fs.existsSync(cafePath))return;
+ cafeAutoDue=Date.now()+6*3600000;
+ cafeCollect('recent').catch(e=>{cafeJob.running=false;cafeJob.error=e.message;});
+}
+function combinedAnalysis(start,end,pivot){
+ if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
+ const c=cafeSalesState(),n=naverPublicState();
+ const nMap=new Map(n.days.map(x=>[x.date,x])),cMap=new Map(c.days.map(x=>[x.date,x]));
+ const result=[];for(let ts=dayUTC(start);ts<=dayUTC(end);ts+=86400000){
+  const d=dayString(ts),nv=nMap.get(d),cv=cMap.get(d);
+  result.push({date:d,naver:nv?.net??null,cafe24:cv?.net??null,total:nv&&cv?nv.net+cv.net:null,complete:!!(nv&&cv)});
+ }
+ const metrics=arr=>{
+  const covered=arr.filter(x=>x.complete),revenue=covered.reduce((s,x)=>s+x.total,0);
+  return {days:arr.length,coveredDays:covered.length,totalRevenue:covered.length?revenue:null,averageDailyRevenue:covered.length?revenue/covered.length:null};
+ };
+ const before=metrics(result.filter(x=>x.date<pivot)),after=metrics(result.filter(x=>x.date>=pivot));
+ return {before,after,change:before.averageDailyRevenue!=null&&after.averageDailyRevenue!=null?after.averageDailyRevenue-before.averageDailyRevenue:null,days:result,warning:'관측 매출 변화이며 광고의 인과적 증분 효과가 아닙니다. 매출 수집 상태와 다른 광고·요일·품절 영향을 확인하세요.'};
+}
+
 const server=http.createServer(async (req,res)=> {
   try {
     if (!authenticated(req)) {res.writeHead(401, {'WWW-Authenticate':'Basic realm=ROAS-Pilot', 'Content-Type':'text/plain; charset=utf-8'});res.end('로그인이 필요합니다.');return;}
     const u = new URL(req.url,'http://localhost');
 
+    if(u.pathname==='/api/cafe24/orders/status'&&req.method==='GET')return json(res,200,cafeSalesState());
+    if(u.pathname==='/api/cafe24/orders/sync'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});
+      if(cafeJob.running)return json(res,409,{error:'이미 수집 중'});
+      const body=JSON.parse((await payload(req)).toString('utf8'));
+      cafeCollect(body.mode==='backfill'?'backfill':'recent').catch(e=>{cafeJob.error=e.message;cafeJob.running=false;});
+      return json(res,202,{started:true});
+    }
+    if(u.pathname==='/api/sales/compare'&&req.method==='GET'){
+      const q=u.searchParams;return json(res,200,combinedAnalysis(q.get('since'),q.get('until'),q.get('pivot')));
+    }
     if(u.pathname==='/api/cafe24/status'&&req.method==='GET')return json(res,200,cafeStatus());
     if(u.pathname==='/api/cafe24/settings'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});const v=cafeValid(JSON.parse((await payload(req)).toString('utf8')));cafeStore(v);cafePending=null;return json(res,200,cafeStatus());}
     if(u.pathname==='/api/cafe24/authorize'&&req.method==='POST'){if(!localPost(req))return json(res,403,{error:'로컬 접근만 허용'});return json(res,200,cafeStart());}
@@ -566,5 +682,5 @@ const server=http.createServer(async (req,res)=> {
     fs.readFile(file,(err,data)=>{if(err)return json(res,404,{error:'Not found'});res.writeHead(200,{'Content-Type':mime[ext],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(data);});
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
-if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);});
+if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
 module.exports={server,isDate};
