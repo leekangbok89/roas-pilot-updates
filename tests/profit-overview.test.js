@@ -94,6 +94,7 @@ test('channel-filtered load refreshes both accounts then renders canonical combi
  assert.deepEqual(calls.filter(u=>u.pathname==='/api/insights').map(u=>u.searchParams.get('account')).sort(),['111','222']);
  const p=calls.find(u=>u.pathname==='/api/profit/daily');assert.equal(p.searchParams.get('accounts'),'111,222');assert.equal(p.searchParams.get('fx'),'1350');
  assert.ok(calls.indexOf(p)>Math.max(...calls.flatMap((u,i)=>u.pathname==='/api/insights'?[i]:[])));
+ assert.ok(calls.filter(u=>u.pathname==='/api/insights').every(u=>u.searchParams.get('cacheOnly')==='1'),'Date scoped query must only read cached Meta data');
  assert.equal(h.node('profit-total').textContent,'53,000원');assert.match(h.node('graph').innerHTML,/<circle data-metric="profit"/);
 });
 
@@ -169,4 +170,13 @@ test('unmatched cost options appear with dates and a priced candidate from the s
  const table=h.node('unmatched-table').children[0],tr=table.children[1].children[0],select=tr.children[3].children[0];
  assert.equal(select.children.length,3,'Both store price sources are offered for manual confirmation');
  assert.equal(select.children[1].value,'cafecafecafecafecafecafe');
+});
+
+
+test('recent-three-day control is separate from selected-period cache-only display',()=>{
+ assert.match(html,/id="recent3-refresh"/);
+ assert.match(html,/cacheOnly:'1'/);
+ assert.match(html,/\/api\/data\/recent3\/refresh/);
+ assert.match(html,/\/api\/data\/recent3\/status/);
+ assert.match(html,/const version=\+\+requestVersion,since=\$\('since'\)\.value,until=\$\('until'\)\.value/);
 });
