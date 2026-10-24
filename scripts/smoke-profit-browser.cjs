@@ -480,6 +480,177 @@ async function verifyHistoryRepair(base, requests) {
   check('history: Naver failure remains explicit, Cafe results survive, August/October orders and sync dates stay unchanged, and redraws remain cache-only');
 }
 
+
+async function metricCardScreenshot(name) {
+  if (!process.env.ROAS_METRICCARD_SCREENSHOT_DIR) return;
+  fs.mkdirSync(process.env.ROAS_METRICCARD_SCREENSHOT_DIR, { recursive: true });
+  if (name.startsWith('cards-')) await page.locator('.summary-settings').evaluate(heading => heading.scrollIntoView({ block: 'start', behavior: 'instant' }));
+  await page.screenshot({ path: path.join(process.env.ROAS_METRICCARD_SCREENSHOT_DIR, name + '.png'), fullPage: false });
+}
+async function summaryKeys() {
+  return page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => card.dataset.summaryKey));
+}
+async function verifyMetricCards(requests) {
+  fixture();
+  await range('2026-09-01', '2026-09-07');
+  await page.locator('#chart-window').selectOption('1');
+  const defaults = ['spend', 'revenue', 'roas', 'cpa', 'purchases', 'ctr', 'impressions', 'clicks', 'smartstoreRevenue', 'mallRevenue', 'totalStoreRevenue', 'profit'];
+  const storageKey = 'roas-overview-summary-cards-v1';
+  assert.deepEqual(await summaryKeys(), defaults, 'New installs keep all twelve documented defaults');
+  for (const id of ['spend', 'revenue', 'roas', 'cpa', 'purchases', 'ctr', 'impressions', 'clicks']) {
+    assert.equal(await page.locator('[id="' + id + '"]').count(), 1, 'Legacy metric ID remains unique: ' + id);
+  }
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1100 });
+    const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
+      const box = card.getBoundingClientRect();
+      return { slot: Number(card.dataset.summarySlot), x: box.x, y: box.y, right: box.right, width: box.width, height: box.height, text: card.querySelector('strong')?.textContent };
+    }));
+    assert.equal(layout.length, 12, width + 'px always shows twelve cards');
+    assert.deepEqual(layout.map(card => card.slot), Array.from({ length: 12 }, (_, i) => i));
+    for (let i = 0; i < 12; i++) {
+      assert.ok(layout[i].width > 0 && layout[i].height > 0 && layout[i].text, 'Every configured card has a visible value');
+      assert.ok(Math.abs(layout[i].y - layout[Math.floor(i / 6) * 6].y) < 1, width + 'px places exactly six cards in each row');
+      assert.ok(layout[i].right <= width + 1, width + 'px cards stay inside the viewport');
+      if (i % 6) assert.ok(layout[i].x >= layout[i - 1].right - 1, 'Adjacent cards do not overlap');
+      if (i >= 6) assert.ok(Math.abs(layout[i].x - layout[i - 6].x) < 1, 'Second row columns align with the first row');
+    }
+    assert.ok(layout[6].y >= layout[0].y + layout[0].height, 'Twelve cards occupy two distinct rows');
+  }
+  check('cards: twelve default metrics retain unique legacy IDs and a six-column, two-row layout at1280/1440/1920px');
+
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await metricCardScreenshot('cards-default-1440');
+  const requestStart = requests.length;
+  const originalStorage = await page.evaluate(key => localStorage.getItem(key), storageKey);
+  await page.locator('#summary-edit').click();
+  assert.equal(await page.locator('.summary-card-choice').count(), 12);
+  await metricCardScreenshot('cards-edit-1440');
+  await page.locator('#summary-choice-0').selectOption('cpc');
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), storageKey), originalStorage, 'Draft selection is not persisted');
+  await page.locator('#summary-cancel').click();
+  assert.deepEqual(await summaryKeys(), defaults, 'Cancel restores the previous card arrangement');
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), storageKey), originalStorage, 'Cancel leaves saved configuration intact');
+
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-choice-0').selectOption('cpc');
+  await page.locator('#summary-save').click();
+  const configured = ['cpc', ...defaults.slice(1)];
+  assert.deepEqual(await summaryKeys(), configured, 'Saving applies the chosen card metric');
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured);
+  assert.equal(await page.locator('#since').inputValue(), '2026-09-01');
+  assert.equal(await page.locator('#until').inputValue(), '2026-09-07');
+  assert.equal(await page.locator('#chart-window').inputValue(), '1');
+  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Editing, cancelling, and saving cards only re-render already loaded data');
+  check('cards: cancel preserves saved choices, save applies one chosen metric, and configuration makes no API requests');
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.deepEqual(await summaryKeys(), configured, 'Saved card choices survive a real page reload');
+  const restoreStart = requests.length;
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-defaults').click();
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await summaryKeys(), defaults);
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), defaults);
+  assert.deepEqual(requests.slice(restoreStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Restoring defaults is also a local display change');
+  check('cards: saved configuration survives reload, and restoring defaults returns all twelve original metrics without collection');
+
+  const failedSaveStart = requests.length;
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-choice-0').selectOption('cpc');
+  await page.evaluate(key => {
+    window.__summaryOriginalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) throw new DOMException('Synthetic quota limit', 'QuotaExceededError');
+      return window.__summaryOriginalSetItem.call(this, name, value);
+    };
+  }, storageKey);
+  try {
+    await page.locator('#summary-save').click();
+    assert.equal(await page.locator('#summary-settings-status').getAttribute('data-error'), 'true');
+    assert.match(await page.locator('#summary-settings-status').innerText(), /저장하지 못했습니다/);
+    assert.equal(await page.locator('#summary-save').isVisible(), true, 'Failed save keeps the draft editable');
+    assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), defaults, 'Failed save never overwrites the previous persisted layout');
+  } finally {
+    await page.evaluate(() => { Storage.prototype.setItem = window.__summaryOriginalSetItem; delete window.__summaryOriginalSetItem; });
+  }
+  await page.locator('#summary-cancel').click();
+  assert.deepEqual(await summaryKeys(), defaults, 'Cancel after a failed save restores the previous cards');
+  assert.deepEqual(requests.slice(failedSaveStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'A failed local preference save never triggers data collection');
+  await page.evaluate(key => localStorage.setItem(key, '{invalid-json'), storageKey);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.deepEqual(await summaryKeys(), defaults, 'Invalid saved JSON falls back to twelve defaults');
+  assert.equal(await page.locator('#summary-settings-status').getAttribute('data-error'), 'true');
+  assert.match(await page.locator('#summary-settings-status').innerText(), /기본 구성/);
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), defaults, 'A subsequent successful save repairs the malformed preference');
+  check('cards: storage errors preserve saved choices and keep drafts editable; invalid JSON recovers to twelve defaults');
+}
+async function hoverVisibleProfitPoints(label) {
+  await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
+  const count = await points.count();
+  assert.ok(count >= 3, label + ' has enough date points to verify both edges and the middle');
+  for (const index of [...new Set([0, Math.floor(count / 2), count - 1])]) {
+    const point = await points.nth(index).evaluate(circle => {
+      const screen = new DOMPoint(circle.cx.baseVal.value, circle.cy.baseVal.value).matrixTransform(circle.getScreenCTM());
+      return { x: screen.x, y: screen.y, svgX: circle.cx.baseVal.value, date: circle.dataset.pointDate, label: circle.querySelector('title').textContent.split(' · ')[0] };
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('roas-chart-hover')).display !== 'none', undefined, { timeout: 2000 });
+    const actual = await page.evaluate(() => {
+      const tip = document.getElementById('roas-chart-hover'), cross = document.querySelector('#graph [data-chart-crosshair]'), graph = document.getElementById('graph');
+      const tipBox = tip.getBoundingClientRect(), graphBox = graph.getBoundingClientRect();
+      const screen = new DOMPoint(Number(cross.getAttribute('x1')), Number(cross.getAttribute('y1'))).matrixTransform(cross.getScreenCTM());
+      return { date: tip.dataset.pointDate, title: tip.querySelector('strong')?.textContent, crossDate: cross.dataset.pointDate, crossX: Number(cross.getAttribute('x1')), screenX: screen.x,
+        tip: { left: tipBox.left, right: tipBox.right, top: tipBox.top, bottom: tipBox.bottom }, graph: { left: graphBox.left, right: graphBox.right, top: graphBox.top, bottom: graphBox.bottom } };
+    });
+    assert.equal(actual.date, point.date, label + ': pointer at the rendered SVG point selects its actual date');
+    assert.equal(actual.crossDate, point.date, label + ': crosshair and tooltip use the same bucket');
+    assert.ok(actual.title.startsWith(point.label + ' · '), label + ': tooltip header matches the rendered daily/averaged label');
+    assert.ok(Math.abs(actual.crossX - point.svgX) < 0.1 && Math.abs(actual.screenX - point.x) < 1, label + ': crosshair intersects the rendered point');
+    assert.ok(actual.tip.left >= actual.graph.left - 1 && actual.tip.right <= actual.graph.right + 1 && actual.tip.top >= actual.graph.top - 1 && actual.tip.bottom <= actual.graph.bottom + 1,
+      label + ': tooltip stays inside the graph at both edges: ' + JSON.stringify(actual));
+  }
+}
+async function verifyResponsiveHover(requests) {
+  scopeFixture('long');
+  await range('2026-08-01', '2026-09-10');
+  await page.locator('#custom-preset-buttons button').first().click();
+  const requestStart = requests.length;
+  for (const window of ['1', '3', '5', '7']) {
+    await page.locator('#chart-window').selectOption(window);
+    for (const width of [1280, 1440, 1920, 1280]) {
+      await page.setViewportSize({ width, height: 1100 });
+      await hoverVisibleProfitPoints(window + '-day at' + width + 'px');
+      if (window === '1' && width === 1920) await metricCardScreenshot('hover-wide-1920');
+    }
+    check('hover: ' + window + '-day first/middle/last dates, crosshair and contained tooltip match real screenCTM coordinates through1280→1440→1920→1280px resizing');
+  }
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  try {
+    await page.evaluate(() => { document.body.style.zoom = '1.25'; });
+    for (const window of ['1', '7']) {
+      await page.locator('#chart-window').selectOption(window);
+      await hoverVisibleProfitPoints(window + '-day with125% CSS zoom');
+    }
+    const bounds = await page.locator('#graph').boundingBox();
+    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2);
+    assert.equal(await page.locator('#roas-chart-hover').isVisible(), false, 'Pointer in the outer SVG gutter must not select a wrong edge date');
+  } finally {
+    await page.evaluate(() => document.body.style.removeProperty('zoom'));
+  }
+  await page.locator('#chart-window').selectOption('1');
+  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Resizing, averaging, and hover do not recollect data');
+  check('hover: actual point alignment survives125% CSS zoom; outer gutters hide the tooltip and all interactions remain local');
+}
+
 (async () => {
   const base = await startServer();
   const data = await report(base, '2026-09-01', '2026-09-10');
@@ -593,6 +764,10 @@ async function verifyHistoryRepair(base, requests) {
 
   await verifyScope(base, requests);
   await verifyHistoryRepair(base, requests);
+  if (!scopeOnly) {
+    await verifyMetricCards(requests);
+    await verifyResponsiveHover(requests);
+  }
 
   assert.deepEqual(pageErrors, [], 'Browser JavaScript errors');
   if (process.env.ROAS_PROFIT_SCREENSHOT) {

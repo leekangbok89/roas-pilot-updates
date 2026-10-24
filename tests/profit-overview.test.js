@@ -9,7 +9,7 @@ const html=fs.readFileSync(path.join(__dirname,'../public/visual-overview.html')
 const source=html.match(/<script>([\s\S]*?)<\/script>/)[1].split('\nlet now=new Date();')[0];
 
 class Element{
- constructor(){this.value='';this.style={};this.children=[];this.attributes={};this.events={};this._html='';this._text='';this.offsetWidth=220;this.offsetHeight=80;this.classList={toggle(){}};}
+ constructor(){this.value='';this.style={};this.children=[];this.attributes={};this.events={};this.dataset={};this._html='';this._text='';this.offsetWidth=220;this.offsetHeight=80;this.clientWidth=1020;this.clientHeight=310;this.clientLeft=0;this.clientTop=0;this.classList={toggle(){}};}
  set innerHTML(value){this._html=value;this.children=[];this._queries={};}
  get innerHTML(){return this._html;}
  set textContent(value){this._text=value;this.children=[];}
@@ -22,10 +22,13 @@ class Element{
  querySelectorAll(){return [];}
  addEventListener(name,handler){this.events[name]=handler;}
  getBoundingClientRect(){return {left:0,top:0,width:1020,height:310};}
+ getScreenCTM(){return {a:1,b:0,c:0,d:1,e:0,f:0,inverse(){return this;}};}
+ createSVGPoint(){return {x:0,y:0,matrixTransform(m){return {x:m.a*this.x+m.c*this.y+m.e,y:m.b*this.x+m.d*this.y+m.f};}};}
 }
 function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unexpected fetch');},confirm=()=>true,timer=setTimeout}={}){
  const nodes=new Map();
- const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
+ const descendant=(root,id)=>root.id===id?root:root.children.map(child=>descendant(child,id)).find(Boolean);
+ const node=id=>{for(const root of nodes.values()){const found=descendant(root,id);if(found)return found;}if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
  const context=vm.createContext({console,Intl,URLSearchParams,AbortSignal,fetch,confirm,setTimeout:timer,localStorage:{getItem:key=>key==='roas-account-ids'?JSON.stringify(ids):null,setItem(){}},document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()}});
  node('channel').value='all';node('chart-window').value='1';node('chart-scale').value='relative';node('since').value='2026-09-01';node('until').value='2026-09-03';node('budget-step').value='20000';
  vm.runInContext(source,context);
@@ -33,6 +36,62 @@ function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unex
  return {context,node,run:code=>vm.runInContext(code,context)};
 }
 const profit=(date,value,extras={})=>({date,revenue:100000,fee:7000,cost:40000,adSpend:53000-value,profit:value,complete:value!=null,reasons:[],naver:{revenue:100000},cafe24:{revenue:0},...extras});
+
+test('summary card settings recover exactly twelve valid slots and preserve a chosen order',()=>{
+ const h=harness();
+ h.context.settings=['profit','cost','fee','cpc','cpm','__proto__',null,42,'mallRevenue','smartstoreRevenue','profit','ctr','revenue'];
+ const keys=JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(settings))'));
+ assert.deepEqual(keys,['profit','cost','fee','cpc','cpm','ctr','impressions','clicks','mallRevenue','smartstoreRevenue','profit','ctr']);
+ assert.equal(h.run('normalizeSummaryCardKeys({length:12}).length'),12);
+ h.node('since').value='2026-09-29';h.node('until').value='2026-10-02';
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(summarySelectedDates())')),['2026-09-29','2026-09-30','2026-10-01','2026-10-02']);
+ h.node('until').value='2026-09-28';assert.equal(h.run('summarySelectedDates().length'),0);
+});
+
+test('summary financial cards count the entire selected range and retain confirmed partials, zero and losses',()=>{
+ const h=harness();h.context.input=[
+  profit('2026-09-01',0,{revenue:100000,fee:7000,cost:40000,naver:{revenue:100000},cafe24:{revenue:0}}),
+  profit('2026-09-02',null,{revenue:null,fee:null,cost:null,confirmedAvailable:true,confirmed:{revenue:50000,fee:3500,cost:30000,profit:-2000},naver:{revenue:null,confirmedAvailable:true,confirmed:{revenue:50000}},cafe24:{revenue:null}})
+ ];
+ h.run('profitDays=new Map(input.map(p=>[p.date,p]));');
+ for(const [key,amount] of [['totalStoreRevenue',150000],['profit',-2000],['fee',10500],['cost',70000]]){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,amount);assert.equal(metric.partial,true);
+  assert.equal(metric.knownDays,2);assert.equal(metric.completeDays,1);assert.equal(metric.totalDays,3);
+ }
+ const cafe=JSON.parse(h.run("JSON.stringify(summaryMetric('mallRevenue'))"));
+ assert.equal(cafe.value,0);assert.equal(cafe.knownDays,1);assert.equal(cafe.partial,true);
+ h.node('channel').value='naver';assert.equal(h.run("summaryMetric('profit').value"),-2000);
+ h.run('profitDays.clear();');assert.equal(h.run("summaryMetric('totalStoreRevenue').value"),null);
+});
+
+test('summary advertising cards distinguish not loaded, verified empty, and a missing account',()=>{
+ const h=harness();
+ assert.equal(h.run("summaryMetric('spend').value"),null);
+ h.run("connectedAccounts={naver:'111',cafe:'222'};summaryAdLoadedAccounts=new Set(['111','222']);dataCoverage={since:'2026-09-01',until:'2026-09-03',sources:{meta:{'111':{missingDays:[]},'222':{missingDays:[]}}}};");
+ for(const key of ['spend','purchases','impressions','clicks']){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,0);assert.equal(metric.partial,false);assert.equal(metric.completeDays,3);
+ }
+ for(const key of ['roas','cpa','cpc','cpm','ctr']){h.context.metricKey=key;assert.equal(h.run('summaryMetric(metricKey).value'),null);}
+ h.run("summaryAdLoadedAccounts.delete('222');dataCoverage.sources.meta['222'].missingDays=['2026-09-01','2026-09-02','2026-09-03'];");
+ const partial=JSON.parse(h.run("JSON.stringify(summaryMetric('spend'))"));
+ assert.equal(partial.value,0);assert.equal(partial.partial,true);assert.equal(partial.completeDays,0);
+ h.run('summaryAdLoadedAccounts.clear();');assert.equal(h.run("summaryMetric('spend').value"),null);
+});
+
+test('summary ratios use matching confirmed ad rows and deduplicate a shared account',()=>{
+ const h=harness();h.node('until').value='2026-09-02';
+ h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:100,revenue:500,purchases:2,clicks:10,impressions:1000},{date:'2026-09-02',spend:900,revenue:null,purchases:null,clicks:90,impressions:9000}];data.cafe=data.naver;");
+ assert.equal(h.run("summaryMetric('spend').value"),1000);
+ assert.equal(h.run("summaryMetric('revenue').value"),500);
+ assert.equal(h.run("summaryMetric('roas').value"),500);
+ assert.equal(h.run("summaryMetric('cpa').value"),50);
+ assert.equal(h.run("summaryMetric('roas').partial"),true);
+ assert.equal(h.run("summaryMetric('cpc').value"),10);
+ assert.equal(h.run("summaryMetric('cpm').value"),100);
+ assert.equal(h.run("summaryMetric('ctr').value"),1);
+});
 
 test('backend zero, negative, and positive profits reach the same graph and table without sales or insight rows',()=>{
  const h=harness();h.context.input=[profit('2026-09-01',20000),profit('2026-09-02',0),profit('2026-09-03',-12000)];
