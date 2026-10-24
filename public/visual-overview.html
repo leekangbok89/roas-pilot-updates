@@ -58,6 +58,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 <div class="summary-settings"><h2 id="summary-cards-title">주요 지표 <span id="summary-card-count" class="small">최대 12개</span></h2><span id="summary-settings-status" class="small" role="status" aria-live="polite"></span><button id="summary-edit" type="button" aria-controls="summary-cards" aria-expanded="false">지표 설정</button><div id="summary-edit-actions" hidden><button id="summary-defaults" type="button">기본 구성 복원</button><button id="summary-cancel" type="button">취소</button><button id="summary-save" type="button" class="primary">설정 저장</button></div></div>
 <section id="summary-cards" class="metrics" aria-labelledby="summary-cards-title"></section>
 <details id="summary-roas-audit" class="small" hidden style="margin:-4px 0 10px"><summary>ROAS 계산 근거</summary><p>확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출이 미확인인 광고의 지출도 모두 포함합니다. 광고비 미확인 날짜가 있으면 계산을 보류합니다.</p><div id="summary-roas-audit-body" style="overflow:auto"></div></details>
+<details id="cafe-revenue-diagnostic" class="panel" hidden><summary><strong>카페24 주문매출 진단</strong> <span id="cafe-revenue-diagnostic-summary" class="small"></span></summary><p class="small">카페24 주문매출은 저장된 주문 중 위마망으로 확인된 매출입니다. Meta 귀속 구매매출은 별도로 집계됩니다. 아래에서 포함·제외 주문과 저장 자료 상태를 확인할 수 있습니다.</p><div id="cafe-revenue-diagnostic-body" style="overflow:auto"></div><div class="toolbar" style="margin-top:8px"><button id="cafe-revenue-copy" type="button">진단 결과 복사</button><a href="/cost-management.html">원가관리에서 브랜드 분류·제외 상품 확인</a><a href="/#cafe24-oauth">카페24 연결·주문 수집 확인</a><span id="cafe-revenue-copy-status" class="small" role="status"></span></div><textarea id="cafe-revenue-diagnostic-output" readonly hidden rows="8" style="width:100%" aria-label="카페24 주문매출 진단 결과"></textarea></details>
 <section class="panel"><div class="panelhead"><div><h2>일별 성과 그래프</h2><span class="small">일별·3일·5일·7일 구간평균 전환 · 최대 7개 지표 비교 · 매월 1일부터 겹치지 않는 날짜 구간으로 나눕니다.</span></div><div class="chartpicker"><div class="presetbar"><span id="custom-preset-buttons"></span><button type="button" id="preset-save">＋ 현재 구성 저장</button><button type="button" id="preset-manage">프리셋 관리</button><label>추세 기준 (3·5·7일은 직접 선택)<select id="chart-window"><option value="1" selected>일별 원본</option><option value="3">3일 구간평균</option><option value="5">5일 구간평균</option><option value="7">7일 구간평균</option></select></label><label>표시 방식 <select id="chart-scale"><option value="relative">시작값 100 기준</option><option value="absolute">각 지표별 축</option></select></label></div><div class="metric-choices"><label>선택 1<select class="metric-choice" data-index="0"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 2<select class="metric-choice" data-index="1"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 3<select class="metric-choice" data-index="2"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 4<select class="metric-choice" data-index="3"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 5<select class="metric-choice" data-index="4"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 6<select class="metric-choice" data-index="5"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 7<select class="metric-choice" data-index="6"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label></div></div></div><div id="graph"></div><div id="profit-chart-status" class="small" role="status" style="display:none;margin:8px 0;line-height:1.7"></div><details id="profit-chart-debug" style="display:none;margin:10px 0;border-top:1px solid #e2e7f0;padding-top:10px"><summary>이익 표시 문제 진단 · 누락 항목별 상세</summary><div id="profit-chart-diagnostic" class="small" style="padding:10px 0;line-height:1.9"></div></details><div id="legend" class="legend"></div></section>
 <div class="summary"><details class="panel fold-panel"><summary class="fold-summary">채널별 성과 비교</summary><div id="channels" class="small">데이터 조회 후 표시됩니다.</div></details><details class="panel fold-panel"><summary class="fold-summary">일별 요약</summary><div id="daily" class="small">데이터 조회 후 표시됩니다.</div></details></div>
 <details class="panel fold-panel" id="profit-panel"><summary class="fold-summary">스마트스토어 + 카페24 통합 예상 이익</summary><div class="fold-content"><div class="panelhead"><span class="small" id="profit-status">원가 및 매출 데이터 확인 중</span></div><div class="toolbar"><label>스마트스토어 평균 수수료(%)<input id="profit-naver-fee" type="number" min="0" max="40" step=".1" value="7"></label><label>카페24 평균 수수료(%)<input id="profit-cafe-fee" type="number" min="0" max="40" step=".1" value="3.5"></label><button id="profit-save-fees">수수료 저장</button><button id="profit-repair" type="button">원가·주문 옵션 연결 다시 확인</button><button id="profit-diagnostic-view" type="button">카페24 실패 원인 보기</button><span id="profit-repair-status" class="small" role="status"></span></div><h2 id="profit-total">—</h2><p class="small">스마트스토어 매출 × (1 − 스마트스토어 수수료율) + 카페24 매출 × (1 − 카페24 수수료율) − 전체 광고비 − 판매된 옵션 원가 합계. 채널 필터와 관계없이 연결된 전체 광고 계정의 지출을 차감합니다. 미분류·혼합 주문 등이 있으면 확인된 위마망 주문만 부분 집계하여 표시하며, 미확인 주문은 포함하지 않습니다. 부분 이익에서도 연결된 전체 광고비를 차감하므로 전체 순이익으로 해석하지 마세요. 원가나 광고비를 확인할 수 없는 이익은 미확정으로 표시합니다. 실제 세후 순이익은 아닙니다.</p><details id="cafe-repair-detail" style="padding:9px 0"><summary>카페24 주문 상세 복구 진단 (개인정보 제외)</summary><div class="toolbar"><button id="profit-diagnostic-copy" type="button">진단 결과 복사</button><span id="profit-diagnostic-hint" class="small">복구를 실행한 뒤 결과를 확인할 수 있습니다.</span></div><textarea id="profit-diagnostic-output" readonly rows="9" style="width:100%;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;padding:12px;border:1px solid #dbe1ec;border-radius:8px" aria-label="카페24 주문 복구 진단 결과"></textarea></details><div id="profit-reconciliation" role="status" style="padding:10px 0 14px;line-height:1.8;font-size:12px"></div><section id="profit-brand-review" style="display:none;margin:12px 0;padding:16px;border:1px solid #e6cf92;background:#fffcf1;border-radius:10px"><h3 style="margin:0 0 8px">브랜드 확인이 필요한 상품</h3><p class="small" style="color:#66562e">상품명에 위마망만 있으면 포함, 트루버만 있으면 제외합니다. 두 브랜드명이 모두 있거나 모두 없는 상품은 아래에서 직접 선택해 주세요. 선택 전에는 해당 주문을 확인분 매출·이익에서 제외합니다. 같은 주문에 여러 브랜드가 있으면 상품별 결제금액이 확인될 때까지 제외합니다.</p><strong id="profit-brand-summary"></strong><div id="profit-brand-list" style="overflow:auto;margin-top:10px"></div><p id="profit-brand-status" class="small" role="status"></p></section><details id="profit-troubleshooting" style="border-top:1px solid #e2e7f0;padding:10px 0 14px"><summary>왜 순이익이 미확정인가요? · 채널별 누락 진단</summary><div id="profit-troubleshooting-body" style="padding-top:10px;font-size:12px;line-height:1.8"></div></details><details id="profit-unmatched" style="border-top:1px solid #e2e7f0;padding-top:12px;margin-top:10px"><summary><strong>원가 연결 안 된 판매 상품·옵션 직접 해결</strong> · 기존 원가 선택 또는 금액 직접 입력</summary><p class="small">누락된 옵션에 기존 등록 원가를 연결할 수 있습니다. 다른 판매 채널의 원가도 직접 선택할 수 있지만, 실제 동일 상품·사양인지 확인해야 합니다. 확인하지 않은 원가는 자동 적용하지 않습니다.</p><div class="toolbar"><button id="unmatched-refresh" type="button">기존 원가 목록 불러오기</button><span id="unmatched-status" class="small">비교할 원가 목록을 불러와 주세요.</span></div><div id="unmatched-table" style="overflow:auto"></div></details><div id="profit-table" style="overflow:auto"></div></div></details><details class="panel fold-panel" id="budget-efficiency"><summary class="fold-summary">일예산 최적화 분석</summary><div class="fold-content"><div class="panelhead"><div><span class="small">조회 기간의 실제 하루 지출액 기준 · Meta 귀속 구매 매출 ROAS · 광고 예산 설정값과는 다름</span></div><label>예산 구간 폭<select id="budget-step"><option value="10000">1만원 단위</option><option value="20000" selected>2만원 단위</option><option value="50000">5만원 단위</option><option value="100000">10만원 단위</option></select></label></div><div class="small" id="budget-note">광고 데이터를 조회하면 예산 구간별 성과를 계산합니다.</div><div id="budget-table" style="overflow-x:auto;margin-top:12px"></div><div class="small" style="margin-top:10px">참고: 표의 일매출은 Meta API에 귀속된 구매 전환값이며 쇼핑몰의 전체 주문 매출이 아닙니다. 데이터 누락일·당일 부분 집계·표본 부족 구간은 최적 예산 추천에서 제외합니다. 예산 증액에 따른 인과 효과를 보장하지 않습니다.</div></div></details>
@@ -69,7 +70,7 @@ const types=['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase','
 const iso=d=>{const v=new Date(d.getTime()-d.getTimezoneOffset()*60000);return v.toISOString().slice(0,10)};
 function metricNumber(v){if(!['number','string'].includes(typeof v)||String(v).trim()==='')return null;const parsed=Number(v);return Number.isFinite(parsed)?parsed:null;}
 function value(a){if(!Array.isArray(a))return null;for(const type of types){const x=a.find(y=>y.action_type===type),amount=metricNumber(x?.value);if(amount!==null)return amount;}return null;}
-let storeSales=new Map(),profitDays=new Map(),profitFees={naver:7,cafe24:3.5},profitLoadError='',requestVersion=0,pendingBrandProducts=[];
+let storeSales=new Map(),profitDays=new Map(),profitFees={naver:7,cafe24:3.5},profitLoadError='',requestVersion=0,pendingBrandProducts=[],storeRevenueDiagnostics={};
 const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350,connectedAccounts={naver:'',cafe:''};
 const metrics={smartstoreRevenue:'스마트스토어 매출',mallRevenue:'자사몰 매출',totalStoreRevenue:'통합 매출',profit:'통합 예상 이익',spend:'광고비',revenue:'Meta 귀속 구매매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR',cpa:'구매 CPA'};
 function normalize(row,channel){
@@ -96,10 +97,13 @@ function displayedFinancial(record,key){
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
- spend:{label:'광고비',format:'won'},revenue:{label:'Meta 귀속 구매매출',format:'won'},
- roas:{label:'총 광고 ROAS',format:'pct',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 상단 채널 필터와 관계없이 전체 연결 계정 기준입니다.'},
- mallRoas:{label:'자사몰 광고 ROAS',format:'pct',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 상단 채널 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
- smartstoreRoas:{label:'스마트스토어 광고 ROAS',format:'pct',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 상단 채널 필터와 관계없이 스마트스토어 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
+ smartstoreSpend:{label:'스마트스토어 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'선택 기간의 스마트스토어 광고계정 지출 합계입니다. 구매매출 확인 여부와 상단 채널 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+ mallSpend:{label:'자사몰 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'선택 기간의 자사몰 광고계정 지출 합계입니다. 구매매출 확인 여부와 상단 채널 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+ spend:{label:'통합 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta · 전체 연결 계정',description:'선택 기간의 스마트스토어·자사몰 광고비 합계입니다. 상단 채널 필터와 관계없이 전체 연결 계정을 포함하고, 동일 광고계정은 한 번만 집계합니다. 미수집 광고비가 있으면 확인분으로 표시합니다.'},
+ revenue:{label:'Meta 귀속 구매매출',format:'won'},
+ roas:{label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 상단 채널 필터와 관계없이 전체 연결 계정 기준입니다.'},
+ mallRoas:{label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 상단 채널 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
+ smartstoreRoas:{label:'스마트스토어 광고 ROAS',format:'pct',adMetric:'roas',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 상단 채널 필터와 관계없이 스마트스토어 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
  cpa:{label:'구매 CPA',format:'won'},
  purchases:{label:'구매 건수',format:'num'},ctr:{label:'링크 CTR',format:'pct'},impressions:{label:'노출수',format:'num'},clicks:{label:'링크 클릭수',format:'num'},
  smartstoreRevenue:{label:'스마트스토어 매출',format:'won',field:'revenue',channel:'naver'},mallRevenue:{label:'카페24 매출',format:'won',field:'revenue',channel:'cafe24'},
@@ -119,6 +123,7 @@ function summarySelectedDates(){
  if(!Number.isFinite(first)||!Number.isFinite(last)||first>last||new Date(first).toISOString().slice(0,10)!==since||new Date(last).toISOString().slice(0,10)!==until)return [];
  const dates=[];for(let time=first;time<=last;time+=86400000)dates.push(new Date(time).toISOString().slice(0,10));return dates;
 }
+function hasKnownAdSpend(row){return Number.isFinite(row.spend)&&row.spend>=0&&row.spendKnown!==false;}
 function summaryMetricContext(choice=$('channel').value){
  const dates=summarySelectedDates(),dateSet=new Set(dates),selected=selectedAdRows(choice).filter(row=>dateSet.has(row.date));
  const seenAccounts=new Set(),channels=(choice==='all'?['naver','cafe']:[choice]).filter(channel=>{
@@ -131,7 +136,7 @@ function summaryMetricContext(choice=$('channel').value){
   const account=connectedAccounts[channel],coverage=coverageMatches?dataCoverage.sources?.meta?.[account]:null,missing=new Set(coverage?.missingDays||[]),rowsByDate=new Map();
   for(const row of data[channel]||[]){if(!dateSet.has(row.date))continue;const rows=rowsByDate.get(row.date)||[];rows.push(row);rowsByDate.set(row.date,rows);}
   const dateLoaded=date=>summaryAdLoadedAccounts.has(account)&&!!coverage&&Array.isArray(coverage.missingDays)&&!missing.has(date);
-  return {rowsByDate,emptyKnown:dateLoaded,spendKnown:date=>dateLoaded(date)&&(rowsByDate.get(date)||[]).every(row=>Number.isFinite(row.spend)&&row.spendKnown!==false)};
+  return {rowsByDate,emptyKnown:dateLoaded,spendKnown:date=>dateLoaded(date)&&(rowsByDate.get(date)||[]).every(hasKnownAdSpend)};
  });
  const scope=choice==='naver'?'Meta · 스마트스토어 선택':choice==='cafe'?'Meta · 카페24 선택':'Meta · 전체 연결 계정';
  return {dates,selected,sources,scope,choice};
@@ -141,9 +146,9 @@ function summaryMetric(key,context=summaryMetricContext()){
  if(definition?.adScope&&context.choice!==definition.adScope)context=summaryMetricContext(definition.adScope);
  const totalDays=context.dates.length;
  if(!definition)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope:'',detail:'지원하지 않는 지표'};
- const isRoas=!!definition.adScope,scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
+ const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend',scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
  if(summaryLoading||!totalDays)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:summaryLoading?'기간 데이터 조회 중…':'조회 기간을 선택해 주세요.'};
- if(isRoas){
+ if(definition.adScope){
   const connected=definition.adScope==='all'?connectedAccounts.naver||connectedAccounts.cafe:connectedAccounts[definition.adScope];
   if(!connected)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'광고계정 미연결'};
   if(definition.adScope!=='all'&&connectedAccounts.naver&&connectedAccounts.naver===connectedAccounts.cafe)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'동일 광고계정 · 채널 구분 필요'};
@@ -158,6 +163,21 @@ function summaryMetric(key,context=summaryMetricContext()){
   const partial=knownDays>0&&completeDays<totalDays;
   return {value:knownDays?total:null,partial,knownDays,completeDays,totalDays,scope,
    detail:(knownDays?'':'미확정 · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays?' · 일부 주문 미확인':'')};
+ }
+ if(isSpend){
+  let knownDays=0,completeDays=0;
+  for(const date of context.dates){
+   const states=context.sources.map(source=>{
+    const daily=source.rowsByDate.get(date)||[];
+    return {known:daily.some(hasKnownAdSpend)||!daily.length&&source.emptyKnown(date),complete:source.spendKnown(date)};
+   });
+   if(states.some(state=>state.known))knownDays++;
+   if(states.length&&states.every(state=>state.complete))completeDays++;
+  }
+  // Spend is independent of purchase reporting. Missing spend remains an explicit subtotal.
+  const amount=knownDays?sum(context.selected.filter(hasKnownAdSpend)).spend:null,partial=amount!==null&&completeDays<totalDays;
+  return {value:amount,partial,knownDays,completeDays,totalDays,scope,
+   detail:(amount===null?'미수집 · ':'')+'확인 '+knownDays+'/'+totalDays+'일'+(partial?' · 광고비 일부 미확인':'')};
  }
  const required=key==='revenue'||isRoas?'revenue':['purchases','cpa'].includes(key)?'purchases':null;
  const isKnown=row=>!required||Number.isFinite(row[required]),rows=context.selected.filter(isKnown);
@@ -192,7 +212,7 @@ function summaryMetric(key,context=summaryMetricContext()){
 }
 function renderSummaryRoasAudit(keys){
  const root=$('summary-roas-audit'),body=$('summary-roas-audit-body');if(!root||!body)return;
- const chosen=[...new Set(keys.filter(key=>summaryCardMetrics[key]?.adScope))];
+ const chosen=[...new Set(keys.filter(key=>summaryCardMetrics[key]?.adMetric==='roas'))];
  root.hidden=!chosen.length;body.replaceChildren();if(!chosen.length)return;
  const table=document.createElement('table'),head=document.createElement('thead'),heading=document.createElement('tr'),tbody=document.createElement('tbody');
  for(const label of ['지표','확인된 Meta 구매매출','선택 기간 전체 광고비','ROAS','확인 상태']){const th=document.createElement('th');th.textContent=label;heading.append(th);}
@@ -204,6 +224,57 @@ function renderSummaryRoasAudit(keys){
   tbody.append(row);
  }
  body.append(table);
+}
+function cafeRevenueDiagnostic(){
+ return [storeRevenueDiagnostics?.cafe24,dataCoverage?.revenueDiagnostics?.cafe24].find(d=>d&&d.since===$('since').value&&d.until===$('until').value)||null;
+}
+function cafeRevenueDiagnosticRows(d){
+ const count=v=>Number.isFinite(v)?num(v)+'건':'미확인',states={ok:'정상적으로 읽음',missing:'저장 주문 자료 없음',invalid_json:'저장 주문 자료 읽기 실패',invalid_schema:'저장 주문 형식 확인 필요'};
+ return [
+  ['cacheState','저장 주문 자료',states[d.cacheState]||'확인 필요'],
+  ['recordedDays','선택 기간 주문 수집 기록',Number.isFinite(d.recordedDays)?num(d.recordedDays)+'일':'미확인'],
+  ['recordedOrders','수집 기록의 주문 건수',count(d.recordedOrders)],
+  ['storedOrders','선택 기간 저장 주문',count(d.storedOrders)],
+  ['positiveOrders','결제금액이 있는 주문',count(d.positiveOrders)],
+  ['includedOrders','위마망 매출에 포함',count(d.includedOrders)],
+  ['excludedOrders','위마망 집계에서 제외',count(d.excludedOrders)],
+  ['autoExcludedOrders','상품명에 따라 자동 제외',count(d.autoExcludedOrders)],
+  ['manualExcludedOrders','사용자 분류에 따라 제외',count(d.manualExcludedOrders)],
+  ['zeroNetOrders','결제잔액 0원인 주문',count(d.zeroNetOrders)],
+  ['missingItemOrders','상품 상세 정보 없음',count(d.missingItemOrders)],
+  ['unclassifiedOrders','브랜드 미분류 주문',count(d.unclassifiedOrders)],
+  ['mixedOrders','위마망·타 브랜드 혼합 주문',count(d.mixedOrders)],
+  ['invalidOrders','결제금액·상태 미확인',count(d.invalidOrders)],
+  ['undatedOrders','날짜 확인이 필요한 저장 주문',count(d.undatedOrders)],
+  ['confirmedRevenue','확인된 위마망 주문매출',won(d.confirmedRevenue)],
+  ['countMismatches','수집 기록·저장 주문 건수 대조',Array.isArray(d.countMismatches)&&d.countMismatches.length?d.countMismatches.length+'일 차이 · 진단 결과 복사에 날짜별 내역 포함':'건수 차이 보고 없음'],
+  ['mallId','현재 연결 쇼핑몰',d.mallId?String(d.mallId)+(Number.isFinite(d.shopNo)?' · 상점 '+d.shopNo:''):'설정 관리에서 연결 정보 확인']
+ ];
+}
+function cafeRevenueDiagnosticText(d=cafeRevenueDiagnostic()){
+ if(!d)return '조회한 기간의 카페24 주문매출 진단을 아직 확인하지 못했습니다.';
+ const lines=['ROAS Pilot'+(d.version?' v'+d.version:'')+' · 카페24 주문매출 진단','조회 기간: '+d.since+' ~ '+d.until,'집계 상태: '+(d.complete===true?'위마망 주문매출 확인':'위마망 주문매출 미확정'),'확인 내용: '+String(d.reason||'진단 항목을 확인해 주세요.')];
+ if(d.cacheIssue)lines.push('자료 확인: '+String(d.cacheIssue));
+ for(const [,label,value] of cafeRevenueDiagnosticRows(d))lines.push(label+': '+value);
+ for(const row of Array.isArray(d.countMismatches)?d.countMismatches:[])lines.push('건수 대조 '+String(row.date||'날짜 미확인')+': 수집 기록 '+coverageNumber(row.recordedCount)+'건 / 저장 '+coverageNumber(row.cachedCount)+'건');
+ lines.push('주문번호·고객정보·API 토큰은 포함되지 않습니다.');return lines.join('\n');
+}
+function renderCafeRevenueDiagnostic(){
+ const root=$('cafe-revenue-diagnostic'),body=$('cafe-revenue-diagnostic-body');if(!root||!body)return;
+ const d=summaryLoading?null:cafeRevenueDiagnostic();body.replaceChildren();
+ root.hidden=!d||d.complete===true&&d.confirmedRevenue>0&&!d.cacheIssue&&!d.undatedOrders&&!d.countMismatches?.length;
+ if(!d){$('cafe-revenue-diagnostic-summary').textContent='';$('cafe-revenue-diagnostic-output').value='';return;}
+ $('cafe-revenue-diagnostic-summary').textContent=String(d.reason||'저장된 주문의 집계 근거를 확인해 주세요.');
+ const table=document.createElement('table'),tbody=document.createElement('tbody');
+ for(const [field,label,value] of cafeRevenueDiagnosticRows(d)){
+  const row=document.createElement('tr'),heading=document.createElement('th'),cell=document.createElement('td');row.setAttribute('data-cafe-revenue-field',field);heading.textContent=label;cell.textContent=value;row.append(heading,cell);tbody.append(row);
+ }
+ table.append(tbody);body.append(table);$('cafe-revenue-diagnostic-output').value=cafeRevenueDiagnosticText(d);
+}
+async function copyCafeRevenueDiagnostic(){
+ const output=$('cafe-revenue-diagnostic-output'),status=$('cafe-revenue-copy-status');output.value=cafeRevenueDiagnosticText();
+ try{if(!globalThis.navigator?.clipboard?.writeText)throw Error('clipboard unavailable');await navigator.clipboard.writeText(output.value);status.textContent='진단 결과를 복사했습니다.';}
+ catch{output.hidden=false;output.focus?.();output.select?.();status.textContent='아래 진단 결과를 선택해 복사해 주세요.';}
 }
 function renderSummaryCards(){
  const root=$('summary-cards');if(!root)return;
@@ -236,8 +307,13 @@ function renderSummaryCards(){
   const detail=document.createElement('small');detail.className='summary-card-state';detail.textContent=metric.detail;
   if(first&&['spend','revenue','cpa'].includes(key))detail.id={spend:'spendSub',revenue:'revenueSub',cpa:'purchaseSub'}[key];
   if(definition.field)detail.title='이 지표에서 금액을 확인한 날짜만 합산합니다. 지표마다 확인 가능한 날짜와 주문 범위가 다를 수 있습니다.';
-  if(key==='spend')detail.title='환율 1 USD = '+format.format(rates)+' KRW · USD 계정에만 적용';
-  card.append(heading,valueLine,scope,detail);root.append(card);
+  if(definition.adMetric==='spend')detail.title='환율 1 USD = '+format.format(rates)+' KRW · USD 계정에만 적용';
+  card.append(heading,valueLine,scope,detail);
+  if(key==='mallRevenue'&&!summaryLoading&&(metric.value===0||metric.value===null)&&cafeRevenueDiagnostic()){
+   const inspect=document.createElement('button');inspect.type='button';inspect.textContent=metric.value===0?'0원 원인 확인':'매출 미확정 원인 확인';inspect.setAttribute('data-cafe-revenue-diagnostic','open');inspect.style.cssText='margin-top:5px;padding:3px 7px;font-size:12px;align-self:flex-start';
+   inspect.onclick=()=>{const pane=$('cafe-revenue-diagnostic');pane.hidden=false;pane.open=true;pane.scrollIntoView?.({block:'nearest',behavior:'smooth'});};card.append(inspect);
+  }
+  root.append(card);
  });
  const count=keys.filter(Boolean).length;
  $('summary-card-count').textContent=count+(summaryCardsEditing?'개 선택':'개 표시')+' · 최대 12개';
@@ -245,8 +321,10 @@ function renderSummaryCards(){
  $('summary-edit').hidden=summaryCardsEditing;$('summary-edit').setAttribute('aria-expanded',String(summaryCardsEditing));$('summary-edit-actions').hidden=!summaryCardsEditing;
  const status=$('summary-settings-status');status.textContent=summarySettingsMessage;status.setAttribute('data-error',String(summarySettingsError));
  renderSummaryRoasAudit(keys);
+ renderCafeRevenueDiagnostic();
 }
 function setupSummaryCards(){
+ $('cafe-revenue-copy').onclick=copyCafeRevenueDiagnostic;
  try{const saved=localStorage.getItem(summaryCardStorageKey);savedSummaryCardKeys=normalizeSummaryCardKeys(saved===null?null:JSON.parse(saved));}
  catch{savedSummaryCardKeys=summaryDefaultCardKeys.slice();summarySettingsMessage='저장된 지표 설정을 읽을 수 없어 기본 구성으로 표시합니다.';summarySettingsError=true;}
  draftSummaryCardKeys=savedSummaryCardKeys.slice();
@@ -707,7 +785,7 @@ function renderDataCoverage(){
  if(blockers){
   const unclassified=orders.reduce((sum,[,source])=>sum+(Number(source?.unclassifiedOrders)||0),0),costMissing=orders.reduce((sum,[,source])=>sum+(Number(source?.missingCostOrders)||0),0);
   const note=document.createElement('p');note.textContent=(missingItems?'상품 상세 '+missingItems+'건은 선택 기간 주문 상세 복구로 확인합니다. ':'')+(unclassified?'브랜드 미분류 '+unclassified+'건은 아래에서 직접 분류해 주세요. ':'')+(costMissing?'원가 미확인 '+costMissing+'건은 원가 연결이 필요합니다. ':'')+'상세 정보가 없는 주문을 0원 매출로 계산하지 않습니다.';blockers.append(note);
-  for(const [show,href,text] of [[unclassified,'#profit-brand-review','미분류 상품 확인'],[costMissing,'#profit-unmatched','미연결 원가 확인']])if(show){const link=document.createElement('a');link.href=href;link.textContent=text;link.style.marginRight='15px';link.onclick=()=>{if(href==='#profit-unmatched')$('profit-unmatched').open=true;};blockers.append(link);}
+  for(const [show,href,text] of [[unclassified,'#profit-brand-review','미분류 상품 확인'],[costMissing,'#profit-unmatched','미연결 원가 확인']])if(show){const link=document.createElement('a');link.href=href;link.textContent=text;link.style.marginRight='15px';link.onclick=()=>{$('profit-panel').open=true;if(href==='#profit-unmatched')$('profit-unmatched').open=true;};blockers.append(link);}
  }
 }
 function renderDetailRepairJob(job){
@@ -772,7 +850,7 @@ async function run(){
  const version=++requestVersion,since=$('since').value,until=$('until').value;
  if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('updated').textContent='시작일과 종료일을 확인해 주세요.';return;}
  const warnings=[],nextData={naver:[],cafe:[]},nextCurrency={...currency};
- let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',nextPendingBrands=[],nextCoverage=null,nextCoverageError='',nextRepairJob=null,available=0;const nextSummaryAdLoadedAccounts=new Set();
+ let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',nextPendingBrands=[],nextStoreRevenueDiagnostics={},nextCoverage=null,nextCoverageError='',nextRepairJob=null,available=0;const nextSummaryAdLoadedAccounts=new Set();
  summaryLoading=true;renderSummaryCards();
  $('reload').disabled=true;$('updated').textContent=since+' ~ '+until+' 저장 데이터 조회 중…';
  try{
@@ -799,19 +877,19 @@ async function run(){
   // Read profit only after the same account/date caches have been refreshed.
   try{
    const q=new URLSearchParams({since,until,accounts:accountIds.join(','),fx:String(rates)});const response=await fetch('/api/profit/daily?'+q,{signal:AbortSignal.timeout(18000)});const p=await response.json();if(!response.ok)throw Error(p.error||'이익 조회 실패');
-   nextFees=p.fees||nextFees;nextProfit=new Map((p.days||[]).map(d=>[d.date,d]));nextPendingBrands=Array.isArray(p.pendingProducts)?p.pendingProducts:[];
+   nextFees=p.fees||nextFees;nextProfit=new Map((p.days||[]).map(d=>[d.date,d]));nextPendingBrands=Array.isArray(p.pendingProducts)?p.pendingProducts:[];nextStoreRevenueDiagnostics=p.revenueDiagnostics||{};
   }catch(e){nextProfitError='이익 계산: '+e.message;warnings.push(nextProfitError);}
   await Promise.all([salesRequest,coverageRequest,repairStatusRequest]);
   if(version!==requestVersion)return;
   data.naver=nextData.naver;data.cafe=nextData.cafe;currency.naver=nextCurrency.naver;currency.cafe=nextCurrency.cafe;connectedAccounts=ids;
-  storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;dataCoverage=nextCoverage;coverageError=nextCoverageError;summaryAdLoadedAccounts=nextSummaryAdLoadedAccounts;summaryLoading=false;
+  storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;storeRevenueDiagnostics=nextStoreRevenueDiagnostics;dataCoverage=nextCoverage;coverageError=nextCoverageError;summaryAdLoadedAccounts=nextSummaryAdLoadedAccounts;summaryLoading=false;
   $('profit-naver-fee').value=profitFees.naver;$('profit-cafe-fee').value=profitFees.cafe24;
   if(!available&&!storeSales.size&&!profitDays.size)warnings.push('수집된 데이터가 없습니다.');
   $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();$('updated').textContent='조회 기간 '+since+' ~ '+until+' · 저장 데이터 표시 · '+new Date().toLocaleString('ko-KR');
   if(nextRepairJob){renderDetailRepairJob(nextRepairJob);if(nextRepairJob.running&&!detailRepairPolling)void observeDetailRepair(nextRepairJob);}
  }catch(e){
   if(version!==requestVersion)return;
-  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];profitLoadError=e.message;dataCoverage=null;coverageError=e.message;summaryAdLoadedAccounts=new Set();summaryLoading=false;render();
+  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];storeRevenueDiagnostics={};profitLoadError=e.message;dataCoverage=null;coverageError=e.message;summaryAdLoadedAccounts=new Set();summaryLoading=false;render();
   $('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';
  }finally{if(version===requestVersion)$('reload').disabled=false;}
 }
@@ -837,8 +915,8 @@ async function showCafeRepairDiagnosis(){
    '진단 사례 (주문번호·고객정보 미포함):',...(examples.length?examples:['없음'])
   ];
   textArea.value=lines.join('\n');
-  panel.open=true;hint.textContent='진단은 주문번호·고객정보·API 키·금액을 포함하지 않습니다.';
- }catch(e){textArea.value='진단 불러오기 실패: '+e.message;panel.open=true;hint.textContent='로컬 서버 응답 확인 필요';}
+  $('profit-panel').open=true;panel.open=true;hint.textContent='진단은 주문번호·고객정보·API 키·금액을 포함하지 않습니다.';
+ }catch(e){textArea.value='진단 불러오기 실패: '+e.message;$('profit-panel').open=true;panel.open=true;hint.textContent='로컬 서버 응답 확인 필요';}
 }
 $('profit-diagnostic-view').onclick=showCafeRepairDiagnosis;
 $('profit-diagnostic-copy').onclick=async()=>{

@@ -125,7 +125,35 @@ async function activeLabel(){
 async function labelList(){return page.locator(selectors.links).evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label')||node.querySelector('.app-nav-label')?.textContent?.trim()||node.textContent.trim()));}
 async function mainBox(){const box=await page.locator(selectors.main).boundingBox();assert.ok(box);return {x:box.x,width:box.width};}
 function sameBox(a,b,label){assert.ok(Math.abs(a.x-b.x)<0.6,label+' must not move main content horizontally: '+JSON.stringify({a,b}));assert.ok(Math.abs(a.width-b.width)<0.6,label+' must not resize main content: '+JSON.stringify({a,b}));}
+async function verifyOverviewFolds(){
+ const panels=[['details.fold-panel:has(#channels)','#channels'],['details.fold-panel:has(#daily)','#daily'],['#profit-panel','#profit-save-fees'],['#budget-efficiency','#budget-step']];
+ assert.equal(await page.locator('details.fold-panel').count(),4,'Four overview panels retain the new folded presentation after installation/update');
+ assert.equal(await page.locator('#ai-strategy,#ai-form,#ai-key,#ai-question,#ai-submit').count(),0,'Removed AI controls must not reappear in any installation path');
+ assert.equal(await page.getByText('AI 전략 회의실',{exact:true}).count(),0);
+ for(const [selector,content] of panels){
+  assert.equal(await page.locator(selector).evaluate(node=>node.open),false,selector+' starts closed');
+  assert.equal(await page.locator(selector+' > summary').isVisible(),true);
+  assert.equal(await page.locator(content).isVisible(),false,'Folded content is hidden until the user opens it');
+ }
+ for(const [index,[selector,content]] of [panels[0],panels[2]].entries()){
+  const panel=page.locator(selector),summary=panel.locator(':scope > summary');
+  if(index){await summary.focus();await page.keyboard.press('Enter');}else await summary.click();
+  assert.equal(await panel.evaluate(node=>node.open),true,'Real mouse/keyboard interaction opens the overview panel');
+  await page.locator(content).waitFor({state:'visible'});
+  if(index){await summary.focus();await page.keyboard.press('Enter');}else await summary.click();
+  assert.equal(await panel.evaluate(node=>node.open),false);
+  assert.equal(await page.locator(content).isVisible(),false);
+ }
+}
+async function revealOverviewTable(){
+ if(new URL(page.url()).pathname!=='/visual-overview.html')return;
+ const panel=page.locator('details.fold-panel:has(#channels)');
+ if(!(await panel.evaluate(node=>node.open)))await panel.locator(':scope > summary').click();
+ assert.equal(await panel.evaluate(node=>node.open),true,'Typography and contrast are measured only after opening the channel panel');
+ await page.locator('#channels table th').first().waitFor({state:'visible'});
+}
 async function typography(){
+ await revealOverviewTable();
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('main table th')).some(node=>node.getBoundingClientRect().height>0));
  return page.evaluate(sel=>{
   const visible=node=>node&&getComputedStyle(node).display!=='none'&&getComputedStyle(node).visibility!=='hidden'&&node.getBoundingClientRect().width>0&&node.getBoundingClientRect().height>0;
@@ -169,6 +197,7 @@ async function theme(value){
  assert.equal(await page.evaluate(()=>localStorage.getItem('roas-pilot-theme')),value,'Theme selection is persisted');
 }
 async function contrastAudit(themeName){
+ await revealOverviewTable();
  const samples=await page.evaluate(sel=>{
   const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d',{willReadFrequently:true});
   const rgba=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);const p=ctx.getImageData(0,0,1,1).data;return [p[0],p[1],p[2],p[3]/255];};
@@ -208,6 +237,7 @@ async function verifyBrowserScenario(){
  await context.addInitScript(ids=>localStorage.setItem('roas-account-ids',JSON.stringify(ids)),accountIds);
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(base+'/'))return route.continue();externalRequests.push(url);return route.abort();});
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
+ await go('/visual-overview.html');await verifyOverviewFolds();
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
@@ -219,7 +249,7 @@ async function verifyBrowserScenario(){
    await hoverOverlay();
   }
   for(const sample of samples.slice(1))assert.deepEqual(sample.styles,samples[0].styles,'Typography, control/table styles and main padding must match at '+width+'px: '+sample.route+' vs '+samples[0].route);
-  pass(width+'px: all three pages share fonts, controls, tables, spacing, navigation, and non-shifting hover rail');
+  pass(width+'px: pages retain folded overview/removed AI and share visible fonts, controls, tables, spacing, navigation, and non-shifting hover rail');
  }
 
  await page.setViewportSize({width:1440,height:1100});

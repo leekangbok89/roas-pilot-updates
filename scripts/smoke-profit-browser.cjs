@@ -264,6 +264,43 @@ async function report(base, since, until, accounts = Object.values(accountIds)) 
 async function idle() {
   await page.waitForFunction(() => document.getElementById('reload')?.disabled === false);
 }
+async function openDetails(selector, content) {
+  const panel = page.locator(selector);
+  assert.equal(await panel.count(), 1, 'One details panel exists: ' + selector);
+  assert.equal(await panel.evaluate(node => node.tagName), 'DETAILS');
+  if (!(await panel.evaluate(node => node.open))) await panel.locator(':scope > summary').click();
+  assert.equal(await panel.evaluate(node => node.open), true, 'A real summary click opens ' + selector);
+  await page.locator(content).waitFor({ state: 'visible' });
+}
+async function verifyOverviewFolds(requests) {
+  const panels = [
+    ['details.fold-panel:has(#channels)', '#channels'],
+    ['details.fold-panel:has(#daily)', '#daily'],
+    ['#profit-panel', '#profit-save-fees'],
+    ['#budget-efficiency', '#budget-step']
+  ];
+  assert.equal(await page.locator('details.fold-panel').count(), 4, 'The four secondary overview panels use native details');
+  assert.equal(await page.locator('#ai-strategy,#ai-form,#ai-key,#ai-question,#ai-submit').count(), 0, 'Removed AI controls are absent rather than hidden');
+  assert.equal(await page.getByText('AI 전략 회의실', { exact: true }).count(), 0);
+  for (const [selector, content] of panels) {
+    assert.equal(await page.locator(selector).evaluate(node => node.open), false, selector + ' starts closed');
+    assert.equal(await page.locator(selector + ' > summary').isVisible(), true, 'Closed panels retain visible interactive summaries');
+    assert.equal(await page.locator(content).isVisible(), false, 'Closed panel content is actually hidden: ' + content);
+  }
+  for (const [index, [selector, content]] of panels.entries()) {
+    const panel = page.locator(selector), summary = panel.locator(':scope > summary');
+    if (index % 2) { await summary.focus(); await page.keyboard.press('Enter'); }
+    else await summary.click();
+    assert.equal(await panel.evaluate(node => node.open), true, 'Mouse/keyboard opens the native panel');
+    await page.locator(content).waitFor({ state: 'visible' });
+    if (index % 2) { await summary.focus(); await page.keyboard.press('Enter'); }
+    else await summary.click();
+    assert.equal(await panel.evaluate(node => node.open), false, 'Mouse/keyboard closes the native panel');
+    assert.equal(await page.locator(content).isVisible(), false);
+  }
+  assert.deepEqual(requests.filter(req => new URL(req.url).pathname.startsWith('/api/ai')), [], 'The removed AI workspace makes no startup API requests');
+  check('overview: four panels start closed with hidden content, real clicks/Enter toggle them, and removed AI controls make no requests');
+}
 async function range(since, until = since) {
   await idle();
   // The date picker exposes readonly text inputs. Set the selected fixture dates,
@@ -276,10 +313,12 @@ async function range(since, until = since) {
   await idle();
 }
 async function row(date) {
+  await openDetails('#profit-panel', '#profit-table');
   const rows = await page.locator('#profit-table tbody tr').evaluateAll(nodes => nodes.map(node => Array.from(node.cells, cell => cell.textContent)));
-  const found = rows.find(cells => cells[0] === date);
-  assert.ok(found, 'Profit table is missing ' + date);
-  return found;
+  const index = rows.findIndex(cells => cells[0] === date);
+  assert.ok(index >= 0, 'Profit table is missing ' + date);
+  assert.equal(await page.locator('#profit-table tbody tr').nth(index).isVisible(), true, 'Verified profit rows must be visible after opening the panel');
+  return rows[index];
 }
 async function amount(date, expected) {
   const cells = await row(date);
@@ -295,8 +334,10 @@ async function scopeAmount(date, expected, partial) {
   else assert.ok(!/부분|확인분/.test(cells[6]), 'Resolved scope should no longer be partial');
 }
 async function chooseScope(name, choice) {
+  await openDetails('#profit-panel', '#profit-brand-list');
   const item = page.locator('#profit-brand-list tr').filter({ hasText: name });
   assert.equal(await item.count(), 1, 'Show one review row for exact ambiguous name');
+  assert.equal(await item.isVisible(), true, 'Brand classification is performed on a visible review row');
   page.once('dialog', dialog => dialog.accept());
   const response = page.waitForResponse(res => new URL(res.url()).pathname === '/api/brand-products' && res.request().method() === 'POST');
   await item.locator('[data-brand-choice="' + choice + '"]').click();
@@ -773,6 +814,7 @@ async function verifySplitRoas(requests) {
     await page.locator('#channel').selectOption(channel);
     await idle();
     await assertRoas([2000, 3000, 1500], 'ROAS scopes remain fixed under top channel filter ' + channel);
+    assert.equal(await page.locator('#spend').innerText(), money(30000), 'The existing spend key now remains integrated under every top channel filter');
   }
   // September 1 has spend but no attributed purchase value; September 2 is a
   // confirmed empty day. Keep September 1 spend in the full-period denominator.
@@ -849,6 +891,226 @@ async function verifySplitRoas(requests) {
   await page.locator('#summary-edit').click();
   await page.locator('#summary-defaults').click();
   await page.locator('#summary-save').click();
+}
+
+async function verifySplitSpend(requests) {
+  fixture();
+  await range('2026-09-04');
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const storageKey = 'roas-overview-summary-cards-v1';
+  const keys = ['smartstoreSpend', 'mallSpend', 'spend'];
+  const labels = ['스마트스토어 광고비', '자사몰 광고비', '통합 광고비'];
+  const scopes = ['Meta · 스마트스토어 광고', 'Meta · 자사몰 광고', 'Meta · 전체 연결 계정'];
+  const roasKeys = ['smartstoreRoas', 'mallRoas', 'roas'];
+  const configured = [...keys, ...roasKeys, ...Array(6).fill('')];
+  const card = key => page.locator('#summary-cards .summary-card[data-summary-key="' + key + '"]');
+  const assertSpend = async (expected, message) => {
+    for (const [index, key] of keys.entries()) {
+      assert.equal(await card(key).count(), 1, key + ': one configured card');
+      assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
+      assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
+      assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each spend card identifies its fixed account scope');
+    }
+  };
+  assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
+  assert.equal(await card('spend').locator('.summary-card-label').innerText(), '통합 광고비');
+  const requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  assert.equal(await page.locator('.summary-card-choice').count(), 12);
+  for (const [index, key] of keys.entries()) assert.equal(await page.locator('#summary-choice-0 option[value="' + key + '"]').innerText(), labels[index]);
+  for (const [index, key] of configured.entries()) await page.locator('#summary-choice-' + index).selectOption(key);
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await summaryKeys(), configured.filter(Boolean));
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured, 'Three spend and three ROAS selections preserve twelve stored positions including empty slots');
+  assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
+  await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
+  assert.deepEqual(await page.locator('#summary-roas-audit-body [data-roas-key]').evaluateAll(rows => rows.map(row => row.dataset.roasKey).sort()), roasKeys.slice().sort(), 'ROAS evidence contains only ROAS rows, never the three spend metrics');
+  const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
+    const box = card.getBoundingClientRect();
+    return { x: box.x, y: box.y, right: box.right };
+  }));
+  assert.equal(layout.length, 6);
+  for (const [index, box] of layout.entries()) {
+    assert.ok(Math.abs(box.y - layout[0].y) < 1 && box.right <= 1441, 'Six spend/ROAS cards fit one row at 1440px');
+    if (index) assert.ok(box.x >= layout[index - 1].right - 1, 'Adjacent spend/ROAS cards do not overlap');
+  }
+  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Selecting and saving spend cards does not request data');
+  if (await page.locator('#summary-roas-audit').evaluate(details => details.open)) await page.locator('#summary-roas-audit > summary').click();
+  await metricCardScreenshot('cards-three-spend-three-roas-1440');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.deepEqual(await summaryKeys(), configured.filter(Boolean), 'Spend choices survive a real page reload');
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured);
+  await range('2026-09-04');
+  for (const channel of ['naver', 'cafe', 'all']) {
+    await page.locator('#channel').selectOption(channel);
+    await idle();
+    await assertSpend([20000, 10000, 30000], 'Spend scopes ignore the top channel filter ' + channel);
+    const values = await Promise.all(keys.map(key => card(key).locator('strong').innerText()));
+    assert.equal(Number(values[0].replace(/[^\d]/g, '')) + Number(values[1].replace(/[^\d]/g, '')), Number(values[2].replace(/[^\d]/g, '')), 'The displayed total equals the displayed channel amounts');
+  }
+  check('spend: three fixed-scope choices save locally with three ROAS cards, keep empty slots across reload, ignore top filters, and never enter the ROAS audit');
+
+  await range('2026-09-02');
+  await assertSpend([0, 0, 0], 'A successfully collected empty day confirms zero spend');
+  for (const key of keys) assert.equal(await card(key).locator('.summary-card-badge').count(), 0, 'Confirmed empty spend has no partial badge');
+  await range('2026-09-01');
+  await assertSpend([20000, 10000, 30000], 'Spend includes ads with entirely unknown purchase revenue');
+  for (const key of keys) assert.equal(await card(key).locator('.summary-card-badge').count(), 0, 'Unknown purchases do not make complete spend partial');
+  for (const key of roasKeys) assert.equal(await card(key).locator('strong').innerText(), '—', 'Unknown purchase revenue remains distinct from its known spend');
+  for (const account of Object.values(accountIds)) {
+    const relative = '.roas-data/daily/' + account + '/2026-09-04.json';
+    const saved = JSON.parse(fs.readFileSync(path.join(temp, relative), 'utf8'));
+    for (const row of saved.rows) {
+      row.actions = [{ action_type: 'purchase', value: '0' }];
+      row.action_values = [{ action_type: 'purchase', value: '0' }];
+    }
+    write(relative, saved);
+  }
+  await range('2026-09-04');
+  await assertSpend([20000, 10000, 30000], 'Explicit zero purchase revenue never removes ad spend');
+  for (const key of roasKeys) assert.equal(await card(key).locator('strong').innerText(), '0.0%');
+  const selected = roasSpendFixture(false);
+  fs.unlinkSync(path.join(temp, '.roas-data/daily', accountIds.cafe, selected.since + '.json'));
+  await range(selected.since, selected.until);
+  await assertSpend([1000, 10, 1010], 'Missing spend days retain only the known spend sum with explicit partial status');
+  assert.equal(await card('smartstoreSpend').locator('.summary-card-badge').count(), 0);
+  for (const key of ['mallSpend', 'spend']) {
+    assert.equal(await card(key).locator('.summary-card-badge').innerText(), '확인분');
+    assert.match(await card(key).locator('.summary-card-state').innerText(), /확인 [12]\/2일.*광고비 일부 미확인/);
+  }
+  check('spend: verified empty dates show zero; unknown/zero purchases do not exclude spend; missing dates show the known sum with a partial badge and collection guidance');
+
+  fixture();
+  await page.evaluate(id => localStorage.setItem('roas-account-ids', JSON.stringify({ naver: id, cafe: id })), accountIds.naver);
+  const duplicateStart = requests.length;
+  await range('2026-09-04');
+  await assertSpend([null, null, 20000], 'A shared account contributes once to integrated spend and cannot be split by channel');
+  assert.equal(requests.slice(duplicateStart).filter(req => new URL(req.url).pathname === '/api/insights').length, 1, 'The shared account is fetched only once');
+  for (const key of ['smartstoreSpend', 'mallSpend']) assert.match(await card(key).locator('.summary-card-state').innerText(), /동일 광고계정.*구분/);
+  for (const [ids, expected, absent] of [
+    [{ naver: accountIds.naver, cafe: '' }, [20000, null, 20000], ['mallSpend']],
+    [{ naver: '', cafe: accountIds.cafe }, [null, 10000, 10000], ['smartstoreSpend']],
+    [{ naver: '', cafe: '' }, [null, null, null], keys]
+  ]) {
+    await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), ids);
+    await range('2026-09-04');
+    await assertSpend(expected, 'Unconnected advertising accounts remain unavailable');
+    for (const key of absent) assert.match(await card(key).locator('.summary-card-state').innerText(), /광고계정 미연결/);
+  }
+  await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
+  await range('2026-09-04');
+  await assertSpend([20000, 10000, 30000], 'Reconnecting both accounts restores independent channel spend');
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-defaults').click();
+  await page.locator('#summary-save').click();
+  check('spend: shared accounts are fetched and summed once with separate-channel guidance; absent accounts show unavailable and reconnect cleanly');
+}
+
+async function verifyCafeRevenueDiagnostic(base, requests) {
+  const date = '2026-09-04';
+  const cafeCard = () => page.locator('#summary-cards .summary-card[data-summary-key="mallRevenue"]');
+  const cell = field => page.locator('#cafe-revenue-diagnostic-body [data-cafe-revenue-field="' + field + '"] td');
+  const openFromCard = async label => {
+    const button = cafeCard().locator('[data-cafe-revenue-diagnostic="open"]');
+    assert.equal(await button.innerText(), label);
+    await button.click();
+    assert.equal(await page.locator('#cafe-revenue-diagnostic').evaluate(details => details.open), true, 'The card action opens the actual diagnostic details');
+    assert.equal(await cell('cacheState').isVisible(), true);
+  };
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  const copiedReport = async diagnostic => {
+    await page.locator('#cafe-revenue-copy').click();
+    await page.waitForFunction(() => document.getElementById('cafe-revenue-copy-status').textContent.includes('복사했습니다'));
+    const output = page.locator('#cafe-revenue-diagnostic-output');
+    const text = await output.inputValue();
+    assert.equal(await output.evaluate(node => node.readOnly), true);
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), text, 'The copy button writes the exact diagnostic report to the temporary browser clipboard');
+    assert.equal(text.split('\n')[0], 'ROAS Pilot v' + diagnostic.version + ' · 카페24 주문매출 진단');
+    assert.ok(text.includes('조회 기간: ' + date + ' ~ ' + date));
+    assert.ok(text.includes(diagnostic.reason));
+    return text;
+  };
+
+  fixture();
+  const automatic = { ...order('cafe24', date, 200000, 1, scopeNames.excluded), id: 'qa-cafe-auto-excluded' };
+  const manual = { ...order('cafe24', date, 100000, 1, scopeNames.cafeUnknown), id: 'qa-cafe-manual-excluded' };
+  write('.roas-data/cafe24-orders/orders.json', { orders: { [automatic.id]: automatic, [manual.id]: manual } });
+  write('.roas-data/cafe24-orders/sync.json', { days: { [date]: { checkedAt: '2026-10-24T00:00:00Z', count: 2 } } });
+  await range(date);
+  await chooseScope(scopeNames.cafeUnknown, 'excluded');
+  let api = await report(base, date, date);
+  let diagnostic = api.revenueDiagnostics.cafe24;
+  assert.deepEqual(Object.fromEntries(['includedOrders', 'excludedOrders', 'autoExcludedOrders', 'manualExcludedOrders', 'confirmedRevenue', 'complete', 'zeroReason'].map(key => [key, diagnostic[key]])), {
+    includedOrders: 0, excludedOrders: 2, autoExcludedOrders: 1, manualExcludedOrders: 1, confirmedRevenue: 0, complete: true, zeroReason: 'excluded'
+  });
+  assert.equal(api.days[0].cafe24.revenue, 0);
+  assert.equal(api.days[0].complete, true, 'A valid zero from excluded orders can be complete');
+  assert.equal(await cafeCard().locator('strong').innerText(), money(0));
+  await amount(date, 228000);
+  const viewStart = requests.length;
+  await openFromCard('0원 원인 확인');
+  for (const [field, value] of [['storedOrders', '2건'], ['includedOrders', '0건'], ['excludedOrders', '2건'], ['autoExcludedOrders', '1건'], ['manualExcludedOrders', '1건'], ['confirmedRevenue', money(0)]]) {
+    assert.equal(await cell(field).innerText(), value);
+  }
+  assert.equal(await cell('cacheState').innerText(), '정상적으로 읽음');
+  assert.equal(await page.locator('#cafe-revenue-diagnostic-summary').innerText(), diagnostic.reason);
+  assert.match(diagnostic.reason, /제외/);
+  const excludedCopy = await copiedReport(diagnostic);
+  assert.ok(excludedCopy.includes('위마망 집계에서 제외: 2건'));
+  assert.ok(excludedCopy.includes('상품명에 따라 자동 제외: 1건'));
+  assert.ok(excludedCopy.includes('사용자 분류에 따라 제외: 1건'));
+  assert.ok(!excludedCopy.includes(automatic.id) && !excludedCopy.includes(manual.id), 'The report contains aggregate counts rather than order identifiers');
+  assert.deepEqual(requests.slice(viewStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Opening and copying an already loaded diagnosis does not recollect data');
+  await metricCardScreenshot('cards-cafe-revenue-zero-diagnostic-1440');
+  check('Cafe revenue: real automatic/manual exclusions produce a valid zero, the card opens counts and reason, and the copy button copies the exact aggregate report');
+
+  for (const cacheState of ['invalid_json', 'missing']) {
+    fixture();
+    const sync = { days: { [date]: { checkedAt: '2026-10-24T00:00:00Z', count: 1 } } };
+    write('.roas-data/cafe24-orders/sync.json', sync);
+    const ordersFile = path.join(temp, '.roas-data/cafe24-orders/orders.json');
+    if (cacheState === 'invalid_json') fs.writeFileSync(ordersFile, '{"orders":');
+    else fs.unlinkSync(ordersFile);
+    await range(date);
+    api = await report(base, date, date);
+    diagnostic = api.revenueDiagnostics.cafe24;
+    assert.equal(diagnostic.cacheState, cacheState);
+    assert.equal(diagnostic.complete, false);
+    assert.equal(diagnostic.confirmedRevenue, null);
+    assert.equal(diagnostic.storedOrders, null, 'Unreadable or absent orders cannot be reported as a confirmed empty cache');
+    assert.equal(diagnostic.recordedDays, 1, 'A successful collection record remains visible after cache failure');
+    assert.equal(diagnostic.recordedOrders, 1);
+    assert.ok(diagnostic.cacheIssue);
+    assert.equal(api.days[0].cafe24.revenue, null);
+    assert.equal(api.days[0].cafe24.confirmed.revenue, null);
+    assert.equal(api.days[0].cafe24.confirmedAvailable, false);
+    assert.equal(api.days[0].profit, null);
+    assert.equal(api.days[0].confirmed.profit, null);
+    assert.equal(api.days[0].complete, false, 'Completed sync alone cannot manufacture completed profit from missing orders');
+    assert.equal(await cafeCard().locator('strong').innerText(), '—');
+    assert.equal(await page.locator('#profit').innerText(), '—');
+    assert.equal((await row(date))[5], '미확정');
+    await openFromCard('매출 미확정 원인 확인');
+    assert.equal(await cell('cacheState').innerText(), cacheState === 'invalid_json' ? '저장 주문 자료 읽기 실패' : '저장 주문 자료 없음');
+    assert.equal(await cell('storedOrders').innerText(), '미확인');
+    assert.equal(await cell('confirmedRevenue').innerText(), '—');
+    assert.equal(await cell('recordedDays').innerText(), '1일');
+    assert.equal(await cell('recordedOrders').innerText(), '1건');
+    assert.equal(await page.locator('#cafe-revenue-diagnostic-summary').innerText(), diagnostic.reason);
+    const text = await copiedReport(diagnostic);
+    assert.ok(text.includes(diagnostic.cacheIssue));
+    assert.ok(text.includes('수집 기록의 주문 건수: 1건'));
+    assert.ok(text.includes('집계 상태: 위마망 주문매출 미확정'));
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(temp, '.roas-data/cafe24-orders/sync.json'), 'utf8')), sync, 'Read-only diagnosis preserves the recorded collection evidence');
+    assert.equal(fs.existsSync(ordersFile), cacheState !== 'missing');
+    if (cacheState === 'invalid_json') assert.equal(fs.readFileSync(ordersFile, 'utf8'), '{"orders":', 'Displaying failure does not overwrite the unreadable cache');
+  }
+  await metricCardScreenshot('cards-cafe-revenue-missing-diagnostic-1440');
+  check('Cafe revenue: corrupt and absent order caches with positive completed-sync counts show unknown revenue/profit, retain collection evidence, and never manufacture a completed zero');
+  fixture();
+  await range(date);
 }
 
 async function hoverVisibleProfitPoints(label) {
@@ -944,29 +1206,10 @@ async function verifyResponsiveHover(requests) {
   page.on('request', request => requests.push({ url: request.url(), method: request.method() }));
   await page.goto(base + '/visual-overview.html');
   await idle();
-  // Move away from the navigation rail before clicking accordion summaries.
-  await page.mouse.move(1000, 80);
-  // Verify the shipped UI is collapsed by default, then expand for legacy
-  // metric assertions that read rendered innerText inside these panels.
-  const folded = page.locator('details.fold-panel');
-  assert.equal(await folded.count(), 4, 'Four overview panels support collapse / expand');
-  assert.deepEqual(await folded.evaluateAll(nodes => nodes.map(node => node.open)),
-    [false, false, false, false], 'All overview panels are collapsed on first load');
-  assert.equal(await page.locator('#ai-strategy').count(), 0, 'AI strategy room is removed');
-  await folded.first().locator('summary').click();
-  assert.equal(await folded.first().evaluate(node => node.open), true, 'Click expands a panel');
-  await folded.first().locator('summary').click();
-  assert.equal(await folded.first().evaluate(node => node.open), false, 'Second click collapses a panel');
-  // Preserve expanded test visibility across page.reload() calls in this
-  // existing browser suite without changing production default behavior.
-  await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('details.fold-panel').forEach(node => { node.open = true; });
-  }, { once: true }));
-  await folded.evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
-  check('browser: four overview panels are collapsed by default and toggle on click; AI strategy room is removed');
   // Playwright starts at (0,0), the intentional hover target for the drawer.
   // Move into the workspace before interacting with content beneath that overlay.
   await page.mouse.move(1000, 80);
+  await verifyOverviewFolds(requests);
   assert.equal(await page.locator('#chart-window').inputValue(),'1','Page load defaults to daily raw regardless of saved 3-day preset');
   if (!scopeOnly) {
   await page.locator('#custom-preset-buttons button').first().click();
@@ -987,7 +1230,7 @@ async function verifyResponsiveHover(requests) {
   await amount('2026-09-01', 99000);
   assert.equal(await page.locator('#profit-total').innerText(), money(99000));
   assert.ok((await pointTitles()).some(title => title.includes('99,000원')));
-  await page.locator('#profit-troubleshooting').evaluate(el => { el.open = true; });
+  await openDetails('#profit-troubleshooting', '#profit-troubleshooting-body');
   assert.ok((await page.locator('#profit-troubleshooting-body').innerText()).includes('Meta 구매 전환매출과 무관'));
   check('browser: actual store profit graph works with zero Meta purchase conversions');
   await range('2026-09-01', '2026-09-07');
@@ -1047,10 +1290,13 @@ async function verifyResponsiveHover(requests) {
     await verifyMetricCards(requests);
     await verifyOptionalCards(requests);
     await verifySplitRoas(requests);
+    await verifySplitSpend(requests);
+    await verifyCafeRevenueDiagnostic(base, requests);
     await verifyResponsiveHover(requests);
   }
 
   assert.deepEqual(pageErrors, [], 'Browser JavaScript errors');
+  assert.deepEqual(requests.filter(req => new URL(req.url).pathname.startsWith('/api/ai')), [], 'Removed AI controls never issue requests during overview interactions');
   if (process.env.ROAS_PROFIT_SCREENSHOT) {
     await page.screenshot({ path: process.env.ROAS_PROFIT_SCREENSHOT, fullPage: true });
   }

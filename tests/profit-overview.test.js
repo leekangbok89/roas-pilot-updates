@@ -105,7 +105,7 @@ test('three ROAS cards keep fixed scopes and use the spend-weighted ratio after 
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};rates=1350;data.naver=[normalize({date_start:'2026-09-01',spend:'100',account_currency:'USD',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'500'}]},'naver')];data.cafe=[normalize({date_start:'2026-09-01',spend:'45000',account_currency:'KRW',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'90000'}]},'cafe')];profitDays=new Map([['2026-09-01',{revenue:99999999,complete:true}]]);");
  completeAdCoverage(h);
- for(const [channel,spend] of [['all',180000],['naver',135000],['cafe',45000]]){
+ for(const [channel,filteredSpend,filteredRevenue] of [['all',180000,765000],['naver',135000,675000],['cafe',45000,90000]]){
   h.node('channel').value=channel;
   for(const [key,expected] of [['roas',425],['mallRoas',200],['smartstoreRoas',500]]){
    h.context.metricKey=key;
@@ -113,11 +113,94 @@ test('three ROAS cards keep fixed scopes and use the spend-weighted ratio after 
    assert.equal(metric.value,expected,key+' must not follow the global '+channel+' filter');
    assert.equal(metric.partial,false);assert.equal(metric.completeDays,1);assert.equal(metric.totalDays,1);
   }
-  assert.equal(h.run("summaryMetric('spend').value"),spend,'Other advertising cards keep the selected-channel scope');
+  assert.equal(h.run("summaryMetric('spend').value"),180000,'The existing spend key now always shows integrated advertising spend');
+  assert.equal(h.run("summaryMetric('revenue').value"),filteredRevenue,'Meta purchase revenue still follows the selected channel');
+  assert.equal(h.run('sum(selectedAdRows()).spend'),filteredSpend,'The shared ad-row selector keeps its original channel-filter behavior');
  }
  assert.notEqual(h.run("summaryMetric('roas').value"),(500+200)/2,'Total ROAS is never a simple average of channel percentages');
  assert.match(h.run("summaryMetric('mallRoas').scope"),/자사몰|카페24/);
  assert.match(h.run("summaryMetric('smartstoreRoas').scope"),/스마트스토어/);
+});
+
+test('three spend cards keep fixed channel scopes and include ads with missing or zero purchases',()=>{
+ const h=harness();h.node('until').value='2026-09-02';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};rates=1350;data.naver=[normalize({date_start:'2026-09-01',spend:'10',account_currency:'USD'},'naver'),normalize({date_start:'2026-09-02',spend:'0',account_currency:'USD',actions:[{action_type:'purchase',value:'0'}],action_values:[{action_type:'purchase',value:'0'}]},'naver')];data.cafe=[normalize({date_start:'2026-09-01',spend:'7000',account_currency:'KRW',actions:[{action_type:'purchase',value:'0'}],action_values:[{action_type:'purchase',value:'0'}]},'cafe'),normalize({date_start:'2026-09-02',spend:'10000',account_currency:'KRW'},'cafe')];");
+ completeAdCoverage(h);
+ for(const channel of ['all','naver','cafe']){
+  h.node('channel').value=channel;
+  for(const [key,expected] of [['spend',30500],['smartstoreSpend',13500],['mallSpend',17000]]){
+   h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+   assert.equal(metric.value,expected,key+' must include all spend and ignore the global '+channel+' filter');
+   assert.equal(metric.partial,false);assert.equal(metric.knownDays,2);assert.equal(metric.completeDays,2);assert.equal(metric.totalDays,2);
+  }
+ }
+ assert.match(h.run("summaryMetric('smartstoreSpend').scope"),/스마트스토어/);
+ assert.match(h.run("summaryMetric('mallSpend').scope"),/자사몰|카페24/);
+});
+
+test('integrated spend counts a shared account once and never invents separate channel spend',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:1000,revenue:null,purchases:null}];data.cafe=data.naver;");
+ completeAdCoverage(h,['111']);
+ for(const channel of ['all','naver','cafe']){
+  h.node('channel').value=channel;
+  assert.equal(h.run("summaryMetric('spend').value"),1000);
+  for(const key of ['smartstoreSpend','mallSpend']){
+   h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+   assert.equal(metric.value,null);assert.match(metric.detail,/동일 광고계정.*구분/);
+  }
+ }
+ h.run("connectedAccounts.cafe='';data.cafe=[];");
+ assert.equal(h.run("summaryMetric('spend').value"),1000);
+ assert.equal(h.run("summaryMetric('smartstoreSpend').value"),1000);
+ assert.equal(h.run("summaryMetric('mallSpend').value"),null);
+ assert.match(h.run("summaryMetric('mallSpend').detail"),/미연결/);
+});
+
+test('spend cards distinguish partial account-date coverage, verified empty days, and entirely missing spend',()=>{
+ const h=harness();
+ h.run("connectedAccounts={naver:'111',cafe:'222'};summaryAdLoadedAccounts=new Set(['111','222']);dataCoverage={since:'2026-09-01',until:'2026-09-03',sources:{meta:{'111':{missingDays:['2026-09-02']},'222':{missingDays:['2026-09-01']}}}};data.naver=[{date:'2026-09-01',spend:100,revenue:null,purchases:null}];data.cafe=[{date:'2026-09-02',spend:200,revenue:0,purchases:0}];");
+ for(const [key,expected,knownDays,completeDays] of [['spend',300,3,1],['smartstoreSpend',100,2,2],['mallSpend',200,2,2]]){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,expected);assert.equal(metric.partial,true);
+  assert.equal(metric.knownDays,knownDays);assert.equal(metric.completeDays,completeDays);assert.equal(metric.totalDays,3);
+  assert.match(metric.detail,/광고비.*미확인/);
+ }
+ h.run('data.naver=[];data.cafe=[];');
+ assert.equal(h.run("summaryMetric('spend').value"),0,'Verified empty dates may contribute a confirmed zero even when other account-dates are missing');
+ assert.equal(h.run("summaryMetric('spend').partial"),true);
+ completeAdCoverage(h);
+ for(const key of ['spend','smartstoreSpend','mallSpend']){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,0);assert.equal(metric.partial,false);assert.equal(metric.knownDays,3);assert.equal(metric.completeDays,3);
+ }
+ h.run("for(const source of Object.values(dataCoverage.sources.meta))source.missingDays=summarySelectedDates();");
+ for(const key of ['spend','smartstoreSpend','mallSpend']){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,null,'No collected dates must not manufacture zero spend');assert.equal(metric.knownDays,0);assert.equal(metric.completeDays,0);
+ }
+ completeAdCoverage(h);h.run('summaryAdLoadedAccounts.clear();');
+ assert.equal(h.run("summaryMetric('spend').value"),null,'Coverage records alone cannot replace a successful ad-data load');
+});
+
+test('saved spend layouts preserve twelve slots and only ROAS cards appear in the ROAS audit',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.context.settings=['spend',...Array(11).fill('')];
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(settings))')),h.context.settings,'An existing integrated-spend layout must keep its empty slots');
+ h.context.settings=['spend','smartstoreSpend','mallSpend','','profit','','','','','','',''];
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(settings))')),h.context.settings);
+ assert.equal(h.run("summaryCardMetrics.spend.label"),'통합 광고비');
+ assert.equal(h.run("summaryCardMetrics.smartstoreSpend.label"),'스마트스토어 광고비');
+ assert.equal(h.run("summaryCardMetrics.mallSpend.label"),'자사몰 광고비');
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(summaryDefaultCardKeys)')),['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit']);
+ h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:100,revenue:50,purchases:1}];data.cafe=[{date:'2026-09-01',spend:200,revenue:100,purchases:1}];savedSummaryCardKeys=['spend','smartstoreSpend','mallSpend',...Array(9).fill('')];");
+ completeAdCoverage(h);h.run('renderSummaryCards();');
+ assert.equal(h.node('summary-cards').children.length,3);
+ assert.equal(h.node('summary-roas-audit').hidden,true,'Fixed-scope spend cards must not be mistaken for ROAS cards');
+ h.run("savedSummaryCardKeys[3]='roas';savedSummaryCardKeys[4]='mallRoas';savedSummaryCardKeys[5]='roas';renderSummaryCards();");
+ const auditRows=h.node('summary-roas-audit-body').children[0].children[1].children;
+ assert.equal(h.node('summary-roas-audit').hidden,false);
+ assert.deepEqual(auditRows.map(row=>row.attributes['data-roas-key']),['roas','mallRoas'],'The audit includes only distinct selected ROAS metrics');
 });
 
 test('channel ROAS retains explicit zero revenue and identifies incomplete dates without inventing returns',()=>{
@@ -530,4 +613,112 @@ test('page lookup resumes observing an existing detail repair without starting a
  assert.equal(requests.some(r=>r.options.method==='POST'),false);
  assert.match(elementText(h.node('history-repair-sources')),/카페24 완료/);
  assert.equal(h.run('detailRepairPolling'),false);
+});
+
+const cafeRevenueDiagnosticFixture=overrides=>({
+ since:'2026-09-01',until:'2026-09-03',cacheState:'ok',cacheIssue:null,recordedDays:3,recordedOrders:0,
+ storedOrders:0,positiveOrders:0,zeroNetOrders:0,includedOrders:0,excludedOrders:0,
+ autoExcludedOrders:0,manualExcludedOrders:0,unclassifiedOrders:0,mixedOrders:0,
+ missingItemOrders:0,invalidOrders:0,undatedOrders:0,confirmedRevenue:0,complete:true,
+ zeroReason:'no_orders',reason:'선택 기간의 저장된 카페24 주문이 없습니다.',countMismatches:[],
+ version:'2.8.81',mallId:'example-mall',shopNo:1,...overrides
+});
+const cafeRevenueDiagnosticFields=h=>Object.fromEntries(h.node('cafe-revenue-diagnostic-body').children[0].children[0].children.map(row=>[row.attributes['data-cafe-revenue-field'],row.children[1].textContent]));
+const descendantElements=root=>[root,...(root.children||[]).flatMap(descendantElements)];
+
+test('Cafe24 zero-sales diagnostics distinguish an empty cache from paid orders excluded by brand',()=>{
+ const h=harness();h.context.profitRows=['2026-09-01','2026-09-02','2026-09-03'].map(date=>profit(date,53000));
+ h.run('profitDays=new Map(profitRows.map(row=>[row.date,row]));');
+ const cases=[
+  cafeRevenueDiagnosticFixture(),
+  cafeRevenueDiagnosticFixture({recordedOrders:139,storedOrders:139,positiveOrders:139,excludedOrders:139,autoExcludedOrders:100,manualExcludedOrders:39,zeroReason:'excluded',reason:'저장된 유료 주문이 모두 위마망 집계 대상에서 제외되어 매출이 0원입니다.'})
+ ];
+ for(const diagnostic of cases){
+  h.context.diagnostic=diagnostic;h.run('storeRevenueDiagnostics={cafe24:diagnostic};renderSummaryCards();');
+  assert.equal(h.node('cafe-revenue-diagnostic').hidden,false);
+  assert.equal(h.node('cafe-revenue-diagnostic-summary').textContent,diagnostic.reason);
+  const fields=cafeRevenueDiagnosticFields(h);
+  assert.equal(fields.recordedDays,'3일');assert.equal(fields.recordedOrders,diagnostic.recordedOrders+'건');
+  for(const key of ['storedOrders','positiveOrders','excludedOrders','autoExcludedOrders','manualExcludedOrders'])assert.equal(fields[key],diagnostic[key]+'건',key+' must show the server count');
+  assert.equal(fields.confirmedRevenue,'0원');assert.equal(h.node('mallRevenue').textContent,'0원');
+  const inspect=descendantElements(h.node('summary-cards')).find(node=>node.attributes['data-cafe-revenue-diagnostic']==='open');
+  assert.ok(inspect,'A zero Cafe24 card offers a direct route to its collection and brand diagnostics');
+  inspect.onclick();assert.equal(h.node('cafe-revenue-diagnostic').open,true);
+  assert.match(h.node('cafe-revenue-diagnostic-output').value,new RegExp(diagnostic.reason.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ }
+ assert.equal(h.run("summaryMetric('totalStoreRevenue').value"),300000,'Diagnostic labels do not change the financial series');
+});
+
+test('invalid Cafe24 caches show unknown counts and revenue rather than confirmed zero sales',()=>{
+ const h=harness();h.context.profitRows=['2026-09-01','2026-09-02','2026-09-03'].map(date=>profit(date,null,{revenue:null,fee:null,cost:null,cafe24:{revenue:null,cost:null,fee:null,complete:false,confirmedAvailable:false}}));
+ h.run('profitDays=new Map(profitRows.map(row=>[row.date,row]));');
+ const countKeys=['storedOrders','positiveOrders','zeroNetOrders','includedOrders','excludedOrders','autoExcludedOrders','manualExcludedOrders','unclassifiedOrders','mixedOrders','missingItemOrders','invalidOrders','undatedOrders'];
+ for(const cacheState of ['missing','invalid_json','invalid_schema']){
+  h.context.diagnostic=cafeRevenueDiagnosticFixture({...Object.fromEntries(countKeys.map(key=>[key,null])),recordedOrders:139,cacheState,cacheIssue:'카페24 저장 주문 자료를 확인할 수 없습니다.',reason:'카페24 저장 주문 자료를 확인할 수 없습니다.',confirmedRevenue:null,complete:false,zeroReason:null});
+  h.run('storeRevenueDiagnostics={cafe24:diagnostic};renderSummaryCards();');
+  assert.equal(h.node('cafe-revenue-diagnostic').hidden,false);
+  const fields=cafeRevenueDiagnosticFields(h);
+  assert.equal(fields.recordedDays,'3일');assert.equal(fields.recordedOrders,'139건','An unreadable order cache must not erase the independent collection record');
+  for(const key of countKeys)assert.equal(fields[key],'미확인',key+' must not turn an unreadable cache into a zero count');
+  assert.equal(fields.confirmedRevenue,'—');assert.equal(h.node('mallRevenue').textContent,'—');
+  assert.match(h.node('cafe-revenue-diagnostic-output').value,/주문매출 미확정/);
+  assert.match(h.node('cafe-revenue-diagnostic-output').value,/확인된 위마망 주문매출: —/);
+ }
+});
+
+test('Cafe24 diagnostics use only the selected date range and clear stale or loading reports',()=>{
+ const h=harness();
+ h.context.staleDiagnostic=cafeRevenueDiagnosticFixture({since:'2026-08-01',until:'2026-08-31',reason:'이전 기간 진단 전용 문구'});
+ h.run('storeRevenueDiagnostics={cafe24:staleDiagnostic};renderCafeRevenueDiagnostic();');
+ assert.equal(h.run('cafeRevenueDiagnostic()'),null);assert.equal(h.node('cafe-revenue-diagnostic').hidden,true);
+ assert.equal(h.node('cafe-revenue-diagnostic-output').value,'');
+ h.context.currentDiagnostic=cafeRevenueDiagnosticFixture({reason:'현재 조회 기간 저장 주문 진단'});
+ h.run('dataCoverage={revenueDiagnostics:{cafe24:currentDiagnostic}};renderCafeRevenueDiagnostic();');
+ assert.equal(h.run('cafeRevenueDiagnostic().reason'),'현재 조회 기간 저장 주문 진단');
+ assert.equal(h.node('cafe-revenue-diagnostic').hidden,false);
+ assert.doesNotMatch(h.node('cafe-revenue-diagnostic-output').value,/이전 기간 진단/);
+ h.run('summaryLoading=true;renderCafeRevenueDiagnostic();');
+ assert.equal(h.node('cafe-revenue-diagnostic').hidden,true);assert.equal(h.node('cafe-revenue-diagnostic-output').value,'');
+ h.run('summaryLoading=false;');h.node('since').value='2026-10-01';h.node('until').value='2026-10-02';h.run('renderCafeRevenueDiagnostic();');
+ assert.equal(h.run('cafeRevenueDiagnostic()'),null);assert.equal(h.node('cafe-revenue-diagnostic').hidden,true);
+ assert.equal(h.node('cafe-revenue-diagnostic-summary').textContent,'');assert.equal(h.node('cafe-revenue-diagnostic-output').value,'');
+});
+
+test('Cafe24 diagnostic copies whitelist fields, render literal text, and leave financial scope unchanged',()=>{
+ const h=harness();
+ const literal='<img src=x onerror="diagnosticLiteralOnly()">';
+ h.context.diagnostic=cafeRevenueDiagnosticFixture({reason:literal,storedOrders:139,positiveOrders:139,excludedOrders:139,autoExcludedOrders:139,zeroReason:'excluded',countMismatches:[{date:'2026-09-02',recordedCount:139,cachedCount:118,orderId:'PRIVATE-MISMATCH-ORDER'}],customerName:'PRIVATE-CUSTOMER',orderIds:['PRIVATE-ORDER'],access_token:'PRIVATE-TOKEN',rawError:'PRIVATE-RAW-ERROR'});
+ h.context.profitRows=['2026-09-01','2026-09-02','2026-09-03'].map(date=>profit(date,53000));
+ h.run('profitDays=new Map(profitRows.map(row=>[row.date,row]));storeRevenueDiagnostics={cafe24:diagnostic};');
+ const before=h.run('JSON.stringify([...profitDays])');
+ for(const channel of ['all','naver','cafe']){
+  h.node('channel').value=channel;h.run('renderSummaryCards();');
+  assert.equal(h.node('cafe-revenue-diagnostic-summary').textContent,literal);
+  assert.equal(h.node('cafe-revenue-diagnostic-summary').innerHTML,'','Server text is not inserted as HTML');
+  assert.equal(h.node('cafe-revenue-diagnostic-body').innerHTML,'','The diagnostic table uses DOM text nodes');
+  const report=h.run('cafeRevenueDiagnosticText()');
+  assert.ok(report.includes(literal));assert.match(report,/건수 대조 2026-09-02: 수집 기록 139건 \/ 저장 118건/);
+  for(const secret of ['PRIVATE-CUSTOMER','PRIVATE-ORDER','PRIVATE-TOKEN','PRIVATE-RAW-ERROR','PRIVATE-MISMATCH-ORDER'])assert.equal(report.includes(secret),false,'Undeclared response fields must not enter a copied report');
+  assert.equal(h.node('cafe-revenue-diagnostic-output').value,report);
+  assert.equal(h.run("summaryMetric('mallRevenue').value"),0);assert.equal(h.run("summaryMetric('totalStoreRevenue').value"),300000);assert.equal(h.run("summaryMetric('profit').value"),159000);
+ }
+ assert.equal(h.run('JSON.stringify([...profitDays])'),before,'Rendering diagnostics must not mutate the financial source data');
+});
+
+test('overview loading accepts Cafe24 diagnostics from profit data or same-range coverage fallback',async()=>{
+ for(const includeProfitDiagnostic of [true,false]){
+  const diagnostic=cafeRevenueDiagnosticFixture(),calls=[];
+  const h=harness({ids:{naver:'',cafe:''},fetch:async(url,options={})=>{
+   calls.push({url,options});const u=new URL(url,'http://local');
+   if(u.pathname==='/api/data/coverage')return {ok:true,json:async()=>({since:diagnostic.since,until:diagnostic.until,totalDays:3,sources:{naver:{storedDays:3,missingDays:[]},cafe24:{storedDays:3,missingDays:[]},meta:{}},profit:{completeDays:3,partialDays:0,unavailableDays:0},revenueDiagnostics:{cafe24:diagnostic}})};
+   if(u.pathname==='/api/profit/daily')return {ok:true,json:async()=>({fees:{naver:7,cafe24:3.5},days:['2026-09-01','2026-09-02','2026-09-03'].map(date=>profit(date,53000)),...(includeProfitDiagnostic?{revenueDiagnostics:{cafe24:{...diagnostic,reason:'이익 응답에서 받은 카페24 진단'}}}:{})})};
+   if(u.pathname==='/api/costs/catalog/diagnostics')return {ok:true,json:async()=>({job:{running:false,total:0,done:0,sources:{}}})};
+   if(u.pathname==='/api/sales/compare')return {ok:true,json:async()=>({days:[]})};
+   throw Error('Unexpected request: '+url);
+  }});
+  await h.run('run()');
+  assert.equal(h.run('cafeRevenueDiagnostic().reason'),includeProfitDiagnostic?'이익 응답에서 받은 카페24 진단':diagnostic.reason);
+  assert.equal(h.node('cafe-revenue-diagnostic').hidden,false);assert.equal(h.node('mallRevenue').textContent,'0원');
+  assert.equal(calls.some(call=>call.options.method==='POST'),false,'Displaying a diagnostic must not start collection or repair');
+ }
 });
