@@ -524,15 +524,15 @@ async function cafeAuthorizedGet(endpoint){
 }
 // The Cafe24 order list usually does not include items. Fetch the order's item subresource
 // using the existing read-order scope, then fall back to the order embed form.
-async function cafeOrderItems(order){
+async function cafeOrderItems(order,getter=cafeAuthorizedGet){
  const id=String(order?.id||order?.order_id||order||'');
  if(!id||id.length>100)throw Error('카페24 주문번호 형식 확인 필요');
  const shop=Number(order?.shop_no)||1;
  const base='orders/'+encodeURIComponent(id),qs='shop_no='+encodeURIComponent(shop);
- const response=await cafeAuthorizedGet(base+'/items?'+qs);
+ const response=await getter(base+'/items?'+qs);
  const items=itemsFromCafeOrder(response);
  if(items.length)return items;
- const embedded=await cafeAuthorizedGet(base+'?'+qs+'&embed=items');
+ const embedded=await getter(base+'?'+qs+'&embed=items');
  return itemsFromCafeOrder(embedded.order||embedded);
 }
 async function cafeFetchDate(date){
@@ -929,5 +929,5 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder};
+module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems};
 
