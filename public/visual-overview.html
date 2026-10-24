@@ -35,11 +35,8 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 .fold-panel > .fold-summary:focus-visible{outline:2px solid var(--purple);outline-offset:5px;border-radius:3px}
 .fold-panel > .fold-content{min-width:0}
 
-/* Match the requested 75% desktop view at normal browser zoom. Keep the
-   navigation and body-level date dialog at their accessible native sizes.
-   Auto width lets zoom lay out the full available width without overflow. */
+/* Match the overview grid to the shared desktop density in app-shell.css. */
 @media screen and (min-width:1000px) and (hover:hover) and (pointer:fine){
- body[data-app-page="overview"] #app-main.app-main{zoom:.75;width:auto;margin-left:calc(var(--app-rail-width) / .75);min-height:calc(100vh / .75)}
  body[data-app-page="overview"] #app-main #summary-cards{grid-template-columns:repeat(6,minmax(0,1fr))}
 }
 /* The seven chart selectors fit at the same effective width as browser 75%. */
