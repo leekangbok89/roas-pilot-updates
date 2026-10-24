@@ -294,6 +294,22 @@ async function verifyBrowserScenario(){
  pass('actual navigation clicks switch all routes/index sections and keep one correct active item');
  await page.goto(base+'/meta-experiments.html');
  assert.equal(await page.locator('#dimension').count(),1,'Experiment comparison page is available even after legacy update');
+ // Exercise the read-only cross-account comparison with synthetic local data.
+ assert.equal(await page.locator('#account-choice').inputValue(),'all');
+ await page.locator('#load').click();
+ await page.waitForFunction(()=>document.getElementById('status').textContent.includes('조회 완료'));
+ assert.equal(await page.locator('#classify tr').count(),2,'Both account campaign classifications are loaded');
+ const experimentFrom=await page.locator('#since').inputValue();
+ await page.locator('#classify tr').nth(0).locator('select[data-label="asc"]').selectOption('ON');
+ await page.locator('#classify tr').nth(1).locator('select[data-label="asc"]').selectOption('OFF');
+ await page.locator('#classify input[data-label="from"]').nth(0).fill(experimentFrom);
+ await page.locator('#classify input[data-label="from"]').nth(1).fill(experimentFrom);
+ assert.equal(await page.locator('#result tr').count(),2,'ASC ON and OFF groups both show stored metrics');
+ await page.reload({waitUntil:'domcontentloaded'});
+ await page.locator('#load').click();
+ await page.waitForFunction(()=>document.getElementById('status').textContent.includes('조회 완료'));
+ assert.equal(await page.locator('#classify tr').first().locator('select[data-label="asc"]').inputValue(),'ON','Campaign classification is saved in the browser');
+
  await nav('광고별 진단');await nav('날짜별 비교');await nav('전체 매출 분석');
  await page.goBack();await page.waitForFunction(()=>document.body.dataset.appView==='daily-compare');assert.deepEqual(await activeLabel(),['날짜별 비교']);assert.equal(await page.locator('#daily-compare').isVisible(),true);
  await page.goForward();await page.waitForFunction(()=>document.body.dataset.appView==='sales-impact');assert.deepEqual(await activeLabel(),['전체 매출 분석']);assert.equal(await page.locator('#sales-impact').isVisible(),true);assert.equal(await page.locator('#funnel').isVisible(),false);
