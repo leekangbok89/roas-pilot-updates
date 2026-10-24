@@ -688,6 +688,101 @@ async function verifyOptionalCards(requests) {
   check('optional cards: all-empty remains recoverable after reload, four cards can be added without duplicate IDs, and defaults restore all twelve');
 }
 
+async function verifySplitRoas(requests) {
+  fixture();
+  await range('2026-09-04');
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const storageKey = 'roas-overview-summary-cards-v1';
+  const keys = ['roas', 'mallRoas', 'smartstoreRoas'];
+  const labels = ['총 광고 ROAS', '자사몰 광고 ROAS', '스마트스토어 광고 ROAS'];
+  const scopes = ['Meta · 전체 연결 계정', 'Meta · 자사몰 광고', 'Meta · 스마트스토어 광고'];
+  const card = key => page.locator('#summary-cards .summary-card[data-summary-key="' + key + '"]');
+  const assertRoas = async (expected, message) => {
+    for (const [index, key] of keys.entries()) {
+      assert.equal(await card(key).count(), 1, key + ': one configured card');
+      assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : expected[index].toFixed(1) + '%', message + ': ' + key);
+      assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
+      assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each ROAS card identifies its fixed Meta source');
+    }
+  };
+  const configured = await summaryKeys();
+  configured[3] = 'mallRoas';
+  configured[4] = 'smartstoreRoas';
+  const requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  for (const [index, key] of keys.entries()) {
+    assert.equal(await page.locator('#summary-choice-2 option[value="' + key + '"]').innerText(), labels[index], 'All three ROAS choices are explicitly named');
+    await page.locator('#summary-choice-' + (index + 2)).selectOption(key);
+  }
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await summaryKeys(), configured);
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured);
+  // Meta attributes 300,000 won to each account, while real store orders total
+  // 800,000 won. Combined ROAS is 600,000 / 30,000, never the unweighted 2,250%.
+  await assertRoas([2000, 3000, 1500], 'ROAS uses Meta attributed revenue and matching account spend');
+  assert.equal(await page.locator('#spend').innerText(), money(30000));
+  assert.equal(await page.locator('#revenue').innerText(), money(600000));
+  assert.equal(await page.locator('#totalStoreRevenue').innerText(), money(800000));
+  for (const key of keys) {
+    const description = await card(key).getAttribute('title');
+    assert.match(description, /Meta 귀속 구매매출.*광고비/);
+    assert.match(description, /상단 채널 필터와 관계없이/);
+    assert.equal(await card(key).locator('.summary-card-scope').getAttribute('title'), description);
+  }
+  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Selecting and saving the three ROAS cards only uses already loaded data');
+  await metricCardScreenshot('cards-roas-split-1440');
+  check('ROAS: three named choices save without API requests; total 2000%, mall 3000% and Smartstore 1500% retain explicit Meta sources');
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.deepEqual(await summaryKeys(), configured, 'All three ROAS selections survive a real reload');
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured);
+  await range('2026-09-04');
+  for (const channel of ['naver', 'cafe', 'all']) {
+    await page.locator('#channel').selectOption(channel);
+    await idle();
+    await assertRoas([2000, 3000, 1500], 'ROAS scopes remain fixed under top channel filter ' + channel);
+  }
+  // September 1 has spend but no attributed purchase value; September 2 is a
+  // confirmed empty day. Exclude the unknown revenue rows and their spend together.
+  await range('2026-09-01', '2026-09-04');
+  await assertRoas([2000, 3000, 1500], 'Only rows with confirmed attributed revenue contribute to the ROAS denominator');
+  for (const key of keys) {
+    assert.equal(await card(key).locator('.summary-card-badge').innerText(), '확인분');
+    assert.match(await card(key).locator('.summary-card-state').innerText(), /확인 3\/4일/);
+  }
+  check('ROAS: saved selections survive reload; all three values and sources ignore top channel filters and pair confirmed revenue with its own spend');
+
+  await page.evaluate(id => localStorage.setItem('roas-account-ids', JSON.stringify({ naver: id, cafe: id })), accountIds.naver);
+  const duplicateStart = requests.length;
+  await range('2026-09-04');
+  await assertRoas([1500, null, null], 'A shared account is counted once and cannot produce separate channel ROAS');
+  assert.equal(await page.locator('#spend').innerText(), money(20000), 'Shared-account spend is not doubled');
+  assert.equal(await page.locator('#revenue').innerText(), money(300000), 'Shared-account attributed revenue is not doubled');
+  const duplicateInsights = requests.slice(duplicateStart).filter(req => new URL(req.url).pathname === '/api/insights');
+  assert.equal(duplicateInsights.length, 1, 'One shared account is requested once');
+  assert.equal(new URL(duplicateInsights[0].url).searchParams.get('account'), accountIds.naver);
+  for (const key of ['mallRoas', 'smartstoreRoas']) assert.match(await card(key).locator('.summary-card-state').innerText(), /동일 광고계정.*채널 구분 필요/);
+  for (const [ids, expected, absent] of [
+    [{ naver: accountIds.naver, cafe: '' }, [1500, null, 1500], ['mallRoas']],
+    [{ naver: '', cafe: accountIds.cafe }, [3000, 3000, null], ['smartstoreRoas']],
+    [{ naver: '', cafe: '' }, [null, null, null], keys]
+  ]) {
+    await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), ids);
+    await range('2026-09-04');
+    await assertRoas(expected, 'Disconnected accounts remain unavailable rather than zero');
+    for (const key of absent) assert.equal(await card(key).locator('.summary-card-state').innerText(), '광고계정 미연결');
+  }
+  await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
+  await range('2026-09-04');
+  await assertRoas([2000, 3000, 1500], 'Reconnecting both accounts restores independent ROAS');
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-defaults').click();
+  await page.locator('#summary-save').click();
+  check('ROAS: a shared account is fetched and summed once, separate channels require classification, and missing accounts show unavailable with connection guidance');
+}
+
 async function hoverVisibleProfitPoints(label) {
   await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
   const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
@@ -863,6 +958,7 @@ async function verifyResponsiveHover(requests) {
   if (!scopeOnly) {
     await verifyMetricCards(requests);
     await verifyOptionalCards(requests);
+    await verifySplitRoas(requests);
     await verifyResponsiveHover(requests);
   }
 

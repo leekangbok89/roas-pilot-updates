@@ -68,7 +68,11 @@ function displayedFinancial(record,key){
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
- spend:{label:'광고비',format:'won'},revenue:{label:'Meta 귀속 구매매출',format:'won'},roas:{label:'구매 ROAS',format:'pct'},cpa:{label:'구매 CPA',format:'won'},
+ spend:{label:'광고비',format:'won'},revenue:{label:'Meta 귀속 구매매출',format:'won'},
+ roas:{label:'총 광고 ROAS',format:'pct',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 Meta 귀속 구매매출 합계 ÷ 대응 광고비 합계 × 100. 동일 광고계정은 한 번만 집계하며, 상단 채널 필터와 관계없이 전체 연결 계정 기준으로 계산합니다.'},
+ mallRoas:{label:'자사몰 광고 ROAS',format:'pct',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 Meta 귀속 구매매출 ÷ 대응 광고비 × 100. 상단 채널 필터와 관계없이 자사몰 광고계정 기준으로 계산합니다. 두 채널이 동일 광고계정이면 채널별 ROAS를 구분할 수 없습니다.'},
+ smartstoreRoas:{label:'스마트스토어 광고 ROAS',format:'pct',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 Meta 귀속 구매매출 ÷ 대응 광고비 × 100. 상단 채널 필터와 관계없이 스마트스토어 광고계정 기준으로 계산합니다. 두 채널이 동일 광고계정이면 채널별 ROAS를 구분할 수 없습니다.'},
+ cpa:{label:'구매 CPA',format:'won'},
  purchases:{label:'구매 건수',format:'num'},ctr:{label:'링크 CTR',format:'pct'},impressions:{label:'노출수',format:'num'},clicks:{label:'링크 클릭수',format:'num'},
  smartstoreRevenue:{label:'스마트스토어 매출',format:'won',field:'revenue',channel:'naver'},mallRevenue:{label:'카페24 매출',format:'won',field:'revenue',channel:'cafe24'},
  totalStoreRevenue:{label:'통합 매출',format:'won',field:'revenue'},profit:{label:'통합 예상 이익',format:'won',field:'profit'},
@@ -87,8 +91,8 @@ function summarySelectedDates(){
  if(!Number.isFinite(first)||!Number.isFinite(last)||first>last||new Date(first).toISOString().slice(0,10)!==since||new Date(last).toISOString().slice(0,10)!==until)return [];
  const dates=[];for(let time=first;time<=last;time+=86400000)dates.push(new Date(time).toISOString().slice(0,10));return dates;
 }
-function summaryMetricContext(){
- const dates=summarySelectedDates(),dateSet=new Set(dates),choice=$('channel').value,selected=selectedAdRows(choice).filter(row=>dateSet.has(row.date));
+function summaryMetricContext(choice=$('channel').value){
+ const dates=summarySelectedDates(),dateSet=new Set(dates),selected=selectedAdRows(choice).filter(row=>dateSet.has(row.date));
  const seenAccounts=new Set(),channels=(choice==='all'?['naver','cafe']:[choice]).filter(channel=>{
   const account=connectedAccounts[channel];
   if(account){if(seenAccounts.has(account))return false;seenAccounts.add(account);return true;}
@@ -101,13 +105,20 @@ function summaryMetricContext(){
   return {rowsByDate,emptyKnown:date=>summaryAdLoadedAccounts.has(account)&&!!coverage&&Array.isArray(coverage.missingDays)&&!missing.has(date)};
  });
  const scope=choice==='naver'?'Meta · 스마트스토어 선택':choice==='cafe'?'Meta · 카페24 선택':'Meta · 전체 연결 계정';
- return {dates,selected,sources,scope};
+ return {dates,selected,sources,scope,choice};
 }
 function summaryMetric(key,context=summaryMetricContext()){
- const definition=summaryCardMetrics[key],totalDays=context.dates.length;
+ const definition=summaryCardMetrics[key];
+ if(definition?.adScope&&context.choice!==definition.adScope)context=summaryMetricContext(definition.adScope);
+ const totalDays=context.dates.length;
  if(!definition)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope:'',detail:'지원하지 않는 지표'};
- const scope=definition.field?'전체 연결 · 위마망':context.scope;
+ const isRoas=!!definition.adScope,scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
  if(summaryLoading||!totalDays)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:summaryLoading?'기간 데이터 조회 중…':'조회 기간을 선택해 주세요.'};
+ if(isRoas){
+  const connected=definition.adScope==='all'?connectedAccounts.naver||connectedAccounts.cafe:connectedAccounts[definition.adScope];
+  if(!connected)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'광고계정 미연결'};
+  if(definition.adScope!=='all'&&connectedAccounts.naver&&connectedAccounts.naver===connectedAccounts.cafe)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'동일 광고계정 · 채널 구분 필요'};
+ }
  if(definition.field){
   let total=0,knownDays=0,completeDays=0;
   for(const date of context.dates){
@@ -119,7 +130,7 @@ function summaryMetric(key,context=summaryMetricContext()){
   return {value:knownDays?total:null,partial,knownDays,completeDays,totalDays,scope,
    detail:(knownDays?'':'미확정 · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays?' · 일부 주문 미확인':'')};
  }
- const required=['revenue','roas'].includes(key)?'revenue':['purchases','cpa'].includes(key)?'purchases':null;
+ const required=key==='revenue'||isRoas?'revenue':['purchases','cpa'].includes(key)?'purchases':null;
  const isKnown=row=>!required||Number.isFinite(row[required]),rows=context.selected.filter(isKnown);
  let knownDays=0,completeDays=0;
  for(const date of context.dates){
@@ -134,9 +145,9 @@ function summaryMetric(key,context=summaryMetricContext()){
  let amount=available?totals[key]:null;
  if(key==='cpc')amount=available&&totals.clicks>0?totals.spend/totals.clicks:null;
  if(key==='cpm')amount=available&&totals.impressions>0?totals.spend/totals.impressions*1000:null;
- if(key==='roas')amount=available&&totals.spend>0?totals.revenue/totals.spend*100:null;
+ if(isRoas)amount=available&&totals.spend>0?totals.revenue/totals.spend*100:null;
  const partial=available&&completeDays<totalDays;
- const unavailable=available?key==='cpa'?'구매 없음':key==='cpc'?'클릭 없음':key==='ctr'||key==='cpm'?'노출 없음':key==='roas'?'광고비 없음':'미확정':'미수집';
+ const unavailable=available?key==='cpa'?'구매 없음':key==='cpc'?'클릭 없음':key==='ctr'||key==='cpm'?'노출 없음':isRoas?'광고비 없음':'미확정':'미수집';
  return {value:Number.isFinite(amount)?amount:null,partial,knownDays,completeDays,totalDays,scope,
   detail:(Number.isFinite(amount)?'':unavailable+' · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays?' · 일부 항목 미확인':'')};
 }
@@ -148,6 +159,7 @@ function renderSummaryCards(){
   if(!key&&!summaryCardsEditing)return;
   const definition=summaryCardMetrics[key];
   const card=document.createElement('article');card.className='metric summary-card'+(key==='roas'?' highlight':'');card.setAttribute('data-summary-slot',String(index));card.setAttribute('data-summary-key',key);
+  if(definition?.description)card.title=definition.description;
   const heading=document.createElement(summaryCardsEditing?'label':'small');heading.className='summary-card-label';heading.textContent=summaryCardsEditing?(index+1)+'번 지표':definition.label;
   if(summaryCardsEditing){
    const select=document.createElement('select');select.className='summary-card-choice';select.id='summary-choice-'+index;select.setAttribute('aria-label',(index+1)+'번 카드 지표');
@@ -166,7 +178,7 @@ function renderSummaryCards(){
   const value=document.createElement('strong');value.id=first?key:'summary-value-'+index;value.textContent=(definition.format==='won'?won:definition.format==='pct'?pct:num)(metric.value);valueLine.append(value);
   if(metric.partial&&metric.value!==null){const badge=document.createElement('span');badge.className='summary-card-badge';badge.textContent='확인분';valueLine.append(badge);}
   const scope=document.createElement('small');scope.className='summary-card-scope';scope.textContent=metric.scope;
-  scope.title=definition.field?'채널 필터와 관계없이 연결된 전체 쇼핑몰의 위마망 주문 기준':'현재 선택한 광고 채널 기준 · 동일 광고 계정은 한 번만 집계';
+  scope.title=definition.description||(definition.field?'채널 필터와 관계없이 연결된 전체 쇼핑몰의 위마망 주문 기준':'현재 선택한 광고 채널 기준 · 동일 광고 계정은 한 번만 집계');
   const detail=document.createElement('small');detail.className='summary-card-state';detail.textContent=metric.detail;
   if(first&&['spend','revenue','cpa'].includes(key))detail.id={spend:'spendSub',revenue:'revenueSub',cpa:'purchaseSub'}[key];
   if(definition.field)detail.title='이 지표에서 금액을 확인한 날짜만 합산합니다. 지표마다 확인 가능한 날짜와 주문 범위가 다를 수 있습니다.';

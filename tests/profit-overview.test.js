@@ -96,6 +96,64 @@ test('summary ratios use matching confirmed ad rows and deduplicate a shared acc
  assert.equal(h.run("summaryMetric('ctr').value"),1);
 });
 
+test('three ROAS cards keep fixed scopes and use the spend-weighted ratio after currency conversion',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};rates=1350;data.naver=[normalize({date_start:'2026-09-01',spend:'100',account_currency:'USD',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'500'}]},'naver')];data.cafe=[normalize({date_start:'2026-09-01',spend:'45000',account_currency:'KRW',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'90000'}]},'cafe')];profitDays=new Map([['2026-09-01',{revenue:99999999,complete:true}]]);");
+ for(const [channel,spend] of [['all',180000],['naver',135000],['cafe',45000]]){
+  h.node('channel').value=channel;
+  for(const [key,expected] of [['roas',425],['mallRoas',200],['smartstoreRoas',500]]){
+   h.context.metricKey=key;
+   const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+   assert.equal(metric.value,expected,key+' must not follow the global '+channel+' filter');
+   assert.equal(metric.partial,false);assert.equal(metric.completeDays,1);assert.equal(metric.totalDays,1);
+  }
+  assert.equal(h.run("summaryMetric('spend').value"),spend,'Other advertising cards keep the selected-channel scope');
+ }
+ assert.notEqual(h.run("summaryMetric('roas').value"),(500+200)/2,'Total ROAS is never a simple average of channel percentages');
+ assert.match(h.run("summaryMetric('mallRoas').scope"),/자사몰|카페24/);
+ assert.match(h.run("summaryMetric('smartstoreRoas').scope"),/스마트스토어/);
+});
+
+test('channel ROAS retains explicit zero revenue and identifies incomplete dates without inventing returns',()=>{
+ const h=harness();
+ h.run("connectedAccounts={naver:'111',cafe:'222'};summaryAdLoadedAccounts=new Set(['111','222']);dataCoverage={since:'2026-09-01',until:'2026-09-03',sources:{meta:{'111':{missingDays:[]},'222':{missingDays:['2026-09-02']}}}};data.naver=[{date:'2026-09-01',spend:100,revenue:400,purchases:1,clicks:10,impressions:1000},{date:'2026-09-02',spend:900,revenue:null,purchases:null,clicks:10,impressions:1000}];data.cafe=[{date:'2026-09-01',spend:200,revenue:0,purchases:0,clicks:10,impressions:1000}];");
+ for(const [key,expected] of [['roas',400/300*100],['mallRoas',0],['smartstoreRoas',400]]){
+  h.context.metricKey=key;
+  const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,expected);assert.equal(metric.partial,true);assert.equal(metric.knownDays,2);assert.equal(metric.completeDays,2);assert.equal(metric.totalDays,3);
+ }
+ h.run('data.cafe[0].spend=0;');
+ assert.equal(h.run("summaryMetric('mallRoas').value"),null,'Zero spend cannot produce an infinite ROAS');
+ h.run('data.cafe[0].spend=200;data.cafe[0].revenue=null;');
+ assert.equal(h.run("summaryMetric('mallRoas').value"),null,'Unknown purchase revenue must not turn into a zero-percent ROAS');
+});
+
+test('a shared account is not presented as separate channel ROAS and an unconnected channel stays unknown',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:100,revenue:500,purchases:1,clicks:10,impressions:1000}];data.cafe=data.naver;");
+ assert.equal(h.run("summaryMetricContext('all').selected.length"),1);
+ assert.equal(h.run("summaryMetric('roas').value"),500);
+ for(const key of ['mallRoas','smartstoreRoas']){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,null);assert.match(metric.detail,/동일 광고계정.*구분/);
+ }
+ h.run("connectedAccounts.cafe='';data.cafe=[];");
+ assert.equal(h.run("summaryMetric('roas').value"),500);
+ assert.equal(h.run("summaryMetric('smartstoreRoas').value"),500);
+ assert.equal(h.run("summaryMetric('mallRoas').value"),null);
+ assert.match(h.run("summaryMetric('mallRoas').detail"),/미연결/);
+});
+
+test('saved total ROAS and empty slots remain valid beside both new channel choices',()=>{
+ const h=harness();
+ h.context.settings=['roas','mallRoas','smartstoreRoas','','profit','','','','','','',''];
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(settings))')),h.context.settings);
+ assert.equal(h.run("summaryCardMetrics.roas.label"),'총 광고 ROAS');
+ assert.equal(h.run("summaryCardMetrics.mallRoas.label"),'자사몰 광고 ROAS');
+ assert.equal(h.run("summaryCardMetrics.smartstoreRoas.label"),'스마트스토어 광고 ROAS');
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(summaryDefaultCardKeys)')),['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit']);
+});
+
 test('backend zero, negative, and positive profits reach the same graph and table without sales or insight rows',()=>{
  const h=harness();h.context.input=[profit('2026-09-01',20000),profit('2026-09-02',0),profit('2026-09-03',-12000)];
  h.run('profitDays=new Map(input.map(p=>[p.date,p]));render();');
