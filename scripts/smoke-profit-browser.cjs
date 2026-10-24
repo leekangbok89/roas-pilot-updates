@@ -645,7 +645,8 @@ async function verifyOptionalCards(requests) {
   assert.match(await page.locator('#summary-settings-status').innerText(), /5개/);
   const layout = await visibleCards().evaluateAll(cards => cards.map(card => {
     const box = card.getBoundingClientRect();
-    return { x: box.x, y: box.y, right: box.right, gap: parseFloat(getComputedStyle(card.parentElement).columnGap) || 0 };
+    const grid = card.parentElement, scale = grid.getBoundingClientRect().width / grid.offsetWidth;
+    return { x: box.x, y: box.y, right: box.right, gap: (parseFloat(getComputedStyle(grid).columnGap) || 0) * scale };
   }));
   assert.equal(layout.length, 5);
   for (let i = 0; i < layout.length; i++) {
