@@ -36,6 +36,10 @@ function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unex
  return {context,node,run:code=>vm.runInContext(code,context)};
 }
 const profit=(date,value,extras={})=>({date,revenue:100000,fee:7000,cost:40000,adSpend:53000-value,profit:value,complete:value!=null,reasons:[],naver:{revenue:100000},cafe24:{revenue:0},...extras});
+function completeAdCoverage(h,accounts=['111','222']){
+ h.context.coveredAccounts=accounts;
+ h.run("summaryAdLoadedAccounts=new Set(coveredAccounts);dataCoverage={since:$('since').value,until:$('until').value,sources:{meta:Object.fromEntries(coveredAccounts.map(account=>[account,{missingDays:[]}]))}};");
+}
 
 test('summary card settings recover exactly twelve valid slots and preserve a chosen order',()=>{
  const h=harness();
@@ -83,13 +87,14 @@ test('summary advertising cards distinguish not loaded, verified empty, and a mi
  h.run('summaryAdLoadedAccounts.clear();');assert.equal(h.run("summaryMetric('spend').value"),null);
 });
 
-test('summary ratios use matching confirmed ad rows and deduplicate a shared account',()=>{
+test('summary purchase ratios include spend from unknown-purchase rows and deduplicate a shared account',()=>{
  const h=harness();h.node('until').value='2026-09-02';
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:100,revenue:500,purchases:2,clicks:10,impressions:1000},{date:'2026-09-02',spend:900,revenue:null,purchases:null,clicks:90,impressions:9000}];data.cafe=data.naver;");
+ completeAdCoverage(h,['111']);
  assert.equal(h.run("summaryMetric('spend').value"),1000);
  assert.equal(h.run("summaryMetric('revenue').value"),500);
- assert.equal(h.run("summaryMetric('roas').value"),500);
- assert.equal(h.run("summaryMetric('cpa').value"),50);
+ assert.equal(h.run("summaryMetric('roas').value"),50);
+ assert.equal(h.run("summaryMetric('cpa').value"),500);
  assert.equal(h.run("summaryMetric('roas').partial"),true);
  assert.equal(h.run("summaryMetric('cpc').value"),10);
  assert.equal(h.run("summaryMetric('cpm').value"),100);
@@ -99,6 +104,7 @@ test('summary ratios use matching confirmed ad rows and deduplicate a shared acc
 test('three ROAS cards keep fixed scopes and use the spend-weighted ratio after currency conversion',()=>{
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};rates=1350;data.naver=[normalize({date_start:'2026-09-01',spend:'100',account_currency:'USD',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'500'}]},'naver')];data.cafe=[normalize({date_start:'2026-09-01',spend:'45000',account_currency:'KRW',actions:[{action_type:'purchase',value:'1'}],action_values:[{action_type:'purchase',value:'90000'}]},'cafe')];profitDays=new Map([['2026-09-01',{revenue:99999999,complete:true}]]);");
+ completeAdCoverage(h);
  for(const [channel,spend] of [['all',180000],['naver',135000],['cafe',45000]]){
   h.node('channel').value=channel;
   for(const [key,expected] of [['roas',425],['mallRoas',200],['smartstoreRoas',500]]){
@@ -117,20 +123,28 @@ test('three ROAS cards keep fixed scopes and use the spend-weighted ratio after 
 test('channel ROAS retains explicit zero revenue and identifies incomplete dates without inventing returns',()=>{
  const h=harness();
  h.run("connectedAccounts={naver:'111',cafe:'222'};summaryAdLoadedAccounts=new Set(['111','222']);dataCoverage={since:'2026-09-01',until:'2026-09-03',sources:{meta:{'111':{missingDays:[]},'222':{missingDays:['2026-09-02']}}}};data.naver=[{date:'2026-09-01',spend:100,revenue:400,purchases:1,clicks:10,impressions:1000},{date:'2026-09-02',spend:900,revenue:null,purchases:null,clicks:10,impressions:1000}];data.cafe=[{date:'2026-09-01',spend:200,revenue:0,purchases:0,clicks:10,impressions:1000}];");
- for(const [key,expected] of [['roas',400/300*100],['mallRoas',0],['smartstoreRoas',400]]){
+ for(const key of ['roas','mallRoas']){
   h.context.metricKey=key;
   const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
-  assert.equal(metric.value,expected);assert.equal(metric.partial,true);assert.equal(metric.knownDays,2);assert.equal(metric.completeDays,2);assert.equal(metric.totalDays,3);
+  assert.equal(metric.value,null);assert.match(metric.detail,/광고비 미확인 1\/3일.*계산 보류/);assert.equal(metric.audit.spendComplete,false);
  }
+ assert.equal(h.run("summaryMetric('smartstoreRoas').value"),40,'The complete channel includes its 900 spend even though revenue is unknown');
+ assert.equal(h.run("summaryMetric('smartstoreRoas').partial"),true);
+ h.run("dataCoverage.sources.meta['222'].missingDays=[];");
+ assert.equal(h.run("summaryMetric('mallRoas').value"),0,'An explicit purchase value of zero remains zero');
+ assert.equal(h.run("summaryMetric('mallRoas').partial"),false);
+ assert.equal(h.run("summaryMetric('roas').value"),400/1200*100);
  h.run('data.cafe[0].spend=0;');
  assert.equal(h.run("summaryMetric('mallRoas').value"),null,'Zero spend cannot produce an infinite ROAS');
  h.run('data.cafe[0].spend=200;data.cafe[0].revenue=null;');
- assert.equal(h.run("summaryMetric('mallRoas').value"),null,'Unknown purchase revenue must not turn into a zero-percent ROAS');
+ assert.equal(h.run("summaryMetric('mallRoas').value"),null,'Unknown purchase revenue plus verified empty dates must not turn into a zero-percent ROAS');
+ assert.match(h.run("summaryMetric('mallRoas').detail"),/구매매출 미확인/);
 });
 
 test('a shared account is not presented as separate channel ROAS and an unconnected channel stays unknown',()=>{
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:100,revenue:500,purchases:1,clicks:10,impressions:1000}];data.cafe=data.naver;");
+ completeAdCoverage(h,['111']);
  assert.equal(h.run("summaryMetricContext('all').selected.length"),1);
  assert.equal(h.run("summaryMetric('roas').value"),500);
  for(const key of ['mallRoas','smartstoreRoas']){
@@ -142,6 +156,56 @@ test('a shared account is not presented as separate channel ROAS and an unconnec
  assert.equal(h.run("summaryMetric('smartstoreRoas').value"),500);
  assert.equal(h.run("summaryMetric('mallRoas').value"),null);
  assert.match(h.run("summaryMetric('mallRoas').detail"),/미연결/);
+});
+
+test('same-day ads without purchase values remain in every ROAS denominator and calculation evidence',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:10,revenue:600,purchases:1},{date:'2026-09-01',spend:990,revenue:null,purchases:null}];data.cafe=data.naver.map(row=>({...row}));");
+ completeAdCoverage(h);
+ for(const [key,revenue,spend] of [['roas',1200,2000],['mallRoas',600,1000],['smartstoreRoas',600,1000]]){
+  h.context.metricKey=key;const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
+  assert.equal(metric.value,60);assert.equal(metric.partial,true);
+  assert.equal(metric.audit.revenue,revenue);assert.equal(metric.audit.spend,spend);assert.equal(metric.audit.spendComplete,true);
+ }
+ h.run("savedSummaryCardKeys=['roas','mallRoas','smartstoreRoas',...Array(9).fill('')];renderSummaryCards();");
+ assert.equal(h.node('summary-roas-audit').hidden,false);
+ const table=h.node('summary-roas-audit-body').children[0],rows=table.children[1].children;
+ assert.equal(rows.length,3);
+ assert.equal(rows[1].attributes['data-roas-key'],'mallRoas');
+ assert.deepEqual(rows[1].children.slice(1,4).map(cell=>cell.textContent),['600원','1,000원','60.0% 확인분']);
+ h.run("savedSummaryCardKeys=['spend',...Array(11).fill('')];renderSummaryCards();");
+ assert.equal(h.node('summary-roas-audit').hidden,true,'The audit must not take space when no ROAS card is selected');
+});
+
+test('ROAS requires successfully loaded complete spend coverage for the exact selected period',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,revenue:600}];data.cafe=[{date:'2026-09-01',spend:1000,revenue:600}];");
+ assert.equal(h.run("summaryMetric('roas').value"),null,'Ad rows alone do not prove period completeness');
+ completeAdCoverage(h);
+ assert.equal(h.run("summaryMetric('roas').value"),60);
+ h.run("summaryAdLoadedAccounts.delete('222');");
+ assert.equal(h.run("summaryMetric('roas').value"),null);
+ assert.equal(h.run("summaryMetric('mallRoas').value"),null);
+ assert.equal(h.run("summaryMetric('smartstoreRoas').value"),60);
+ h.run("summaryAdLoadedAccounts.add('222');dataCoverage.until='2026-09-02';");
+ assert.equal(h.run("summaryMetric('roas').value"),null,'Stale coverage from another date range must not certify this period');
+});
+
+test('Meta ratio fallback preserves zero and 0.6 means 60 percent without a missing-spend shortcut',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:''};data.naver=[normalize({date_start:'2026-09-01',spend:'1000',account_currency:'KRW',website_purchase_roas:[],purchase_roas:[{action_type:'purchase',value:'0.6'}]},'naver')];");
+ completeAdCoverage(h,['111']);
+ assert.equal(h.run('data.naver[0].revenue'),600);
+ assert.equal(h.run("summaryMetric('roas').value"),60);
+ assert.equal(h.run("value([{action_type:'purchase',value:0}])"),0);
+ for(const bad of [null,'',undefined,'not-a-number']){h.context.bad=bad;assert.equal(h.run("value([{action_type:'purchase',value:bad}])"),null);}
+ for(const spend of [null,'',undefined,'not-a-number']){
+  h.context.badSpend=spend;
+  h.run("data.naver=[normalize({date_start:'2026-09-01',spend:badSpend,account_currency:'KRW',action_values:[{action_type:'purchase',value:'600'}]},'naver')];");
+  assert.equal(h.run("summaryMetric('roas').value"),null);assert.match(h.run("summaryMetric('roas').detail"),/광고비 미확인/);
+ }
+ h.run("data.naver=[normalize({date_start:'2026-09-01',spend:'1000',account_currency:'EUR',action_values:[{action_type:'purchase',value:'600'}]},'naver')];");
+ assert.equal(h.run("summaryMetric('roas').value"),null,'An unsupported currency must not be treated as KRW');
 });
 
 test('saved total ROAS and empty slots remain valid beside both new channel choices',()=>{

@@ -94,6 +94,29 @@ function fixture(isolated = false) {
   });
   write('.roas-data/profit-fees.json', { naver: 7, cafe24: 3.5 });
 }
+function roasSpendFixture(sameDay = false, unknownRevenue = false) {
+  fixture();
+  const since = sameDay ? '2026-09-04' : '2026-09-03', until = '2026-09-04';
+  const adRow = (date, id, spend, revenue) => ({
+    date_start: date, date_stop: date, ad_id: id, ad_name: 'Synthetic ROAS ' + id,
+    account_currency: 'KRW', spend: String(spend), impressions: '1000', inline_link_clicks: '10',
+    actions: revenue == null ? [] : [{ action_type: 'purchase', value: '1' }],
+    action_values: revenue == null ? [] : [{ action_type: 'purchase', value: String(revenue) }]
+  });
+  for (const account of Object.values(accountIds)) {
+    const save = (date, rows) => write('.roas-data/daily/' + account + '/' + date + '.json', {
+      account, date, currency: 'KRW', savedAt: '2026-10-01T00:00:00Z', rows
+    });
+    const known = adRow(until, 'confirmed-purchase', 10, unknownRevenue ? null : 600);
+    const unknown = adRow(since, 'unknown-purchase', 990, null);
+    if (sameDay) save(until, [known, unknown]);
+    else {
+      save(since, [unknown]);
+      save(until, [known]);
+    }
+  }
+  return { since, until };
+}
 function scopeFixture(pattern = false) {
   fs.rmSync(path.join(temp, '.roas-data'), { recursive: true, force: true });
   const naver = {}, cafe = {}, ns = {}, cs = {};
@@ -705,6 +728,12 @@ async function verifySplitRoas(requests) {
       assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each ROAS card identifies its fixed Meta source');
     }
   };
+  const showRoasAudit = async () => {
+    const audit = page.locator('#summary-roas-audit');
+    if (!(await audit.evaluate(details => details.open))) await audit.locator(':scope > summary').click();
+    assert.match(await audit.innerText(), /전체 광고비/, 'The visible calculation explanation identifies the full-spend denominator');
+  };
+  const auditCell = (key, field) => page.locator('#summary-roas-audit-body [data-roas-key="' + key + '"] [data-roas-field="' + field + '"]');
   const configured = await summaryKeys();
   configured[3] = 'mallRoas';
   configured[4] = 'smartstoreRoas';
@@ -719,13 +748,13 @@ async function verifySplitRoas(requests) {
   assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured);
   // Meta attributes 300,000 won to each account, while real store orders total
   // 800,000 won. Combined ROAS is 600,000 / 30,000, never the unweighted 2,250%.
-  await assertRoas([2000, 3000, 1500], 'ROAS uses Meta attributed revenue and matching account spend');
+  await assertRoas([2000, 3000, 1500], 'ROAS uses Meta attributed revenue and all spend from the selected account scope');
   assert.equal(await page.locator('#spend').innerText(), money(30000));
   assert.equal(await page.locator('#revenue').innerText(), money(600000));
   assert.equal(await page.locator('#totalStoreRevenue').innerText(), money(800000));
   for (const key of keys) {
     const description = await card(key).getAttribute('title');
-    assert.match(description, /Meta 귀속 구매매출.*광고비/);
+    assert.match(description, /Meta (?:귀속 )?구매매출.*전체 광고비/);
     assert.match(description, /상단 채널 필터와 관계없이/);
     assert.equal(await card(key).locator('.summary-card-scope').getAttribute('title'), description);
   }
@@ -745,14 +774,14 @@ async function verifySplitRoas(requests) {
     await assertRoas([2000, 3000, 1500], 'ROAS scopes remain fixed under top channel filter ' + channel);
   }
   // September 1 has spend but no attributed purchase value; September 2 is a
-  // confirmed empty day. Exclude the unknown revenue rows and their spend together.
+  // confirmed empty day. Keep September 1 spend in the full-period denominator.
   await range('2026-09-01', '2026-09-04');
-  await assertRoas([2000, 3000, 1500], 'Only rows with confirmed attributed revenue contribute to the ROAS denominator');
+  await assertRoas([1200000 / 90000 * 100, 600000 / 30000 * 100, 600000 / 60000 * 100], 'ROAS includes all selected-period spend even when some purchase values are unknown');
   for (const key of keys) {
     assert.equal(await card(key).locator('.summary-card-badge').innerText(), '확인분');
-    assert.match(await card(key).locator('.summary-card-state').innerText(), /확인 3\/4일/);
+    assert.match(await card(key).locator('.summary-card-state').innerText(), /3\/4일/);
   }
-  check('ROAS: saved selections survive reload; all three values and sources ignore top channel filters and pair confirmed revenue with its own spend');
+  check('ROAS: saved selections survive reload; fixed account scopes use confirmed purchase values divided by full-period spend');
 
   await page.evaluate(id => localStorage.setItem('roas-account-ids', JSON.stringify({ naver: id, cafe: id })), accountIds.naver);
   const duplicateStart = requests.length;
@@ -777,10 +806,48 @@ async function verifySplitRoas(requests) {
   await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
   await range('2026-09-04');
   await assertRoas([2000, 3000, 1500], 'Reconnecting both accounts restores independent ROAS');
+  check('ROAS: a shared account is fetched and summed once, separate channels require classification, and missing accounts show unavailable with connection guidance');
+
+  for (const sameDay of [false, true]) {
+    const selected = roasSpendFixture(sameDay);
+    await range(selected.since, selected.until);
+    await assertRoas([60, 60, 60], 'Full spend prevents 6000% inflation for ' + (sameDay ? 'different ads on one day' : 'different dates'));
+    assert.equal(await page.locator('#spend').innerText(), money(2000));
+    assert.equal(await page.locator('#revenue').innerText(), money(1200));
+    for (const key of keys) assert.equal(await card(key).locator('.summary-card-badge').innerText(), '확인분', 'A partially observed purchase value remains explicitly partial');
+    await showRoasAudit();
+    for (const key of keys) {
+      assert.equal(await auditCell(key, 'revenue').isVisible(), true, 'Expanded calculation evidence is actually visible');
+      assert.ok((await auditCell(key, 'revenue').innerText()).includes(money(key === 'roas' ? 1200 : 600)));
+      assert.equal(await auditCell(key, 'spend').innerText(), money(key === 'roas' ? 2000 : 1000), 'Audit denominator contains all spend, without dropping unknown purchase rows');
+      assert.ok((await auditCell(key, 'value').innerText()).includes('60.0%'));
+    }
+  }
+  await metricCardScreenshot('cards-roas-full-spend-1440');
+  check('ROAS: 600 confirmed purchase revenue divided by all 1000 spend renders 60%, not 6000%, for both separate dates and separate ads on one day');
+
+  let selected = roasSpendFixture(false, true);
+  await range(selected.since, '2026-09-05');
+  await assertRoas([null, null, null], 'All unknown purchase values never become zero-percent ROAS, even beside a confirmed empty day');
+  selected = roasSpendFixture(false);
+  fs.unlinkSync(path.join(temp, '.roas-data/daily', accountIds.cafe, selected.since + '.json'));
+  await range(selected.since, selected.until);
+  await assertRoas([null, null, 60], 'Missing account-day spend suppresses only the scopes with an incomplete denominator');
+  await showRoasAudit();
+  for (const key of ['roas', 'mallRoas']) {
+    assert.match(await card(key).locator('.summary-card-state').innerText(), /광고비 미확인 1\/2일.*계산 보류/);
+    assert.ok((await auditCell(key, 'spend').innerText()).includes(money(key === 'roas' ? 1010 : 10)));
+    assert.match(await auditCell(key, 'spend').innerText(), /확인분/, 'Incomplete spend is never presented as the full denominator');
+    assert.equal(await auditCell(key, 'value').innerText(), '—');
+    assert.match(await auditCell(key, 'status').innerText(), /광고비 미확인/);
+  }
+  check('ROAS: entirely unknown purchase revenue stays unavailable; missing daily spend suppresses total and affected-channel ROAS while the complete channel stays at 60%');
+
+  fixture();
+  await range('2026-09-04');
   await page.locator('#summary-edit').click();
   await page.locator('#summary-defaults').click();
   await page.locator('#summary-save').click();
-  check('ROAS: a shared account is fetched and summed once, separate channels require classification, and missing accounts show unavailable with connection guidance');
 }
 
 async function hoverVisibleProfitPoints(label) {
