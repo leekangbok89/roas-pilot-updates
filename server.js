@@ -666,13 +666,46 @@ function itemsFromCafeOrder(raw){
 }
 function costRead(){try{const o=JSON.parse(fs.readFileSync(costFile,'utf8'));return o&&typeof o==='object'?o:{}}catch{return {};}}
 function costSave(data){fs.mkdirSync(path.dirname(costFile),{recursive:true});const tmp=costFile+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify(data,null,2),{mode:0o600});fs.renameSync(tmp,costFile);}
+
+const costAliasFile=path.join(__dirname,'.roas-data','product-cost-aliases.json');
+function costAliasesRead(){try{const x=JSON.parse(fs.readFileSync(costAliasFile,'utf8'));return x&&typeof x==='object'&&!Array.isArray(x)?x:{}}catch{return {};}}
+function costRowForOrder(channel,key,costs,aliases){
+ const own=costs[key];
+ if(own?.cost!==null&&own?.cost!==undefined&&own?.cost!=='')return own;
+ const alias=aliases[key];
+ if(!alias||alias.channel!==channel)return own;
+ const source=costs[alias.sourceKey];
+ return source?.channel===channel&&source.cost!==null&&source.cost!==undefined&&source.cost!==''?source:own;
+}
+function linkCostAlias(input){
+ const channel=String(input.channel||''),name=cleanCostText(input.name),option=cleanCostText(input.option),sourceKey=String(input.sourceKey||'');
+ if(!['naver','cafe24'].includes(channel)||!name||!/^[a-f0-9]{24}$/.test(sourceKey))throw Object.assign(Error('연결할 상품과 원가 항목을 확인하세요.'),{status:400});
+ const targetKey=productKey(channel,name,option),costs=costRead(),catalog=costList().items,source=catalog.find(x=>x.key===sourceKey);
+ if(!catalog.some(x=>x.key===targetKey&&x.channel===channel&&x.orders>0))throw Object.assign(Error('실제 판매 주문의 옵션만 연결할 수 있습니다.'),{status:400});
+ if(!source||source.channel!==channel||sourceKey===targetKey)throw Object.assign(Error('동일한 판매 채널의 다른 원가 항목을 선택해 주세요.'),{status:400});
+ const amount=Number(costs[sourceKey]?.cost);
+ if(costs[sourceKey]?.cost==null||costs[sourceKey]?.cost===''||!Number.isFinite(amount)||amount<0)throw Object.assign(Error('선택한 원가 항목에 유효한 원가가 저장되지 않았습니다.'),{status:400});
+ const own=costs[targetKey]?.cost;
+ if(own!=null&&own!==''&&Number.isFinite(Number(own)))throw Object.assign(Error('해당 판매 옵션에는 이미 직접 원가가 저장되어 있습니다.'),{status:409});
+ const aliases=costAliasesRead();
+ aliases[targetKey]={channel,name,option,sourceKey,sourceName:source.name,sourceOption:source.option,updatedAt:new Date().toISOString()};
+ naverAtomic(costAliasFile,aliases);
+ return {ok:true,linked:true,name,option,sourceName:source.name,sourceOption:source.option,cost:amount};
+}
+function unlinkCostAlias(input){
+ const channel=String(input.channel||''),name=cleanCostText(input.name),option=cleanCostText(input.option);
+ if(!['naver','cafe24'].includes(channel)||!name)throw Object.assign(Error('연결을 해제할 항목을 확인하세요.'),{status:400});
+ const targetKey=productKey(channel,name,option),aliases=costAliasesRead();
+ if(aliases[targetKey]?.channel!==channel)return {ok:true,unlinked:false};
+ delete aliases[targetKey];naverAtomic(costAliasFile,aliases);return {ok:true,unlinked:true};
+}
 function costList(){
  const merged=new Map();
  const feed=(channel,orders)=>{for(const o of Object.values(orders||{})){for(const item of o.items||[]){if(!item?.name)continue;const x=orderProduct(channel,item.name,item.option,item.quantity);if(!x)continue;const prev=merged.get(x.key);if(prev){prev.orders++;prev.units+=x.quantity;}else merged.set(x.key,{...x,orders:1,units:x.quantity});}}};
  feed('naver',naverRead(naverOrderFile,{orders:{}}).orders);
  feed('cafe24',cafeCache(cafeOrdersFile,{orders:{}}).orders);
- const saved=costRead();for(const [key,v] of Object.entries(saved))if(!merged.has(key)&&v?.name&&v?.channel){const x=orderProduct(v.channel,v.name,v.option,1);if(x)merged.set(x.key,{...x,orders:0,units:0});}
- return {items:[...merged.values()].map(x=>({...x,cost:saved[x.key]?.cost??null,delivery:saved[x.key]?.delivery??null,updatedAt:saved[x.key]?.updatedAt??null})).sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name,'ko')),job:{...catalogJob},note:'판매 주문에서 추출한 상품/옵션입니다. 기존 주문에 상품 상세가 저장되지 않았으면 판매품 가져오기를 실행하세요. 원가는 해당 옵션 1개 기준 원화로 입력하세요.'};
+ const saved=costRead(),aliases=costAliasesRead();for(const [key,v] of Object.entries(saved))if(!merged.has(key)&&v?.name&&v?.channel){const x=orderProduct(v.channel,v.name,v.option,1);if(x)merged.set(x.key,{...x,orders:0,units:0});}
+ return {items:[...merged.values()].map(x=>({...x,cost:saved[x.key]?.cost??null,delivery:saved[x.key]?.delivery??null,updatedAt:saved[x.key]?.updatedAt??null,linkedTo:aliases[x.key]?.sourceKey??null,effectiveCost:costRowForOrder(x.channel,x.key,saved,aliases)?.cost??null})).sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name,'ko')),job:{...catalogJob},note:'판매 주문에서 추출한 상품/옵션입니다. 기존 주문에 상품 상세가 저장되지 않았으면 판매품 가져오기를 실행하세요. 원가는 해당 옵션 1개 기준 원화로 입력하세요.'};
 }
 async function enrichCostCatalog(){
  if(catalogJob.running)throw Object.assign(Error('판매품 목록 수집 진행 중'),{status:409});
@@ -756,7 +789,7 @@ function profitDaily(since,until,options={}){
  const includeAds=options.accounts!==undefined,accounts=includeAds?profitAccounts(options.accounts):[],fx=Number(options.fx??1350);
  if(includeAds&&(!Number.isFinite(fx)||fx<=0))throw Object.assign(Error('USD→KRW 환율값을 확인하세요.'),{status:400});
  const nv=naverRead(naverOrderFile,{orders:{}}).orders||{},cv=cafeCache(cafeOrdersFile,{orders:{}}).orders||{},ns=naverRead(naverSyncFile,{days:{}}).days||{},cs=cafeCache(cafeSyncFile,{days:{}}).days||{},costs=costRead(),fees=profitFees();
- const summaries=new Map();
+ const aliases=costAliasesRead(),summaries=new Map();
  const emptySummary=()=>({revenue:0,cost:0,missingOrders:0,missingItemOrders:0,invalidOrders:0,orders:0,missingCostItems:new Map()});
  const add=(channel,o)=>{const d=channel==='naver'?o.paymentDate:o.date;if(!d||d<since||d>until)return;
   const key=d+':'+channel,rec=summaries.get(key)||emptySummary();
@@ -768,7 +801,7 @@ function profitDaily(since,until,options={}){
    else{
     let subtotal=0,valid=true;
     for(const item of o.items){
-     const name=cleanCostText(item?.name),option=cleanCostText(item?.option),itemKey=productKey(channel,name,option),row=costs[itemKey];
+     const name=cleanCostText(item?.name),option=cleanCostText(item?.option),itemKey=productKey(channel,name,option),row=costRowForOrder(channel,itemKey,costs,aliases);
      const unitCost=row?.cost==null||row.cost===''?NaN:Number(row.cost),quantity=Number(item?.quantity??1);
      if(!name||!Number.isFinite(unitCost)||unitCost<0||!Number.isFinite(quantity)||quantity<=0){
       valid=false;const missing=rec.missingCostItems.get(itemKey)||{name:name||'상품명 없음',option,orders:0,reason:!Number.isFinite(quantity)||quantity<=0?'판매 수량 미확인':'원가 미입력'};missing.orders++;rec.missingCostItems.set(itemKey,missing);continue;
@@ -866,6 +899,14 @@ const server=http.createServer(async (req,res)=> {
       if(!localPost(req))return json(res,403,{error:'로컬에서만 채팅할 수 있습니다.'});return json(res,200,await strategyAsk(JSON.parse((await payload(req)).toString('utf8'))));
     }
     if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
+    if(u.pathname==='/api/costs/aliases'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬에서만 원가 옵션을 연결할 수 있습니다.'});
+      return json(res,200,linkCostAlias(JSON.parse((await payload(req)).toString('utf8'))));
+    }
+    if(u.pathname==='/api/costs/aliases'&&req.method==='DELETE'){
+      if(!localPost(req))return json(res,403,{error:'로컬에서만 원가 옵션 연결을 해제할 수 있습니다.'});
+      return json(res,200,unlinkCostAlias(JSON.parse((await payload(req)).toString('utf8'))));
+    }
     if(u.pathname==='/api/costs/products'&&req.method==='GET')return json(res,200,costList());
     if(u.pathname==='/api/costs/products'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 원가를 저장할 수 있습니다.'});
@@ -971,5 +1012,5 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems};
+module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias};
 
