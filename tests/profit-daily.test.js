@@ -303,3 +303,23 @@ test('Mixed-brand orders stay unconfirmed rather than using full order value for
  const r=f.row();assert.equal(r.cafe24.revenue,null);assert.equal(r.profit,null);
  assert.match(r.reasons.join(' '),/혼합 주문/);
 });
+
+test('recent three days is an inclusive Seoul date window with month boundary handling',t=>{
+ const f=fixture(t);
+ assert.deepEqual(f.recent3DateWindow('2026-10-24'),{since:'2026-10-22',until:'2026-10-24'});
+ assert.deepEqual(f.recent3DateWindow('2026-11-01'),{since:'2026-10-30',until:'2026-11-01'});
+});
+test('cache-only Meta range query shows saved rows without forced API sync',async t=>{
+ const f=fixture(t);
+ f.ads('11111',[{date_start:day,spend:'1000',account_currency:'KRW'}],'KRW');
+ await new Promise(resolve=>f.server.listen(0,'127.0.0.1',resolve));
+ t.after(()=>new Promise(resolve=>f.server.close(resolve)));
+ const port=f.server.address().port;
+ const resp=await fetch('http://127.0.0.1:'+port+'/api/insights?account=11111&since='+day+'&until='+day+'&cacheOnly=1');
+ assert.equal(resp.ok,true);
+ const payload=await resp.json();
+ assert.equal(payload.cache.updatedDays,0);
+ assert.equal(payload.cache.storedDays,1);
+ assert.equal(payload.rows.length,1);
+ assert.equal(payload.rows[0].spend,'1000');
+});
