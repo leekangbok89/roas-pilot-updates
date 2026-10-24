@@ -8,8 +8,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
-const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.80';
+const managedFiles=['integrations/ga4/data.js','server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html'];
+const appVersion='2.8.81';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -28,6 +28,46 @@ function newer(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number);
 async function remoteManifest(){const cfg=getRemoteCfg();if(!cfg.feed)throw Error('배포 주소가 설정되지 않았습니다.');const obj=JSON.parse((await fetchBytes(cfg.feed,100000)).toString('utf8'));if(!/^\d+\.\d+\.\d+$/.test(obj.version||'')||!/^([a-f0-9]{64})$/i.test(obj.sha256||'')||typeof obj.url!=='string')throw Error('매니페스트 형식 오류');const feedHost=remoteURL(cfg.feed).hostname,zipHost=remoteURL(obj.url).hostname;if(zipHost!==feedHost && !['github.com','objects.githubusercontent.com','release-assets.githubusercontent.com'].includes(zipHost))throw Error('배포 파일 도메인이 허용되지 않습니다.');return {version:obj.version,url:obj.url,sha256:obj.sha256,notes:String(obj.notes||'').slice(0,400),available:newer(obj.version,appVersion)};}
 async function applyRemote(){const info=await remoteManifest();if(!info.available)return {updated:false,version:appVersion};const data=await fetchBytes(info.url,maxUpdateSize);if(crypto.createHash('sha256').update(data).digest('hex').toLowerCase()!==info.sha256.toLowerCase())throw Error('SHA-256 무결성 검증 실패');const stage=path.join(updateDir,'remote-'+Date.now());fs.mkdirSync(stage,{recursive:true});const zip=path.join(stage,'download.zip');const expanded=path.join(stage,'expanded');fs.writeFileSync(zip,data);const cmd=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',"Expand-Archive -LiteralPath '"+zip.replace(/'/g,"''")+"' -DestinationPath '"+expanded.replace(/'/g,"''")+"' -Force"],{timeout:20000,windowsHide:true});if(cmd.error||cmd.status!==0)throw Error('업데이트 압축 해제 실패');let candidate=expanded;if(!fs.existsSync(path.join(candidate,'server.js'))){const folders=fs.readdirSync(expanded,{withFileTypes:true}).filter(d=>d.isDirectory());if(folders.length===1)candidate=path.join(expanded,folders[0].name);}for(const rel of managedFiles)if(!fs.existsSync(diskPath(candidate,rel)))throw Error('필수 파일 누락: '+rel);const pkg=JSON.parse(fs.readFileSync(path.join(candidate,'package.json'),'utf8'));if(pkg.name!=='meta-roas-analyzer'||pkg.version!==info.version)throw Error('업데이트 패키지 버전 또는 이름 불일치');const backup=backupNow();try{copyManaged(candidate,__dirname);}catch(e){copyManaged(backup,__dirname,{allowMissing:true});throw e;}fs.rmSync(stage,{recursive:true,force:true});return {updated:true,version:info.version};}
 
+
+// Read-only GA4 session attribution. Credentials are encrypted per Windows user.
+const ga4Client=require('./integrations/ga4/data');
+const ga4SecretsPath=path.join(__dirname,'.roas-private','ga4-service-account.dpapi');
+let ga4ReportCache=null;
+function ga4Credentials(){
+ if(!fs.existsSync(ga4SecretsPath))return null;
+ try{
+  const x=JSON.parse(dpapi('decrypt',fs.readFileSync(ga4SecretsPath,'utf8')));
+  if(!/^\\d{6,15}$/.test(x.propertyId)||!x.clientEmail||!x.privateKey)throw Error('invalid');
+  return x;
+ }catch{throw Object.assign(Error('GA4 암호화된 인증정보를 읽지 못했습니다. 저장한 Windows 사용자 계정인지 확인하세요.'),{status:500});}
+}
+function ga4Status(){
+ const saved=ga4Credentials();
+ return {configured:!!saved,propertyId:saved?.propertyId||'',serviceAccount:saved?.clientEmail||'',lastFetchedAt:ga4ReportCache?.data?.fetchedAt||null,readonly:true};
+}
+function ga4Save(body){
+ const creds=ga4Client.validateSettings(body);
+ const encrypted=dpapi('encrypt',JSON.stringify(creds));
+ fs.mkdirSync(path.dirname(ga4SecretsPath),{recursive:true});
+ const tmp=ga4SecretsPath+'.tmp-'+process.pid;
+ try{fs.writeFileSync(tmp,encrypted,{encoding:'utf8',mode:0o600});fs.renameSync(tmp,ga4SecretsPath);}
+ finally{if(fs.existsSync(tmp))fs.rmSync(tmp,{force:true});}
+ ga4ReportCache=null;
+ return ga4Status();
+}
+function ga4Remove(){fs.rmSync(ga4SecretsPath,{force:true});ga4ReportCache=null;return ga4Status();}
+async function ga4Report(since,until){
+ const saved=ga4Credentials();
+ if(!saved)throw Object.assign(Error('GA4 연결 정보가 없습니다. 설정 관리 → GA4에서 읽기 전용 계정을 연결하세요.'),{status:400});
+ const today=todaySeoul();
+ const start=since||dayString(dayUTC(today)-6*86400000),end=until||today;
+ ga4Client.checkRange(start,end);
+ const key=saved.propertyId+'|'+start+'|'+end;
+ if(ga4ReportCache?.key===key&&Date.now()-ga4ReportCache.time<600000)return {...ga4ReportCache.data,cacheHit:true};
+ const result=await ga4Client.runReport(saved,start,end);
+ ga4ReportCache={key,time:Date.now(),data:result};
+ return {...result,cacheHit:false};
+}
 
 // Local Downloads-folder watcher. The server never downloads from an outside release host.
 const DOWNLOAD_PREFIX='ROAS-Pilot-ASUS-';
@@ -1059,7 +1099,17 @@ const server=http.createServer(async (req,res)=> {
 
 
 
-    if(u.pathname==='/api/profit/daily'&&req.method==='GET')return json(res,200,profitDaily(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.has('accounts')?{accounts:u.searchParams.get('accounts'),fx:u.searchParams.get('fx')??1350}:{}));
+    if(u.pathname==='/api/ga4/status'&&req.method==='GET')return json(res,200,ga4Status());
+     if(u.pathname==='/api/ga4/settings'&&req.method==='POST'){
+       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});
+       const body=JSON.parse((await payload(req)).toString('utf8'));return json(res,200,ga4Save(body));
+     }
+     if(u.pathname==='/api/ga4/settings'&&req.method==='DELETE'){
+       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});
+       return json(res,200,ga4Remove());
+     }
+     if(u.pathname==='/api/ga4/report'&&req.method==='GET')return json(res,200,await ga4Report(u.searchParams.get('since'),u.searchParams.get('until')));
+     if(u.pathname==='/api/profit/daily'&&req.method==='GET')return json(res,200,profitDaily(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.has('accounts')?{accounts:u.searchParams.get('accounts'),fx:u.searchParams.get('fx')??1350}:{}));
     if(u.pathname==='/api/profit/fees'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});const p=JSON.parse((await payload(req)).toString('utf8'));
       if(!Number.isFinite(Number(p.naver))||!Number.isFinite(Number(p.cafe24))||Number(p.naver)<0||Number(p.cafe24)<0||Number(p.naver)>40||Number(p.cafe24)>40)throw Object.assign(Error('수수료율은 0~40% 숫자여야 합니다.'),{status:400});
