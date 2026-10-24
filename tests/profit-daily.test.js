@@ -167,3 +167,30 @@ test('no selected accounts is unknown, while legacy calls remain backward compat
   assert.equal(Object.hasOwn(legacy, 'profit'), false);
   assert.throws(() => f.row(['invalid']), /광고 계정 ID/);
 });
+
+test('Cafe24 order item API shape restores exact product, option and quantity without invented cost',async t=>{
+ const f=fixture(t);
+ const answer=await f.cafeOrderItems('20261024-0000001',async url=>{
+  assert.match(url,/orders\/20261024-0000001\/items\?shop_no=1/);
+  return {items:[{product_name:'백도씨 하이브리드',option_value:'화이트',quantity:2},{product_name:'필터',option_value:'',quantity:1}]};
+ });
+ assert.deepEqual(answer.map(x=>({name:x.name,option:x.option,quantity:x.quantity})),[
+  {name:'백도씨 하이브리드',option:'화이트',quantity:2},{name:'필터',option:'',quantity:1}
+ ]);
+});
+test('Cafe24 item details fallback to order embed and fail closed on missing quantity',async t=>{
+ const f=fixture(t),requests=[];
+ const items=await f.cafeOrderItems('20261024-0000002',async url=>{
+  requests.push(url);
+  if(url.includes('/items?'))return {items:[]};
+  return {order:{items:[{product_name:'상품A',option_value_default:'기본',quantity:'3'},{product_name:'상품B',option_value:'추가',quantity:null}]}};
+ });
+ assert.equal(requests.length,2);
+ assert.match(requests[1],/embed=items/);
+ assert.deepEqual(items.map(x=>[x.name,x.option,x.quantity]),[['상품A','기본',3]]);
+});
+test('Cafe24 order parsing accepts order-items response fields and refuses incomplete item counts',t=>{
+ const f=fixture(t);
+ assert.deepEqual(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙',quantity:2}]}).map(x=>x.quantity),[2]);
+ assert.equal(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙'}]}).length,0);
+});
