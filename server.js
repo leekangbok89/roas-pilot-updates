@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.69';
+const appVersion='2.8.70';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -372,7 +372,7 @@ async function naverRun(mode){
  if(naverJobs.running)throw Object.assign(Error('네이버 주문 동기화가 이미 실행 중입니다.'),{status:409});
  if(!readNaverCredentials())throw Object.assign(Error('네이버 인증정보를 먼저 저장하세요.'),{status:400});
  naverJobs.running=true;naverJobs.startedAt=new Date().toISOString();naverJobs.finishedAt=null;naverJobs.mode=mode;naverJobs.progress='네이버 인증 중';naverJobs.error=null;naverJobs.daysCompleted=0;naverJobs.changedOrders=0;
- const first=mode==='backfill'?'2026-06-01':dayString(Date.now()-7*86400000),last=todaySeoul();
+ const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-7*86400000);
  let dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
  naverJobs.totalDays=dates.length;
  // Background task runs in the user's local server; process failures are visible in UI.
@@ -581,7 +581,7 @@ function cafeSalesState(){
 async function cafeCollect(mode){
  if(cafeJob.running)throw Error('카페24 수집 진행 중');
  cafeJob.running=true;cafeJob.error=null;cafeJob.progress='수집 시작';cafeJob.startedAt=new Date().toISOString();cafeJob.finishedAt=null;cafeJob.done=0;
- const first=mode==='backfill'?'2026-06-01':dayString(Date.now()-14*86400000),last=todaySeoul();
+ const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-14*86400000);
  const dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
  cafeJob.total=dates.length;cafeJob.itemsRestored=0;cafeJob.itemsMissing=0;
  try{
@@ -622,6 +622,52 @@ function cafeAutoCollect(){
 
 // Product/option cost ledger. Stored separately from deployment-managed files.
 const costFile=path.join(__dirname,'.roas-data','product-costs.json');
+
+const recent3Job={running:false,since:null,until:null,startedAt:null,finishedAt:null,progress:'업데이트 대기',sources:{},error:null};
+function recent3Status(){return {...recent3Job,sources:{...recent3Job.sources}};}
+async function recent3Refresh(accounts){
+ const ids=profitAccounts(accounts);
+ if(recent3Job.running||naverJobs.running||cafeJob.running)throw Object.assign(Error('다른 주문 수집 또는 최근 3일 업데이트가 진행 중입니다.'),{status:409});
+ const until=todaySeoul(),since=dayString(dayUTC(until)-2*86400000);
+ Object.assign(recent3Job,{running:true,since,until,startedAt:new Date().toISOString(),finishedAt:null,progress:'스마트스토어·카페24·Meta 업데이트 중',error:null,sources:{
+  naver:{status:'대기'},cafe24:{status:'대기'},meta:Object.fromEntries(ids.map(id=>[id,{status:'대기'}]))
+ }});
+ const updateStatus=(kind,key,update)=>{
+  if(kind==='meta')recent3Job.sources.meta[key]={...(recent3Job.sources.meta[key]||{}),...update};
+  else recent3Job.sources[kind]={...(recent3Job.sources[kind]||{}),...update};
+ };
+ try{
+  const work=[
+   (async()=>{
+    updateStatus('naver',null,{status:'진행 중'});
+    try{await naverRun('recent3');updateStatus('naver',null,{status:naverJobs.error?'실패':'완료',daysCompleted:naverJobs.daysCompleted,changedOrders:naverJobs.changedOrders,error:naverJobs.error||null});}
+    catch(e){updateStatus('naver',null,{status:'실패',error:e.message});}
+   })(),
+   (async()=>{
+    updateStatus('cafe24',null,{status:'진행 중'});
+    try{await cafeCollect('recent3');updateStatus('cafe24',null,{status:cafeJob.error?'실패':'완료',daysCompleted:cafeJob.done,itemsRestored:cafeJob.itemsRestored,error:cafeJob.error||null});}
+    catch(e){updateStatus('cafe24',null,{status:'실패',error:e.message});}
+   })(),
+   ...ids.map(id=>(async()=>{
+    updateStatus('meta',id,{status:'진행 중'});
+    try{
+     const qs=new URLSearchParams({account:id,since,until,force:'1'});
+     const result=await insights(qs);
+     const warnings=result.cache.warnings||[];
+     updateStatus('meta',id,{status:warnings.length?'부분 완료':'완료',updatedDays:result.cache.updatedDays,missingDays:result.cache.missingDays.length,warnings});
+    }catch(e){updateStatus('meta',id,{status:'실패',error:e.message});}
+   })())
+  ];
+  await Promise.all(work);
+  if(!ids.length)recent3Job.sources.metaNotice='광고 계정이 연결되어 있지 않아 Meta 데이터를 업데이트하지 않았습니다.';
+  const failed=[recent3Job.sources.naver,recent3Job.sources.cafe24,...Object.values(recent3Job.sources.meta)].filter(x=>x&&['실패','부분 완료'].includes(x.status));
+  recent3Job.error=failed.length?'일부 수집에 실패하거나 누락이 있습니다. 채널별 결과를 확인하세요.':null;
+  recent3Job.progress=failed.length?'최근 3일 데이터 일부 업데이트':'최근 3일 데이터 업데이트 완료';
+ }catch(e){recent3Job.error=e.message;recent3Job.progress='최근 3일 업데이트 실패';}
+ finally{recent3Job.running=false;recent3Job.finishedAt=new Date().toISOString();}
+ return recent3Status();
+}
+
 const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,cafeRestored:0,cafeRemaining:0,cafeChecked:0,lastAttemptAt:null,failures:{},examples:[]};
 function recoveryMark(date,stage,result,detail=''){
  const label=String(stage)+' / '+String(result);
@@ -940,6 +986,14 @@ const server=http.createServer(async (req,res)=> {
     if(u.pathname==='/api/strategy/chat'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 채팅할 수 있습니다.'});return json(res,200,await strategyAsk(JSON.parse((await payload(req)).toString('utf8'))));
     }
+    if(u.pathname==='/api/data/recent3/status'&&req.method==='GET')return json(res,200,recent3Status());
+    if(u.pathname==='/api/data/recent3/refresh'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬에서만 최근 3일 데이터를 수집할 수 있습니다.'});
+      if(recent3Job.running||naverJobs.running||cafeJob.running)return json(res,409,{error:'기존 주문 수집 또는 데이터 업데이트가 진행 중입니다.'});
+      const data=JSON.parse((await payload(req)).toString('utf8')),accounts=profitAccounts(data.accounts||[]);
+      recent3Refresh(accounts).catch(e=>{recent3Job.running=false;recent3Job.error=e.message;recent3Job.progress='수집 오류';});
+      return json(res,202,{ok:true,since:dayString(dayUTC(todaySeoul())-2*86400000),until:todaySeoul(),status:'업데이트 시작'});
+    }
     if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
     if(u.pathname==='/api/costs/aliases'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 원가 옵션을 연결할 수 있습니다.'});
@@ -1058,5 +1112,5 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope};
+module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status};
 
