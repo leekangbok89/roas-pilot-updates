@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html'];
-const appVersion='2.8.98';
+const appVersion='2.8.99';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -110,18 +110,23 @@ function dayUTC(value){return Date.parse(value+'T00:00:00Z');}
 function dayString(ts){return new Date(ts).toISOString().slice(0,10);}
 function todaySeoul(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function safeAccountFolder(account){return path.join(snapshotsDir,account);}
-function loadDay(account,date){
- // File and folder account IDs can diverge after a historical import.
- // Trust only the validated account stored inside the snapshot; never mix accounts.
- const read=(file)=>{try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(o.rows)&&o.date===date&&String(o.account)===String(account)?o:null;}catch{return null;}};
- const direct=read(path.join(safeAccountFolder(account),date+'.json'));if(direct)return direct;
- try{
+function loadDay(account,date,readCache=null){
+ // Reuse snapshots during one report only. A persistent cache could hide
+ // newly imported files, changed account settings or background refreshes.
+ const cacheKey=account+'|'+date;
+ if(readCache?.has(cacheKey))return readCache.get(cacheKey);
+ // Historical imports can use different folders, but the stored account and
+ // date must still match exactly to prevent cross-account contamination.
+ const read=file=>{try{const o=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(o.rows)&&o.date===date&&String(o.account)===String(account)?o:null;}catch{return null;}};
+ let result=read(path.join(safeAccountFolder(account),date+'.json'));
+ if(!result)try{
   for(const folder of fs.readdirSync(snapshotsDir,{withFileTypes:true})){
-   if(!folder.isDirectory()||!/^\d{5,30}$/.test(folder.name)||folder.name===account)continue;
-   const match=read(path.join(snapshotsDir,folder.name,date+'.json'));if(match)return match;
+   if(!folder.isDirectory()||!/^[0-9]{5,30}$/.test(folder.name)||folder.name===account)continue;
+   result=read(path.join(snapshotsDir,folder.name,date+'.json'));if(result)break;
   }
  }catch{}
- return null;
+ if(readCache)readCache.set(cacheKey,result||null);
+ return result||null;
 }
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
 function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
@@ -1150,11 +1155,11 @@ function profitAccounts(accounts){
  if(ids.length>5||ids.some(id=>!/^\d{5,30}$/.test(id)))throw Object.assign(Error('광고 계정 ID를 확인하세요(최대 5개).'),{status:400});
  return ids;
 }
-function profitAdSpend(accounts,date,fx){
+function profitAdSpend(accounts,date,fx,snapshotCache=null){
  if(!accounts.length)return {adSpend:null,adComplete:false,reasons:['광고 계정 미설정']};
  let spend=0;const reasons=[];
  for(const account of accounts){
-  const snapshot=loadDay(account,date),label='계정 '+account;
+  const snapshot=loadDay(account,date,snapshotCache),label='계정 '+account;
   if(!snapshot){reasons.push('광고비 미확인 ('+label+')');continue;}
   // A successfully cached empty account-day confirms zero spend, even if Meta
   // omitted the currency because it returned no ad rows.
@@ -1224,7 +1229,7 @@ function cafeRevenueDiagnostics(since,until,cache,sync,counts,days,brandChoices=
 }
 function profitDaily(since,until,options={}){
  if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('유효한 조회 기간을 선택하세요.'),{status:400});
- const includeAds=options.accounts!==undefined,accounts=includeAds?profitAccounts(options.accounts):[],fx=Number(options.fx??1350);
+ const includeAds=options.accounts!==undefined,accounts=includeAds?profitAccounts(options.accounts):[],fx=Number(options.fx??1350),snapshotCache=options.snapshotCache||null;
  if(includeAds&&(!Number.isFinite(fx)||fx<=0))throw Object.assign(Error('USD→KRW 환율값을 확인하세요.'),{status:400});
  const cafeCacheState=cafeOrderCacheForReport(),cafeCacheValid=cafeCacheState.cacheState==='ok';
  const nv=naverRead(naverOrderFile,{orders:{}}).orders||{},ns=naverRead(naverSyncFile,{days:{}}).days||{},cs=cafeCache(cafeSyncFile,{days:{}})?.days||{},costs=costRead(),fees=profitFees();
@@ -1316,7 +1321,7 @@ function profitDaily(since,until,options={}){
   row.revenueComplete=row.naver.revenueComplete&&row.cafe24.revenueComplete;
   row.complete=row.naver.complete&&row.cafe24.complete;
   if(includeAds){
-   const ad=profitAdSpend(accounts,date,fx);row.adSpend=ad.adSpend;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
+   const ad=profitAdSpend(accounts,date,fx,snapshotCache);row.adSpend=ad.adSpend;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
    row.confirmed.profit=row.confirmedAvailable&&ad.adComplete&&row.confirmed.revenue!=null&&row.confirmed.fee!=null&&row.confirmed.cost!=null?row.confirmed.revenue-row.confirmed.fee-row.confirmed.cost-ad.adSpend:null;
   }
   row.partial=!row.complete&&row.confirmedAvailable;
@@ -1326,10 +1331,10 @@ function profitDaily(since,until,options={}){
  return {fees,days,revenueDiagnostics,pendingProducts:[...pendingProducts.values()].map(x=>({...x,channels:[...x.channels].sort(),options:[...x.options].sort(),dates:[...x.dates].sort()})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko')),...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 확인된 상품만 대상입니다. 저장된 사용자 분류가 있으면 상품명 키워드보다 우선하며, 분류 초기화 시 자동 규칙으로 돌아갑니다. 상품명에 트루버만 포함은 기본 제외, 위마망만 포함은 기본 포함, 둘 다 있거나 둘 다 없으면 사용자의 확인이 필요합니다. 미분류·혼합 주문이 있으면 전체 확정값과 확인된 위마망 주문 소계를 구분합니다. 상품별 실결제금액이 없는 혼합 주문의 총액은 임의 배분하지 않습니다. 확인된 주문의 원가가 하나라도 없으면 그 소계 이익도 계산하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 부분집계 이익도 전체 연결 Meta 광고비를 한 번 차감하며, 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
 }
 
-function dataCoverage(since,until,accounts=[],fx=1350){
+function dataCoverage(since,until,accounts=[],fx=1350,precomputed=null,snapshotCache=null){
  const range=catalogRepairRange({since,until});
  if(!range.since)throw Object.assign(Error('진단할 조회 기간을 선택하세요.'),{status:400});
- const ids=profitAccounts(accounts),report=profitDaily(since,until,{accounts:ids,fx}),dates=report.days.map(row=>row.date),sources={},missingByChannel={};
+ const ids=profitAccounts(accounts),report=precomputed||profitDaily(since,until,{accounts:ids,fx,snapshotCache}),dates=report.days.map(row=>row.date),sources={},missingByChannel={};
  for(const channel of ['naver','cafe24']){
   const cafe=channel==='cafe24',diagnostic=report.revenueDiagnostics.cafe24;
   const orders=cafe?[]:Object.values(naverRead(naverOrderFile,{orders:{}}).orders||{}).filter(o=>Number(o.net)>0&&orderInRepairRange(o,channel,range));
@@ -1339,18 +1344,18 @@ function dataCoverage(since,until,accounts=[],fx=1350){
   missingByChannel[channel]=byDate;
   sources[channel]={storedDays:stored.length,missingDays:dates.filter(date=>!storedSet.has(date)),firstStoredDate:stored[0]||null,lastStoredDate:stored.at(-1)||null,positiveOrders:cafe?diagnostic.positiveOrders:orders.length,missingItemOrders:cafe?diagnostic.missingItemOrders:missingItems.length,missingItemDates:Object.entries(byDate).sort(([a],[b])=>a.localeCompare(b)).map(([date,count])=>({date,count})),unclassifiedOrders:cafe?diagnostic.unclassifiedOrders:report.days.reduce((sum,row)=>sum+row[channel].unclassifiedOrders,0),missingCostOrders:cafe&&diagnostic.cacheState!=='ok'?null:report.days.reduce((sum,row)=>sum+row[channel].missingCostOrders,0),...(cafe?{cacheState:diagnostic.cacheState,cacheIssue:diagnostic.cacheIssue}:{})};
  }
- sources.meta=Object.fromEntries(ids.map(id=>{const stored=dates.filter(date=>!!loadDay(id,date)),storedSet=new Set(stored);return [id,{storedDays:stored.length,missingDays:dates.filter(date=>!storedSet.has(date)),firstStoredDate:stored[0]||null,lastStoredDate:stored.at(-1)||null}];}));
+ sources.meta=Object.fromEntries(ids.map(id=>{const stored=dates.filter(date=>!!loadDay(id,date,snapshotCache)),storedSet=new Set(stored);return [id,{storedDays:stored.length,missingDays:dates.filter(date=>!storedSet.has(date)),firstStoredDate:stored[0]||null,lastStoredDate:stored.at(-1)||null}];}));
  const days=report.days.map(row=>({date:row.date,...Object.fromEntries(['naver','cafe24'].map(channel=>[channel,{collected:row[channel].collected,missingItemOrders:missingByChannel[channel][row.date]||0,unclassifiedOrders:row[channel].unclassifiedOrders,missingCostOrders:row[channel].missingCostOrders}])),adComplete:row.adComplete,profitStatus:row.complete?'complete':row.confirmedAvailable&&Number.isFinite(row.confirmed?.profit)?'partial':'unavailable',reasons:row.reasons}));
  const available=days.filter(day=>day.profitStatus!=='unavailable');
  const blockerCounts={missingCollectionDays:days.filter(day=>!day.naver.collected||!day.cafe24.collected).length,missingItemDays:days.filter(day=>day.naver.missingItemOrders||day.cafe24.missingItemOrders).length,unclassifiedDays:days.filter(day=>day.naver.unclassifiedOrders||day.cafe24.unclassifiedOrders).length,mixedDays:report.days.filter(day=>day.pending.mixedOrders>0).length,missingCostDays:days.filter(day=>day.naver.missingCostOrders||day.cafe24.missingCostOrders).length,missingAdDays:days.filter(day=>!day.adComplete).length};
  return {since,until,totalDays:dates.length,revenueDiagnostics:report.revenueDiagnostics,sources,profit:{completeDays:days.filter(day=>day.profitStatus==='complete').length,partialDays:days.filter(day=>day.profitStatus==='partial').length,unavailableDays:days.filter(day=>day.profitStatus==='unavailable').length,firstAvailableDate:available[0]?.date||null,lastAvailableDate:available.at(-1)?.date||null,blockerCounts},days,note:'선택 기간의 저장된 주문·상품 상세·광고 데이터 확인 결과입니다. 주문 상세 복구는 이미 저장된 주문만 대상으로 하며, 미수집 날짜를 새로 수집하거나 누락값을 0원으로 채우지 않습니다.'};
 }
 
-function combinedAnalysis(start,end,pivot){
+function combinedAnalysis(start,end,pivot,precomputed=null){
  if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
  // Sales and profit must use the same brand scope. Sales completeness depends
  // on attributable revenue, not whether the included product costs are entered.
- const scoped=profitDaily(start,end);
+ const scoped=precomputed||profitDaily(start,end);
  const result=scoped.days.map(row=>({date:row.date,naver:row.naver.revenue,cafe24:row.cafe24.revenue,total:row.revenue,complete:row.revenueComplete,confirmed:{naver:row.naver.confirmed.revenue,cafe24:row.cafe24.confirmed.revenue,total:row.confirmed.revenue},confirmedAvailable:row.confirmedAvailable,partial:!row.revenueComplete&&row.confirmedAvailable,pending:row.pending,reasons:row.reasons}));
  const metrics=arr=>{
   const covered=arr.filter(x=>x.complete),revenue=covered.reduce((s,x)=>s+x.total,0);
@@ -1361,6 +1366,22 @@ function combinedAnalysis(start,end,pivot){
  return {scope:'wemamang',before,after,change:before.averageDailyRevenue!=null&&after.averageDailyRevenue!=null?after.averageDailyRevenue-before.averageDailyRevenue:null,days:result,pendingProducts:scoped.pendingProducts,warning:'위마망으로 확인된 상품만 집계합니다. 미분류·혼합 주문이 있으면 전체 확정 매출과 확인된 주문 소계가 다릅니다. 관측 매출 변화이며 광고의 인과적 증분 효과가 아닙니다. 매출 수집 상태와 다른 광고·요일·품절 영향을 확인하세요.'};
 }
 
+
+// One read-only dashboard response shares a single financial calculation
+// across revenue comparison, daily profit and collection coverage. The
+// legacy focused endpoints remain available to other pages.
+function overviewSnapshot(since,until,accounts=[],fx=1350){
+ const started=Date.now(),ids=profitAccounts(accounts),snapshotCache=new Map();
+ const profit=profitDaily(since,until,{accounts:ids,fx,snapshotCache});
+ const afterProfit=Date.now();
+ const sales=combinedAnalysis(since,until,since,profit);
+ const afterSales=Date.now();
+ const coverage=dataCoverage(since,until,ids,fx,profit,snapshotCache);
+ const finished=Date.now();
+ return {version:appVersion,profit,sales,coverage,timingsMs:{
+  profit:afterProfit-started,sales:afterSales-afterProfit,coverage:finished-afterSales,total:finished-started
+ }};
+}
 
 const aiSecretFile=path.join(__dirname,'.roas-private','openai-key.dpapi');
 function aiKey(){if(process.env.OPENAI_API_KEY)return process.env.OPENAI_API_KEY;try{return dpapi('decrypt',fs.readFileSync(aiSecretFile,'utf8'))}catch{return ''}}
@@ -1883,6 +1904,7 @@ const server=http.createServer(async (req,res)=> {
       if(['/api/ga4/status','/api/ga4/report'].includes(u.pathname))return json(res,405,{error:'Method not allowed'});
       return json(res,404,{error:'Not found'});
     }
+    if(u.pathname==='/api/overview/snapshot'&&req.method==='GET')return json(res,200,overviewSnapshot(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.get('accounts')??'',u.searchParams.get('fx')??1350));
     if(u.pathname==='/api/profit/daily'&&req.method==='GET')return json(res,200,profitDaily(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.has('accounts')?{accounts:u.searchParams.get('accounts'),fx:u.searchParams.get('fx')??1350}:{}));
     if(u.pathname==='/api/profit/fees'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});const p=JSON.parse((await payload(req)).toString('utf8'));
