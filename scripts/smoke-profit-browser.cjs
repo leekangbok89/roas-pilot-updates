@@ -189,6 +189,7 @@ async function pointTitles() {
   await amount('2026-09-01', 99000);
   assert.equal(await page.locator('#profit-total').innerText(), money(99000));
   assert.ok((await pointTitles()).some(title => title.includes('99,000원')));
+  await page.locator('#profit-troubleshooting summary').click();
   assert.ok((await page.locator('#profit-troubleshooting-body').innerText()).includes('Meta 구매 전환매출과 무관'));
   check('browser: actual store profit graph works with zero Meta purchase conversions');
   await range('2026-09-01', '2026-09-07');
