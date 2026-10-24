@@ -1,0 +1,69 @@
+/* GA4 surfaces use the same theme and compact controls as the shared app shell. */
+body[data-app-page="ga4"] *,body[data-app-page="ga4"] *::before,body[data-app-page="ga4"] *::after{box-sizing:border-box}
+body[data-app-page="ga4"] .app-main h2{margin:0}
+body[data-app-page="ga4"] .panel,body[data-app-page="ga4"] .toolbar,body[data-app-page="ga4"] .metric{border:1px solid var(--app-border)}
+.ga4-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:20px;background:var(--app-surface-soft);color:var(--app-muted);font-size:14px;white-space:nowrap}
+.ga4-badge[data-tone="success"]{background:var(--app-positive-bg);color:var(--app-positive)}
+.ga4-badge[data-tone="error"]{background:var(--app-negative-bg);color:var(--app-negative)}
+.ga4-connection>summary,.ga4-guide>summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-weight:600;cursor:pointer;list-style:none}
+.ga4-connection>summary::-webkit-details-marker,.ga4-guide>summary::-webkit-details-marker{display:none}
+.ga4-connection>summary::before,.ga4-guide>summary::before{content:"";width:7px;height:7px;flex:none;border-right:2px solid var(--app-muted);border-bottom:2px solid var(--app-muted);transform:rotate(-45deg);margin-right:2px}
+.ga4-connection[open]>summary::before,.ga4-guide[open]>summary::before{transform:rotate(45deg);margin-bottom:4px}
+.ga4-connection-summary{font-weight:400}
+.ga4-connection-body{padding-top:10px}
+.ga4-connect-form{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin:12px 0 8px}
+body[data-app-page="ga4"] label{display:flex;flex-direction:column}
+#ga4-property-id{width:180px}
+#ga4-key-file{max-width:100%;width:340px;font-size:14px}
+#ga4-key-file::file-selector-button{background:var(--app-surface-soft);color:var(--app-text);border:1px solid var(--app-border);border-radius:5px;padding:3px 8px;margin-right:8px;font:inherit;cursor:pointer}
+.ga4-saved-details{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--app-border);padding-top:10px;margin-top:10px}
+.ga4-saved-details dl{display:grid;gap:4px;margin:0;min-width:0;font-size:14px}
+.ga4-saved-details dl>div{display:flex;gap:12px;flex-wrap:wrap}
+.ga4-saved-details dt{color:var(--app-muted);min-width:110px}
+.ga4-saved-details dd{margin:0;overflow-wrap:anywhere}
+.ga4-actions{display:flex;gap:6px}
+.ga4-toolbar{display:flex;align-items:flex-end;flex-wrap:wrap;border:1px solid var(--app-border)}
+.ga4-presets{display:flex;gap:4px;flex-wrap:wrap;align-items:center;align-self:flex-end}
+.ga4-toolbar input[type="date"]{width:148px}
+.ga4-report-status{flex-basis:100%;margin:4px 0 0}
+body[data-app-page="ga4"] .ga4-notice{margin:0 0 8px;padding:8px 10px;background:var(--app-info-bg);color:var(--app-info);border:1px solid var(--app-border);border-radius:9px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+body[data-app-page="ga4"] .ga4-notice[data-tone="warning"]{background:var(--app-warning-bg);color:var(--app-warning);border-color:var(--app-warning-line)}
+body[data-app-page="ga4"] .ga4-notice[data-tone="error"]{background:var(--app-negative-bg);color:var(--app-negative);border-color:var(--app-negative)}
+body[data-app-page="ga4"] .ga4-notice[data-tone="success"]{background:var(--app-positive-bg);color:var(--app-positive);border-color:var(--app-positive)}
+body[data-app-page="ga4"] #ga4-connection-message{margin:10px 0 0}
+.ga4-notice ul{margin:5px 0 0;padding-left:20px}
+.ga4-empty-state{padding:20px!important}
+.ga4-empty-state h2{font-size:17px!important;margin-bottom:5px!important}
+.ga4-report-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 8px}
+.ga4-metrics{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.ga4-metrics .metric{min-width:0}
+.ga4-metrics .metric>span,.ga4-metrics .metric>strong,.ga4-metrics .metric>small{display:block}
+.ga4-metrics .metric>span{font-size:14px;color:var(--app-muted)}
+.ga4-metrics .metric>small{margin-top:4px}
+body[data-app-page="ga4"] .ga4-metrics .metric .ga4-unverified{font-size:16px;line-height:1.6;color:var(--app-warning);padding-top:3px}
+.ga4-table-panel .panelhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.ga4-table-tools{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:10px 0}
+.ga4-search-label{flex:1;min-width:200px;max-width:440px}
+.ga4-table-scroll{width:100%;overflow:auto;border:1px solid var(--app-border);border-radius:8px;scrollbar-color:var(--app-border) var(--app-surface)}
+.ga4-table-scroll table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.ga4-table-scroll th{position:sticky;top:0;text-align:right;white-space:nowrap}
+.ga4-table-scroll td{text-align:right;border-top:1px solid var(--app-border);vertical-align:top;white-space:nowrap}
+.ga4-table-scroll td small{display:block}
+#ga4-acquisition-table{min-width:1050px}
+#ga4-acquisition-table :is(th,td):nth-child(-n+3){text-align:left}
+#ga4-acquisition-table td:nth-child(1){min-width:140px;max-width:210px;white-space:normal;overflow-wrap:anywhere}
+#ga4-acquisition-table td:nth-child(2){min-width:150px;max-width:260px;white-space:normal;overflow-wrap:anywhere}
+#ga4-acquisition-table td:nth-child(3){min-width:170px;max-width:300px;white-space:normal;overflow-wrap:anywhere}
+#ga4-landing-table{min-width:740px}
+#ga4-landing-table :is(th,td):first-child{text-align:left}
+#ga4-landing-table td:first-child{min-width:280px;max-width:720px;white-space:normal;overflow-wrap:anywhere}
+.ga4-row-badge{display:inline-block;border-radius:4px;padding:1px 5px;margin-top:3px;background:var(--app-surface-soft);color:var(--app-muted);font-size:12px}
+.ga4-row-badge[data-tone="success"]{background:var(--app-positive-bg);color:var(--app-positive)}
+.ga4-pagination{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}
+.ga4-pagination>div{display:flex;gap:5px}
+.ga4-table-scroll .ga4-empty-cell{text-align:center!important;padding:20px!important;color:var(--app-muted);white-space:normal}
+.ga4-guide ul{margin:10px 0 0;padding-left:20px;color:var(--app-muted);font-size:14px}
+.ga4-guide li+li{margin-top:4px}
+@media(max-width:1300px){.ga4-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:800px){.ga4-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ga4-connect-form{align-items:stretch}.ga4-connect-form label{flex:1 1 220px}.ga4-connect-form input{width:100%!important}.ga4-presets{flex-basis:100%}.ga4-search-label{max-width:none}}
+@media(max-width:420px){.ga4-toolbar label{flex:1 1 40%;min-width:0}.ga4-toolbar input[type="date"]{width:100%}.ga4-toolbar button{flex-grow:1}.ga4-presets{width:100%}.ga4-connection>summary{gap:6px}.ga4-connection>summary .small{flex-basis:100%;padding-left:15px}.ga4-table-tools label{width:100%;max-width:none}.ga4-saved-details dl>div{gap:0;flex-direction:column}.ga4-saved-details dd{width:100%}}

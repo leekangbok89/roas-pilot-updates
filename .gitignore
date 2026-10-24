@@ -1,0 +1,7 @@
+.roas-private/
+.roas-data/
+.roas-updates/
+.env
+.env.*
+node_modules/
+roas-pilot.zip

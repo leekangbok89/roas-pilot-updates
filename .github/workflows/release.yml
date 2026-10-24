@@ -11,6 +11,7 @@ on:
       - '.github/workflows/release.yml'
       - 'tests/**'
       - 'scripts/**'
+      - 'integrations/ga4/**'
   workflow_dispatch:
     inputs:
       version:
@@ -53,10 +54,12 @@ jobs:
       - name: Validate Node.js code and bundled bcrypt
         run: |
           node scripts/bundle-shell.cjs --check
+          node scripts/bundle-ga4.cjs --check
           node --check server.js
           node --check public/app.js
           node --check public/app-shell.js
           node --check public/naver-settings.js
+          node --check public/ga4.js
           node scripts/check-inline-scripts.js
           npm test
           node -e "const m=require('./server'); if(!m.server)process.exit(1)"
@@ -67,7 +70,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/roas-ui-tests" --no-audit --no-fund --ignore-scripts --package-lock=false playwright@1.56.1
 
-      - name: Verify profit, recovery, navigation, and legacy upgrades in Chromium
+      - name: Verify profit, recovery, GA4, navigation, and legacy upgrades in Chromium
         timeout-minutes: 5
         run: |
           if command -v google-chrome >/dev/null 2>&1; then
@@ -79,6 +82,7 @@ jobs:
           fi
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-profit-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-shell-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ga4-browser.cjs
 
       - name: Package ROAS Pilot
         run: |

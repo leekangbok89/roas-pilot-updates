@@ -183,7 +183,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(page === 'cost' ? 'cost' : 'overview');
+      markActive(page === 'cost' ? 'cost' : page === 'ga4' ? 'ga4' : 'overview');
       body.classList.add('app-route-ready');
     }
   }
