@@ -1,0 +1,33 @@
+name: GA4 and ROAS Pilot Checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server.js'
+      - 'package.json'
+      - 'integrations/ga4/**'
+      - 'public/**'
+      - 'tests/**'
+      - '.github/workflows/ga4-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  node-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source and browser scripts
+        run: |
+          node --check server.js
+          node --check public/app.js
+          node scripts/bundle-shell.cjs --check
+          node scripts/check-inline-scripts.js
+      - name: Run regression tests
+        run: npm test
