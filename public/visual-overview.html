@@ -93,6 +93,12 @@ function displayedFinancial(record,key){
  if(record?.confirmedAvailable===true&&Number.isFinite(confirmed))return {value:confirmed,partial:true};
  return {value:null,partial:false};
 }
+function displayedCombinedRevenue(day){
+ const naver=displayedFinancial(day?.naver,'revenue'),cafe=displayedFinancial(day?.cafe24,'revenue');
+ const known=[naver,cafe].filter(item=>Number.isFinite(item.value));
+ if(!known.length)return {value:null,partial:false,naver,cafe};
+ return {value:known.reduce((sum,item)=>sum+item.value,0),partial:known.length<2||naver.partial||cafe.partial,naver,cafe};
+}
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
@@ -153,6 +159,19 @@ function summaryMetric(key,context=summaryMetricContext()){
   if(definition.adScope!=='all'&&connectedAccounts.naver&&connectedAccounts.naver===connectedAccounts.cafe)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'동일 광고계정 · 채널 구분 필요'};
  }
  if(definition.field){
+  if(key==='totalStoreRevenue'){
+   let total=0,knownDays=0,completeDays=0,naverKnown=0,cafeKnown=0;
+   for(const date of context.dates){
+    const field=displayedCombinedRevenue(profitDays.get(date));
+    if(Number.isFinite(field.naver.value))naverKnown++;
+    if(Number.isFinite(field.cafe.value))cafeKnown++;
+    if(!Number.isFinite(field.value))continue;
+    total+=field.value;knownDays++;if(!field.partial)completeDays++;
+   }
+   const partial=knownDays>0&&(completeDays<totalDays||naverKnown<totalDays||cafeKnown<totalDays);
+   return {value:knownDays?total:null,partial,knownDays,completeDays,totalDays,scope,
+    detail:(knownDays?'채널별 확인분 합산 · ':'미확정 · ')+'스마트스토어 '+naverKnown+'/'+totalDays+'일 · 카페24 '+cafeKnown+'/'+totalDays+'일'};
+  }
   let total=0,knownDays=0,completeDays=0;
   for(const date of context.dates){
    const day=profitDays.get(date),field=displayedFinancial(definition.channel?day?.[definition.channel]:day,definition.field);
@@ -310,6 +329,10 @@ function renderSummaryCards(){
   if(definition.adMetric==='spend')detail.title='환율 1 USD = '+format.format(rates)+' KRW · USD 계정에만 적용';
   card.append(heading,valueLine,scope,detail);
   if(key==='mallRevenue'&&!summaryLoading&&(metric.value===0||metric.value===null)&&cafeRevenueDiagnostic()){
+   const diagnostic=cafeRevenueDiagnostic();
+   const counts=document.createElement('small');counts.className='summary-card-state';
+   counts.textContent='주문 '+coverageNumber(diagnostic.storedOrders)+'건 · 위마망 포함 '+coverageNumber(diagnostic.includedOrders)+'건 · 제외 '+coverageNumber(diagnostic.excludedOrders)+'건 · 미분류 '+coverageNumber(diagnostic.unclassifiedOrders)+'건 · 상품정보 미확인 '+coverageNumber(diagnostic.missingItemOrders)+'건';
+   card.append(counts);
    const inspect=document.createElement('button');inspect.type='button';inspect.textContent=metric.value===0?'0원 원인 확인':'매출 미확정 원인 확인';inspect.setAttribute('data-cafe-revenue-diagnostic','open');inspect.style.cssText='margin-top:5px;padding:3px 7px;font-size:12px;align-self:flex-start';
    inspect.onclick=()=>{const pane=$('cafe-revenue-diagnostic');pane.hidden=false;pane.open=true;pane.scrollIntoView?.({block:'nearest',behavior:'smooth'});};card.append(inspect);
   }
@@ -355,7 +378,7 @@ function render(){let selected=selectedAdRows();
 renderSummaryCards();
 const days=[...new Set([...selected.map(r=>r.date),...storeSales.keys(),...profitDays.keys()])].sort();
 const series=days.map(date=>{
- const a=sum(selected.filter(r=>r.date===date)),p=profitDays.get(date),fields={smartstoreRevenue:displayedFinancial(p?.naver,'revenue'),mallRevenue:displayedFinancial(p?.cafe24,'revenue'),totalStoreRevenue:displayedFinancial(p,'revenue'),profit:displayedFinancial(p,'profit')};
+ const a=sum(selected.filter(r=>r.date===date)),p=profitDays.get(date),fields={smartstoreRevenue:displayedFinancial(p?.naver,'revenue'),mallRevenue:displayedFinancial(p?.cafe24,'revenue'),totalStoreRevenue:displayedCombinedRevenue(p),profit:displayedFinancial(p,'profit')};
  return {date,...a,...Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,field.value])),metricPartial:Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,field.partial])),pendingScope:pendingScope(p)};
 });
 // The chart and table consume the same server-calculated amount. Table rendering cannot erase it.
