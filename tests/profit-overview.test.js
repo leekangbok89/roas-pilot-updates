@@ -617,9 +617,9 @@ test('page lookup resumes observing an existing detail repair without starting a
 
 const cafeRevenueDiagnosticFixture=overrides=>({
  since:'2026-09-01',until:'2026-09-03',cacheState:'ok',cacheIssue:null,recordedDays:3,recordedOrders:0,
- storedOrders:0,positiveOrders:0,zeroNetOrders:0,includedOrders:0,excludedOrders:0,
+ storedOrders:0,positiveOrders:0,allPaidRevenue:0,zeroNetOrders:0,includedOrders:0,excludedOrders:0,
  autoExcludedOrders:0,manualExcludedOrders:0,unclassifiedOrders:0,mixedOrders:0,
- missingItemOrders:0,invalidOrders:0,undatedOrders:0,confirmedRevenue:0,complete:true,
+ missingItemOrders:0,invalidOrders:0,undatedOrders:0,excludedProducts:[],confirmedRevenue:0,complete:true,
  zeroReason:'no_orders',reason:'선택 기간의 저장된 카페24 주문이 없습니다.',countMismatches:[],
  version:'2.8.81',mallId:'example-mall',shopNo:1,...overrides
 });
@@ -631,7 +631,7 @@ test('Cafe24 zero-sales diagnostics distinguish an empty cache from paid orders 
  h.run('profitDays=new Map(profitRows.map(row=>[row.date,row]));');
  const cases=[
   cafeRevenueDiagnosticFixture(),
-  cafeRevenueDiagnosticFixture({recordedOrders:139,storedOrders:139,positiveOrders:139,excludedOrders:139,autoExcludedOrders:100,manualExcludedOrders:39,zeroReason:'excluded',reason:'저장된 유료 주문이 모두 위마망 집계 대상에서 제외되어 매출이 0원입니다.'})
+  cafeRevenueDiagnosticFixture({recordedOrders:139,storedOrders:139,positiveOrders:139,allPaidRevenue:9876543,excludedOrders:139,autoExcludedOrders:100,manualExcludedOrders:39,excludedProducts:[{name:'트루버 표기가 있는 위마망 후보',orders:11,source:'상품명 자동분류'}],zeroReason:'excluded',reason:'저장된 유료 주문이 모두 위마망 집계 대상에서 제외되어 매출이 0원입니다.'})
  ];
  for(const diagnostic of cases){
   h.context.diagnostic=diagnostic;h.run('storeRevenueDiagnostics={cafe24:diagnostic};renderSummaryCards();');
@@ -640,7 +640,9 @@ test('Cafe24 zero-sales diagnostics distinguish an empty cache from paid orders 
   const fields=cafeRevenueDiagnosticFields(h);
   assert.equal(fields.recordedDays,'3일');assert.equal(fields.recordedOrders,diagnostic.recordedOrders+'건');
   for(const key of ['storedOrders','positiveOrders','excludedOrders','autoExcludedOrders','manualExcludedOrders'])assert.equal(fields[key],diagnostic[key]+'건',key+' must show the server count');
+  assert.equal(fields.allPaidRevenue,(diagnostic.allPaidRevenue||0).toLocaleString('ko-KR')+'원');
   assert.equal(fields.confirmedRevenue,'0원');assert.equal(h.node('mallRevenue').textContent,'0원');
+  if(diagnostic.excludedProducts?.length){const report=h.run('cafeRevenueDiagnosticText()');assert.match(report,/제외 판정 상품명/);assert.match(report,/트루버 표기가 있는 위마망 후보/);}
   const inspect=descendantElements(h.node('summary-cards')).find(node=>node.attributes['data-cafe-revenue-diagnostic']==='open');
   assert.ok(inspect,'A zero Cafe24 card offers a direct route to its collection and brand diagnostics');
   inspect.onclick();assert.equal(h.node('cafe-revenue-diagnostic').open,true);
@@ -654,13 +656,13 @@ test('invalid Cafe24 caches show unknown counts and revenue rather than confirme
  h.run('profitDays=new Map(profitRows.map(row=>[row.date,row]));');
  const countKeys=['storedOrders','positiveOrders','zeroNetOrders','includedOrders','excludedOrders','autoExcludedOrders','manualExcludedOrders','unclassifiedOrders','mixedOrders','missingItemOrders','invalidOrders','undatedOrders'];
  for(const cacheState of ['missing','invalid_json','invalid_schema']){
-  h.context.diagnostic=cafeRevenueDiagnosticFixture({...Object.fromEntries(countKeys.map(key=>[key,null])),recordedOrders:139,cacheState,cacheIssue:'카페24 저장 주문 자료를 확인할 수 없습니다.',reason:'카페24 저장 주문 자료를 확인할 수 없습니다.',confirmedRevenue:null,complete:false,zeroReason:null});
+  h.context.diagnostic=cafeRevenueDiagnosticFixture({...Object.fromEntries(countKeys.map(key=>[key,null])),allPaidRevenue:null,recordedOrders:139,cacheState,cacheIssue:'카페24 저장 주문 자료를 확인할 수 없습니다.',reason:'카페24 저장 주문 자료를 확인할 수 없습니다.',confirmedRevenue:null,complete:false,zeroReason:null});
   h.run('storeRevenueDiagnostics={cafe24:diagnostic};renderSummaryCards();');
   assert.equal(h.node('cafe-revenue-diagnostic').hidden,false);
   const fields=cafeRevenueDiagnosticFields(h);
   assert.equal(fields.recordedDays,'3일');assert.equal(fields.recordedOrders,'139건','An unreadable order cache must not erase the independent collection record');
   for(const key of countKeys)assert.equal(fields[key],'미확인',key+' must not turn an unreadable cache into a zero count');
-  assert.equal(fields.confirmedRevenue,'—');assert.equal(h.node('mallRevenue').textContent,'—');
+  assert.equal(fields.allPaidRevenue,'—');assert.equal(fields.confirmedRevenue,'—');assert.equal(h.node('mallRevenue').textContent,'—');
   assert.match(h.node('cafe-revenue-diagnostic-output').value,/주문매출 미확정/);
   assert.match(h.node('cafe-revenue-diagnostic-output').value,/확인된 위마망 주문매출: —/);
  }
