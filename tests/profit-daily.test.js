@@ -308,6 +308,17 @@ test('Saved manual brand classification can be revised or cleared',t=>{
  assert.equal(cleared.classification.scope,'unclassified');
  assert.equal(f.row().cafe24.revenue,null);
 });
+test('Explicit user classification overrides automatic brand keywords and clear restores the keyword rule',t=>{
+ const f=fixture(t),name='트루버 이름이 들어간 실제 위마망 상품';
+ f.order('cafe24',120000,[{name,option:'기본',quantity:1}]);
+ assert.equal(f.row().cafe24.revenue,0);
+ const included=f.saveBrandScope({name,scope:'wemamang'});
+ assert.equal(included.classification.scope,'wemamang');assert.equal(included.classification.source,'사용자 확인');
+ assert.equal(f.row().cafe24.revenue,120000);
+ const cleared=f.saveBrandScope({name,scope:'clear'});
+ assert.equal(cleared.classification.scope,'excluded');assert.equal(cleared.classification.source,'상품명 자동분류');
+ assert.equal(f.row().cafe24.revenue,0);
+});
 test('Mixed-brand orders stay unconfirmed rather than using full order value for Wemamang',t=>{
  const f=fixture(t);
  f.order('cafe24',200000,[{name:'위마망 부속',option:'',quantity:1},{name:'트루버 링가드',option:'',quantity:1}]);
