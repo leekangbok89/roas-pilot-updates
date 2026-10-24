@@ -180,3 +180,14 @@ test('recent-three-day control is separate from selected-period cache-only displ
  assert.match(html,/\/api\/data\/recent3\/status/);
  assert.match(html,/const version=\+\+requestVersion,since=\$\('since'\)\.value,until=\$\('until'\)\.value/);
 });
+
+test('Wemamang-only store revenue chart cannot be overridden by all-brand sales comparison totals',()=>{
+ const h=harness();h.context.input=[profit('2026-09-01',12000,{
+  revenue:15000,naver:{revenue:15000},cafe24:{revenue:0},
+  fee:1050,cost:1500,adSpend:450
+ })];
+ h.run("profitDays=new Map(input.map(p=>[p.date,p]));storeSales=new Map([['2026-09-01',{naver:1000000,cafe24:500000,total:1500000}]]);activeMetricKeys=['totalStoreRevenue','profit'];render()");
+ assert.match(h.node('graph').innerHTML,/통합 매출: 15,000원/);
+ assert.doesNotMatch(h.node('graph').innerHTML,/1,500,000원/);
+ assert.match(h.node('profit-table').innerHTML,/15,000원/);
+});
