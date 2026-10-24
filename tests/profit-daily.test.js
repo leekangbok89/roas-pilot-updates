@@ -296,6 +296,18 @@ test('User can explicitly exclude unclassified product, eliminating its revenue 
  f.saveBrandScope({name,scope:'excluded'});
  const r=f.row();assert.equal(r.cafe24.revenue,0);assert.equal(r.cafe24.cost,0);assert.equal(r.cafe24.excludedOrders,1);assert.equal(r.profit,0);
 });
+test('Saved manual brand classification can be revised or cleared',t=>{
+ const f=fixture(t),name='브랜드명 없는 판매 상품';
+ f.order('cafe24',100000,[{name,option:'기본',quantity:1}]);
+ f.saveBrandScope({name,scope:'excluded'});
+ assert.equal(f.row().cafe24.revenue,0);
+ const changed=f.saveBrandScope({name,scope:'wemamang'});
+ assert.equal(changed.classification.scope,'wemamang');
+ assert.equal(f.row().cafe24.revenue,100000);
+ const cleared=f.saveBrandScope({name,scope:'clear'});
+ assert.equal(cleared.classification.scope,'unclassified');
+ assert.equal(f.row().cafe24.revenue,null);
+});
 test('Mixed-brand orders stay unconfirmed rather than using full order value for Wemamang',t=>{
  const f=fixture(t);
  f.order('cafe24',200000,[{name:'위마망 부속',option:'',quantity:1},{name:'트루버 링가드',option:'',quantity:1}]);
