@@ -62,20 +62,32 @@
  </fieldset>
  <fieldset class="ads-metric-group">
   <legend>한눈에 보기 전체 지표 <span id="ads-summary-count"></span></legend>
-  <p>선택한 지표는 표 위에 요약 카드로 표시됩니다. 스토어 매출·이익과 전체·채널별 합계는 광고별 수치와 구분해 집계 범위를 함께 표시합니다.</p>
+  <p>선택한 지표를 성과표의 열에 추가하고, 표 상단의 선택 기간 합계 행에 값을 표시합니다. 구매·클릭 등 공통 지표는 광고별 값도 같은 열에서 확인할 수 있습니다. 스토어 매출·이익은 기간 합계이며, 광고별로 배분하지 않습니다.</p>
   <div class="ads-selection-tools"><button type="button" data-ads-select="summary:all">모두 선택</button><button type="button" data-ads-select="summary:none">모두 해제</button></div>
   <div id="ads-summary-options" class="ads-metric-options"></div>
-  <p class="ads-order-label">요약 지표 표시 순서</p>
-  <ol id="ads-summary-order" class="ads-selected-order" aria-label="전체 지표 카드 표시 순서"></ol>
+  <p class="ads-order-label">추가 지표 표시 순서 <small>이미 고른 광고별 지표와 겹치면 같은 열로 표시합니다.</small></p>
+  <ol id="ads-summary-order" class="ads-selected-order" aria-label="한눈에 보기 지표 표시 순서"></ol>
  </fieldset>
  <div class="ads-display-actions"><button type="button" class="button ghost" id="ads-display-reset">기본 구성 복원</button><span>설정은 이 브라우저에 저장됩니다.</span><button type="button" class="button ghost" id="ads-display-cancel">취소</button><button type="button" class="button primary" id="ads-display-save">설정 저장</button></div>
 </section>
-<section id="ads-period-summary" class="ads-period-summary" aria-labelledby="ads-period-summary-title" hidden>
- <h3 id="ads-period-summary-title">선택 기간 전체 지표</h3>
- <p id="ads-period-summary-note" class="ads-period-summary-note" role="status" aria-live="polite"></p>
- <div id="ads-period-summary-cards" class="ads-period-summary-cards" aria-busy="false"></div>
+<section id="ads-graph" class="ads-graph" aria-labelledby="ads-graph-title">
+ <div class="ads-graph-heading"><div><h3 id="ads-graph-title">일별 성과 그래프</h3><p>선택 기간 전체 추이 · 광고 표의 캠페인·소재·검색 필터와 별도 집계</p></div><button type="button" class="button primary" id="ads-graph-save">그래프 설정 저장</button></div>
+ <div class="ads-graph-controls">
+  <label class="ads-graph-follow"><input id="ads-graph-follow" type="checkbox" checked> 표 선택 지표 따라가기 (최대 7개)</label>
+  <label>추세 기준<select id="ads-graph-window"><option value="1">일별 원본</option><option value="3">3일 구간평균</option><option value="5">5일 구간평균</option><option value="7">7일 구간평균</option></select></label>
+  <label>표시 방식<select id="ads-graph-scale"><option value="relative">시작값 100 기준</option><option value="absolute">지표별 절댓값 최대 100</option></select></label>
+ </div>
+ <div id="ads-graph-choices" class="ads-graph-choices" aria-label="그래프 지표 선택"></div>
+ <p id="ads-graph-follow-note" class="ads-graph-help"></p>
+ <p id="ads-graph-status" class="ads-graph-help" role="status" aria-live="polite"></p>
+ <p id="ads-graph-axis-note" class="ads-graph-axis-note"></p>
+ <div id="ads-graph-plot" class="ads-graph-plot" aria-busy="false"><p class="ads-graph-empty">표시할 기간 데이터를 확인하고 있습니다.</p></div>
+ <div id="ads-graph-legend" class="ads-graph-legend" aria-label="그래프 선 표시 및 숨김"></div>
+ <p id="ads-graph-data-status" class="ads-graph-help" role="status" aria-live="polite"></p>
+ <details id="ads-graph-details" class="ads-graph-details"><summary id="ads-graph-table-title">일별 실제 수치 보기</summary><div class="ads-graph-table-wrap"><table id="ads-graph-table"><caption>그래프에 선택한 지표의 원래 수치</caption><thead></thead><tbody></tbody></table></div></details>
 </section>
-<div class="api-form" style="flex-wrap:wrap;gap:10px;margin:15px 0"><label>판매 채널<select id="diag-channel"><option value="all">전체 통합</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label><label>캠페인<select id="diag-campaign"><option value="">전체 캠페인</option></select></label><label>광고 세트<select id="diag-adset"><option value="">전체 광고 세트</option></select></label><label>광고 소재<select id="diag-ad"><option value="">전체 광고 소재</option></select></label></div><div class="table-wrap"><table id="ads-performance-table" aria-label="광고별 구매 성과"><thead><tr id="ad-head"></tr></thead><tbody id="ad-body"></tbody></table></div><div class="table-footer" id="table-footer"></div></section>
+
+<div class="api-form" style="flex-wrap:wrap;gap:10px;margin:15px 0"><label>판매 채널<select id="diag-channel"><option value="all">전체 통합</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label><label>캠페인<select id="diag-campaign"><option value="">전체 캠페인</option></select></label><label>광고 세트<select id="diag-adset"><option value="">전체 광고 세트</option></select></label><label>광고 소재<select id="diag-ad"><option value="">전체 광고 소재</option></select></label></div><p id="ads-table-summary-note" class="ads-table-summary-note" role="status" aria-live="polite" hidden></p><div class="table-wrap"><table id="ads-performance-table" aria-label="광고별 구매 성과"><thead><tr id="ad-head"></tr></thead><tbody id="ads-period-total" class="ads-period-total" aria-label="선택 기간 전체 합계" hidden></tbody><tbody id="ad-body"></tbody></table></div><div class="table-footer" id="table-footer"></div></section>
 <section class="panel detail" id="detail"><div class="section-head"><div><h2>광고 상세 진단</h2><p id="detail-title">목록에서 광고를 선택하세요.</p></div><span id="detail-status" class="status neutral">선택 대기</span></div><div id="detail-body" class="detail-content muted">성과표의 행을 누르면 진단 근거가 표시됩니다.</div></section>
 <div class="settings-tabs" id="settings-tabs"><b>설정 관리</b><button class="settings-tab active" type="button" data-settings="data-source">계정 연결</button><button class="settings-tab" type="button" data-settings="naver-commerce">네이버 커머스API</button><button class="settings-tab" type="button" data-settings="cafe24-oauth">카페24 API</button><button class="settings-tab" type="button" data-settings="setting-bar">분석 기준</button><button class="settings-tab" type="button" data-settings="fx-bar">환율 설정</button><button class="settings-tab" type="button" data-settings="history-audit">과거 데이터 수집</button><button class="settings-tab" type="button" data-settings="update-manager">프로그램 업데이트</button></div><div id="settings-panel-host"></div><section id="data-source" class="control-panel settings-page"><div class="panel-title"><div><h2>Meta API 계정 설정</h2><p>실제 광고 데이터만 사용합니다. CSV 업로드와 샘플 데이터는 제공하지 않습니다.</p></div></div><div class="source-pane" id="api-pane"><div class="channel-config"><b>판매 채널별 광고 계정 등록</b><p class="helper">Meta 광고 관리자에 표시되는 광고 계정 ID를 입력하세요. 입력한 ID만 이 브라우저에 저장합니다.</p><div class="api-form"><label>네이버 스마트스토어 · 위마망 네이버<input id="naver-account" placeholder="네이버 광고 계정 ID" inputmode="numeric"></label><label>카페24 자사몰 · 위마망<input id="cafe-account" placeholder="카페24 광고 계정 ID" inputmode="numeric"></label><button class="button ghost" id="save-accounts">계정 ID 저장</button></div></div><p class="helper" id="api-state">토큰 상태 확인 중…</p><div class="channel-config"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="auto-enabled" checked> <b>자동 조회 사용 (접속 시 최근 7일 하루 1회 점검)</b></label><p class="helper">저장된 데이터는 즉시 표시하고, 최근 7일은 하루 한 번만 Meta API로 확인합니다. 노트북 서버와 이 웹페이지가 열려 있어야 갱신됩니다. 밤새 저장하는 백그라운드 수집 기능은 아닙니다.</p></div></div>
 </section>

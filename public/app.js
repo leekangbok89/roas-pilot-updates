@@ -158,7 +158,8 @@ const AdsOverviewSummary = (() => {
     }
     return {date:row.date_start,channel,spend:spendKnown ? rawSpend*factor : 0,spendKnown,
       revenue:revenue===null || !Number.isFinite(factor) || factor<=0 ? null : revenue*factor,
-      purchases,clicks:numberOrZero(row.inline_link_clicks),impressions:numberOrZero(row.impressions)};
+      purchases,clicks:numberOrZero(row.inline_link_clicks),impressions:numberOrZero(row.impressions),
+      clicksKnown:metricNumber(row.inline_link_clicks)!==null,impressionsKnown:metricNumber(row.impressions)!==null};
   }
   function sum(rows) {
     const total={spend:0,revenue:0,purchases:0,clicks:0,impressions:0,hasRevenue:false,hasPurchases:false,hasUnconfirmedSpend:false};
@@ -198,6 +199,10 @@ const AdsOverviewSummary = (() => {
   }
   function metricContext(snapshot,choice) {
     const dates=snapshot.dates,dateSet=new Set(dates),selected=selectedRows(snapshot,choice).filter(row => dateSet.has(row.date));
+    const selectedByDate=new Map();
+    for (const row of selected) {
+      const rows=selectedByDate.get(row.date) || [];rows.push(row);selectedByDate.set(row.date,rows);
+    }
     const seen=new Set(),channels=(choice==='all' ? ['naver','cafe'] : [choice]).filter(channel => {
       const account=snapshot.accounts[channel];
       if (account) {if (seen.has(account)) return false;seen.add(account);return true;}
@@ -215,11 +220,16 @@ const AdsOverviewSummary = (() => {
       return {rowsByDate,emptyKnown:loaded,spendKnown:date => loaded(date) && (rowsByDate.get(date) || []).every(knownSpend)};
     });
     const scope=choice==='naver' ? 'Meta · 스마트스토어 선택' : choice==='cafe' ? 'Meta · 카페24 선택' : 'Meta · 전체 연결 계정';
-    return {dates,selected,sources,scope,choice};
+    return {dates,selected,selectedByDate,sources,scope,choice};
+  }
+  function fullContext(snapshot,choice) {
+    snapshot.contexts ??= new Map();
+    if (!snapshot.contexts.has(choice)) snapshot.contexts.set(choice,metricContext(snapshot,choice));
+    return snapshot.contexts.get(choice);
   }
   function calculate(key,snapshot,choice,contexts) {
     const definition=definitions[key],resolvedChoice=definition.adScope || choice;
-    if (!contexts.has(resolvedChoice)) contexts.set(resolvedChoice,metricContext(snapshot,resolvedChoice));
+    if (!contexts.has(resolvedChoice)) contexts.set(resolvedChoice,fullContext(snapshot,resolvedChoice));
     const context=contexts.get(resolvedChoice),totalDays=context.dates.length;
     const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend';
     const scope=definition.scope || (definition.field ? '전체 연결 · 위마망' : context.scope);
@@ -289,6 +299,82 @@ const AdsOverviewSummary = (() => {
     return {value:Number.isFinite(amount) ? amount : null,partial,knownDays,completeDays,totalDays,scope,
       detail:(Number.isFinite(amount) ? '' : reason+' · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays ? ' · 일부 항목 미확인' : '')};
   }
+  function seriesMetric(key,snapshot,choice,contexts) {
+    const definition=definitions[key],context=contexts.get(definition.adScope || choice);
+    const metric=calculate(key,snapshot,choice,contexts),totalDays=context.dates.length;
+    // The historical overview treats absent click/impression fields as zero in
+    // its total cards. Preserve those totals, but never invent chart points or
+    // denominators from an absent source field.
+    if (['clicks','impressions'].includes(key)) {
+      const isKnown=row => row[key+'Known']!==false && Number.isFinite(row[key]) && row[key]>=0;
+      let knownDays=0,completeDays=0;
+      for (const date of context.dates) {
+        const states=context.sources.map(source => {
+          const rows=source.rowsByDate.get(date) || [],loaded=source.emptyKnown(date);
+          return {known:!rows.length && loaded || rows.some(isKnown),complete:loaded && rows.every(isKnown)};
+        });
+        if (states.some(state => state.known)) knownDays++;
+        if (states.length && states.every(state => state.complete)) completeDays++;
+      }
+      const value=knownDays ? context.selected.filter(isKnown).reduce((total,row) => total+row[key],0) : null;
+      const partial=knownDays>0 && completeDays<totalDays;
+      return {...metric,value,knownDays,completeDays,partial,
+        detail:(value===null ? '미수집 · ' : '')+'확인 '+knownDays+'/'+totalDays+'일'+(partial ? ' · 일부 항목 미확인' : '')};
+    }
+    if (['cpc','cpm','ctr'].includes(key)) {
+      const required=key==='ctr' ? ['clicks','impressions'] : ['spend',key==='cpc' ? 'clicks' : 'impressions'];
+      const isKnown=row => required.every(field => field==='spend' ? knownSpend(row) : row[field+'Known']!==false && Number.isFinite(row[field]) && row[field]>=0);
+      const missingDates=context.dates.filter(date => !context.sources.length || !context.sources.every(source =>
+        source.emptyKnown(date) && (source.rowsByDate.get(date) || []).every(isKnown)));
+      if (missingDates.length) return {...metric,value:null,partial:false,completeDays:totalDays-missingDates.length,
+        detail:'계산에 필요한 '+(key==='ctr' ? '클릭·노출' : key==='cpc' ? '광고비·클릭' : '광고비·노출')+' 미확인 '+missingDates.length+'/'+totalDays+'일 · 계산 보류'};
+    }
+    return metric;
+  }
+  function buildSeries(snapshot,seriesKeys,choice,windowSize) {
+    const groups=new Map(),scopes=[...new Set(seriesKeys.map(key => definitions[key].adScope || choice))];
+    // Month-anchored, non-overlapping groups; range edges contain only selected
+    // calendar days. Retain empty dates so a missing point stays a gap.
+    for (const date of snapshot.dates) {
+      const groupKey=windowSize===1 ? date : date.slice(0,7)+':'+Math.floor((Number(date.slice(8))-1)/windowSize);
+      const group=groups.get(groupKey) || [];group.push(date);groups.set(groupKey,group);
+    }
+    return [...groups.values()].map(dates => {
+      const contexts=new Map();
+      for (const scope of scopes) {
+        const full=fullContext(snapshot,scope);
+        contexts.set(scope,{...full,dates,selected:dates.flatMap(date => full.selectedByDate.get(date) || [])});
+      }
+      const from=dates[0],to=dates[dates.length-1],label=windowSize===1 ? from.slice(5)
+        : from.slice(5).replace('-','/')+(from===to ? '' : '~'+to.slice(5).replace('-','/'));
+      const bucket={date:from,from,to,label,days:dates.length,metrics:{}};
+      for (const key of seriesKeys) {
+        const metric=seriesMetric(key,snapshot,choice,contexts);
+        const isRatio=definitions[key].adMetric==='roas' || ['cpa','ctr','cpc','cpm'].includes(key);
+        const averaged=windowSize>1 && !isRatio && Number.isFinite(metric.value) && metric.knownDays>0;
+        bucket.metrics[key]={value:averaged ? metric.value/metric.knownDays : metric.value,partial:metric.partial,
+          knownDays:metric.knownDays,totalDays:metric.totalDays,completeDays:metric.completeDays,scope:metric.scope,
+          detail:metric.detail+(averaged ? ' · 확인 '+metric.knownDays+'일 평균' : windowSize>1 && isRatio && Number.isFinite(metric.value) ? ' · 구간 합산 비율' : '')};
+      }
+      return bucket;
+    });
+  }
+  function chartSeries(snapshot,seriesKeys,choice,windowSize) {
+    if (!seriesKeys.length) return {series:[],dailySeries:[]};
+    snapshot.seriesCache ??= new Map();
+    const key=JSON.stringify([choice,seriesKeys,windowSize]);
+    if (snapshot.seriesCache.has(key)) return snapshot.seriesCache.get(key);
+    const dailyKey=JSON.stringify([choice,seriesKeys,1]);
+    let daily=snapshot.seriesCache.get(dailyKey);
+    if (!daily) {
+      const values=buildSeries(snapshot,seriesKeys,choice,1);
+      daily={series:values,dailySeries:values};snapshot.seriesCache.set(dailyKey,daily);
+    }
+    const result=windowSize===1 ? daily : {series:buildSeries(snapshot,seriesKeys,choice,windowSize),dailySeries:daily.series};
+    snapshot.seriesCache.set(key,result);
+    while (snapshot.seriesCache.size>16) snapshot.seriesCache.delete(snapshot.seriesCache.keys().next().value);
+    return result;
+  }
   async function getJSON(url) {
     const controller=typeof AbortController==='function' ? new AbortController() : null;
     const timeout=controller ? setTimeout(() => controller.abort(),25000) : null;
@@ -340,7 +426,7 @@ const AdsOverviewSummary = (() => {
     return format==='pct' ? value.toFixed(1)+'%' : numberFormat.format(value)+(format==='won' ? '원' : '');
   }
   function renderCards(root,keys,choice,snapshot,detail) {
-    root.replaceChildren();
+    root?.replaceChildren();
     const contexts=new Map(),results=[];
     for (const key of keys) {
       const definition=definitions[key];
@@ -348,6 +434,7 @@ const AdsOverviewSummary = (() => {
         value:null,partial:false,scope:definition.scope || (definition.field ? '전체 연결 · 위마망' : choice==='naver' ? 'Meta · 스마트스토어 선택' : choice==='cafe' ? 'Meta · 카페24 선택' : 'Meta · 전체 연결 계정'),detail
       };
       results.push({key,...metric});
+      if (!root) continue;
       const card=document.createElement('article');card.className='ads-period-card';card.setAttribute('data-summary-key',key);
       card.title=definition.description;
       const label=document.createElement('small');label.className='ads-period-card-label';label.textContent=definition.label;
@@ -366,21 +453,25 @@ const AdsOverviewSummary = (() => {
   function invalidate() {cache.clear();renderVersion++;}
   async function update(input={}) {
     const version=++renderVersion;
-    if (typeof document==='undefined') return {status:'unavailable',metrics:[]};
-    const root=document.getElementById('ads-period-summary-cards'),panel=document.getElementById('ads-period-summary'),note=document.getElementById('ads-period-summary-note');
-    if (!root || !panel) return {status:'unavailable',metrics:[]};
-    const keys=[...new Set((Array.isArray(input.keys) ? input.keys : []).filter(key => Object.prototype.hasOwnProperty.call(definitions,key)))];
-    panel.hidden=keys.length===0;
-    if (!keys.length) {root.replaceChildren();root.setAttribute('aria-busy','false');if (note) note.textContent='';return {status:'hidden',metrics:[]};}
+    const node=id => typeof document==='undefined' ? null : document.getElementById(id);
+    const root=node('ads-period-summary-cards'),panel=node('ads-period-summary'),note=node('ads-period-summary-note');
+    const knownKeys=value => [...new Set((Array.isArray(value) ? value : []).filter(key => Object.prototype.hasOwnProperty.call(definitions,key)))];
+    const keys=knownKeys(input.keys),seriesKeys=knownKeys(input.seriesKeys).slice(0,7);
+    const requestedWindow=Number(input.window ?? input.seriesWindow ?? 1),windowSize=[1,3,5,7].includes(requestedWindow) ? requestedWindow : 1;
+    if (panel) panel.hidden=keys.length===0;
+    if (!keys.length) {root?.replaceChildren();root?.setAttribute('aria-busy','false');if (note) note.textContent='';}
     const since=String(input.since || ''),until=String(input.until || ''),dates=selectedDates(since,until),fx=Number(input.fx);
     const accounts=Object.fromEntries(['naver','cafe'].map(channel => [channel,String(input.accountIds?.[channel] || '').trim().replace(/^act_/,'')]));
     const choice=['naver','cafe'].includes(input.channel) ? input.channel : 'all';
+    const requestSignature=JSON.stringify([since,until,fx,accounts.naver,accounts.cafe,choice,keys,seriesKeys,windowSize]);
+    if (!keys.length && !seriesKeys.length) return {status:'hidden',metrics:[],series:[],dailySeries:[],errors:[],requestSignature};
     const error=!dates.length ? '유효한 조회 기간을 선택해 주세요(최대 732일).'
       : !Number.isFinite(fx) || fx<=0 ? '0보다 큰 환율을 입력해 주세요.'
       : Object.values(accounts).some(account => account && !/^\d{5,30}$/.test(account)) ? '광고 계정 ID를 확인해 주세요.' : '';
     if (error) {
-      root.setAttribute('aria-busy','false');const results=renderCards(root,keys,choice,null,error);
-      if (note) note.textContent=error;return {status:'error',metrics:results,errors:[error]};
+      root?.setAttribute('aria-busy','false');const results=renderCards(root,keys,choice,null,error);
+      if (note && keys.length) note.textContent=error;
+      return {status:'error',metrics:results,series:[],dailySeries:[],errors:[error],requestSignature};
     }
     const cacheKey=JSON.stringify([since,until,fx,accounts.naver,accounts.cafe]);
     if (input.force===true) cache.delete(cacheKey);
@@ -392,18 +483,206 @@ const AdsOverviewSummary = (() => {
       while (cache.size>4) cache.delete(cache.keys().next().value);
     }
     if (!entry.snapshot) {
-      root.setAttribute('aria-busy','true');renderCards(root,keys,choice,null,'기간 데이터 조회 중…');
-      if (note) note.textContent=since+' ~ '+until+' · 저장된 기간 데이터를 확인하고 있습니다.';
+      if (keys.length) root?.setAttribute('aria-busy','true');renderCards(root,keys,choice,null,'기간 데이터 조회 중…');
+      if (note && keys.length) note.textContent=since+' ~ '+until+' · 저장된 기간 데이터를 확인하고 있습니다.';
     }
     const snapshot=entry.snapshot || await entry.promise;
-    if (version!==renderVersion) return {status:'superseded',metrics:[]};
-    root.setAttribute('aria-busy','false');
+    if (version!==renderVersion) return {status:'superseded',metrics:[],series:[],dailySeries:[],errors:[],requestSignature};
+    root?.setAttribute('aria-busy','false');
     const results=renderCards(root,keys,choice,snapshot);
-    if (note) note.textContent=since+' ~ '+until+' · 기간 합계는 캠페인·소재·검색 조건과 별도로 집계합니다.'+
+    const plotted=chartSeries(snapshot,seriesKeys,choice,windowSize);
+    if (note && keys.length) note.textContent=since+' ~ '+until+' · 기간 합계는 캠페인·소재·검색 조건과 별도로 집계합니다.'+
       (snapshot.errors.length ? ' 일부 데이터 확인 필요: '+snapshot.errors.join(' / ') : ' 확인되지 않은 값은 —, 부분 집계는 확인분으로 표시합니다.');
-    return {status:snapshot.errors.length ? 'partial' : 'ready',metrics:results,errors:snapshot.errors.slice()};
+    return {status:snapshot.errors.length ? 'partial' : 'ready',metrics:results,...plotted,errors:snapshot.errors.slice(),requestSignature};
   }
   return {metrics,update,invalidate};
+})();
+
+
+// Ad-period chart. The adapter supplies calendar buckets and original daily values.
+// This component never fetches data or changes the adapter's numeric values.
+const AdsPerformanceGraph = (() => {
+  'use strict';
+  const storageKey='roas-ads-chart-v1',defaults={version:1,followTable:true,keys:['spend','revenue','roas'],window:1,scale:'relative'};
+  const colors=['#6c8cff','#40bf9b','#e9a34e','#cb89ef','#eb718e','#41bbd4','#b0bd42'];
+  const ns='http://www.w3.org/2000/svg';
+  let catalog=[],byKey=new Map(),config={...defaults,keys:defaults.keys.slice()},getTableKeys=()=>[],onChange=()=>{};
+  let initialized=false,lastResult=null,loading=false,hidden=new Set(),lastWidth=0,resizeFrame=0;
+  const node=id=>typeof document==='undefined'?null:document.getElementById('ads-graph-'+id);
+  const validKeys=value=>[...new Set((Array.isArray(value)?value:[]).filter(key=>typeof key==='string'&&byKey.has(key)))].slice(0,7);
+  function clean(value){
+    if(!value||typeof value!=='object'||Array.isArray(value))return {...defaults,keys:validKeys(defaults.keys)};
+    return {version:1,followTable:value.followTable!==false,keys:Array.isArray(value.keys)?validKeys(value.keys):validKeys(defaults.keys),window:[1,3,5,7].includes(Number(value.window))?Number(value.window):1,scale:value.scale==='absolute'?'absolute':'relative'};
+  }
+  function currentKeys(){
+    if(!config.followTable)return validKeys(config.keys);
+    let keys=[];try{keys=validKeys(getTableKeys());}catch{}
+    return keys.length?keys:validKeys(defaults.keys);
+  }
+  function options(){const keys=currentKeys();syncControls(keys);return {keys:keys.slice(),window:config.window,scale:config.scale};}
+  function message(text,error=false){const el=node('status');if(el){el.textContent=text;el.setAttribute('data-error',String(error));}}
+  function syncControls(keys=currentKeys()){
+    if(!initialized)return;
+    if(node('follow'))node('follow').checked=config.followTable;
+    if(node('window'))node('window').value=String(config.window);
+    if(node('scale'))node('scale').value=config.scale;
+    for(let i=0;i<7;i++){const select=node('choice-'+i);if(select)select.value=keys[i]||'';}
+    const note=node('follow-note');if(note)note.textContent=config.followTable?'표에 선택한 지표 중 앞의 7개를 따라갑니다. 그래프 지표를 직접 바꾸면 개별 설정으로 전환됩니다.':'그래프 지표를 개별로 선택했습니다. 표의 항목을 바꿔도 이 구성이 유지됩니다.';
+  }
+  function change(){
+    syncControls();message('변경한 그래프 설정은 ‘그래프 설정 저장’을 누르면 다음 접속에도 유지됩니다.');
+    try{const task=onChange();if(task&&typeof task.catch==='function')task.catch(()=>{setDataMessage('기간 데이터를 다시 확인해 주세요.');});}
+    catch{setDataMessage('기간 데이터를 다시 확인해 주세요.');}
+  }
+  function setup(input={}){
+    if(initialized)return;
+    catalog=(Array.isArray(input.metrics)?input.metrics:[]).filter(item=>item&&typeof item.key==='string');byKey=new Map(catalog.map(item=>[item.key,item]));
+    getTableKeys=typeof input.getTableKeys==='function'?input.getTableKeys:()=>[];onChange=typeof input.onChange==='function'?input.onChange:()=>{};
+    if(!node('choices'))return;
+    let readError=false;try{const saved=localStorage.getItem(storageKey);config=clean(saved===null?null:JSON.parse(saved));}catch{config=clean(null);readError=true;}
+    const choices=node('choices');choices.replaceChildren();
+    for(let i=0;i<7;i++){
+      const label=document.createElement('label');label.textContent='지표 '+(i+1);
+      const select=document.createElement('select');select.id='ads-graph-choice-'+i;select.setAttribute('aria-label','그래프 지표 '+(i+1));
+      const none=document.createElement('option');none.value='';none.textContent='선택 안 함';select.append(none);
+      for(const metric of catalog){const option=document.createElement('option');option.value=metric.key;option.textContent=metric.label;select.append(option);}
+      select.addEventListener('change',()=>{
+        const slots=Array.from({length:7},(_,j)=>node('choice-'+j).value),chosen=slots[i];
+        if(chosen)for(let j=0;j<slots.length;j++)if(j!==i&&slots[j]===chosen)slots[j]='';
+        config.keys=validKeys(slots);config.followTable=false;hidden.clear();change();
+      });label.append(select);choices.append(label);
+    }
+    node('follow')?.addEventListener('change',event=>{const previous=currentKeys();config.followTable=event.target.checked;if(!config.followTable)config.keys=previous;hidden.clear();change();});
+    node('window')?.addEventListener('change',event=>{config.window=[1,3,5,7].includes(Number(event.target.value))?Number(event.target.value):1;change();});
+    node('scale')?.addEventListener('change',event=>{config.scale=event.target.value==='absolute'?'absolute':'relative';change();});
+    node('save')?.addEventListener('click',()=>{
+      try{localStorage.setItem(storageKey,JSON.stringify(clean(config)));message('그래프 설정을 저장했습니다. 이 브라우저에서 다시 열어도 유지됩니다.');}
+      catch{message('그래프 설정을 저장하지 못했습니다. 브라우저 저장 공간 또는 저장 권한을 확인해 주세요.',true);}
+    });
+    node('legend')?.addEventListener('click',event=>{
+      const button=event.target.closest('button[data-ads-graph-key]');if(!button)return;
+      const key=button.dataset.adsGraphKey;if(hidden.has(key))hidden.delete(key);else hidden.add(key);
+      draw(lastResult);node('legend')?.querySelector('[data-ads-graph-key="'+key+'"]')?.focus({preventScroll:true});
+    });
+    initialized=true;syncControls();
+    if(readError)message('저장된 그래프 설정을 읽지 못해 기본 구성을 사용합니다.',true);
+    const resize=()=>{const width=Math.round(node('plot')?.clientWidth||0);if(width>0&&Math.abs(width-lastWidth)>2&&!loading&&lastResult){cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>draw(lastResult));}};
+    if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(resize);observer.observe(node('plot'));}
+    else if(typeof window!=='undefined')window.addEventListener('resize',resize);
+  }
+  function format(key,value){
+    if(!Number.isFinite(value))return '—';const metric=byKey.get(key),text=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:metric?.format==='pct'?2:2}).format(value);
+    return metric?.format==='won'?text+'원':metric?.format==='pct'?text+'%':text;
+  }
+  function field(row,key){const metric=row?.metrics?.[key];return metric&&typeof metric==='object'?metric:{value:null,partial:false,detail:'해당 지표 미확인'};}
+  function dateLabel(row){const from=row?.from||row?.date||'',to=row?.to||from;return from===to?from:from+' ~ '+to;}
+  function valueDetail(row,key){const metric=field(row,key),coverage=Number.isFinite(metric.knownDays)&&Number.isFinite(metric.totalDays)?'확인 '+metric.knownDays+'/'+metric.totalDays+'일':'';return [metric.partial?'확인분 · 일부 날짜 또는 주문 미확인':'',coverage,metric.scope||byKey.get(key)?.scope||'',metric.detail||''].filter(Boolean).join(' · ');}
+  function setDataMessage(text){const status=node('data-status');if(status)status.textContent=text;}
+  function svgElement(tag,attributes={},text){const el=document.createElementNS(ns,tag);for(const [key,value]of Object.entries(attributes))el.setAttribute(key,String(value));if(text!==undefined)el.textContent=text;return el;}
+  function normalizedSeries(series,keys){
+    const original=keys.map(key=>series.map(row=>Number.isFinite(field(row,key).value)?field(row,key).value:null));
+    const starts=original.map(values=>values.find(Number.isFinite));
+    const fallback=config.scale==='relative'&&starts.some(value=>Number.isFinite(value)&&value<=0);
+    const scale=fallback?'absolute':config.scale;
+    const converted=original.map((values,index)=>{
+      const divisor=scale==='relative'?starts[index]:Math.max(0,...values.filter(Number.isFinite).map(Math.abs));
+      return values.map(value=>!Number.isFinite(value)?null:divisor>0?value/divisor*100:value===0?0:null);
+    });
+    return {original,converted,scale,fallback,starts};
+  }
+  function domain(values){
+    const valid=values.filter(Number.isFinite);let min=Math.min(0,...valid),max=Math.max(0,...valid);
+    if(min===max){min=min<0?min*1.1:0;max=max>0?max*1.1:100;}
+    const rough=(max-min)/4,power=10**Math.floor(Math.log10(rough||1)),fraction=rough/power;
+    const step=([1,2,2.5,5,10].find(value=>value>=fraction)||10)*power;
+    min=Math.floor(min/step)*step;max=Math.ceil(max/step)*step;if(min===max)max=min+step;
+    const ticks=[];for(let v=min;ticks.length<12&&v<=max+step/10;v+=step)ticks.push(Math.abs(v)<step/100000?0:v);
+    return {min,max,ticks};
+  }
+  function legend(keys){
+    const root=node('legend');if(!root)return;root.replaceChildren();
+    keys.forEach((key,index)=>{const button=document.createElement('button');button.type='button';button.dataset.adsGraphKey=key;button.setAttribute('aria-pressed',String(!hidden.has(key)));button.title=(byKey.get(key)?.scope||'')+' · 클릭하면 선을 '+(hidden.has(key)?'표시':'숨김');
+      const dot=document.createElement('i');dot.className='ads-graph-swatch';dot.style.backgroundColor=colors[index];dot.setAttribute('aria-hidden','true');button.append(dot,document.createTextNode(byKey.get(key)?.label||key));root.append(button);
+    });
+  }
+  function dataTable(result,keys){
+    const table=node('table');if(!table)return;table.setAttribute('aria-busy','false');const daily=Array.isArray(result?.dailySeries)?result.dailySeries:Array.isArray(result?.daySeries)?result.daySeries:null,rows=daily||result?.series||[];
+    const head=table.querySelector('thead'),body=table.querySelector('tbody');if(!head||!body)return;head.replaceChildren();body.replaceChildren();
+    if(node('table-title'))node('table-title').textContent=daily?'일별 실제 수치 보기':'그래프 구간별 수치 보기';
+    const caption=table.querySelector('caption');if(caption)caption.textContent=(daily?'일별 원래 수치입니다. 그래프의 구간평균·지수 변환을 적용하지 않습니다.':'그래프에 표시한 구간 수치입니다. 금액·건수는 확인된 날짜의 일평균, 비율은 구간 합계 기준입니다.')+' —는 미확인, 확인분은 일부 데이터만 반영한 값입니다.';
+    const heading=document.createElement('tr'),date=document.createElement('th');date.scope='col';date.textContent=daily?'날짜':'기간';heading.append(date);
+    for(const key of keys){const cell=document.createElement('th');cell.scope='col';cell.textContent=byKey.get(key)?.label||key;const scope=document.createElement('small');scope.textContent=rows.map(row=>field(row,key).scope).find(Boolean)||byKey.get(key)?.scope||'';cell.append(scope);heading.append(cell);}head.append(heading);
+    if(!keys.length||!rows.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=keys.length+1;td.textContent=keys.length?'표시할 날짜 데이터가 없습니다.':'그래프에 표시할 지표를 선택해 주세요.';tr.append(td);body.append(tr);return;}
+    for(const row of rows){const tr=document.createElement('tr');tr.dataset.date=row.date||row.from||'';const date=document.createElement('th');date.scope='row';date.textContent=dateLabel(row);tr.append(date);
+      for(const key of keys){const metric=field(row,key),td=document.createElement('td');td.dataset.metric=key;td.textContent=format(key,metric.value);td.title=valueDetail(row,key);if(metric.partial&&Number.isFinite(metric.value)){const badge=document.createElement('span');badge.className='ads-graph-partial';badge.textContent='확인분';td.append(badge);}tr.append(td);}body.append(tr);
+    }
+  }
+  function empty(text){const root=node('plot');if(!root)return;root.replaceChildren();const p=document.createElement('p');p.className='ads-graph-empty';p.textContent=text;root.append(p);}
+  function setLoading(){
+    loading=true;const root=node('plot');if(root){root.setAttribute('aria-busy','true');empty('저장된 일별 데이터를 확인하고 있습니다.');}
+    dataTable({series:[],dailySeries:[]},currentKeys());const table=node('table');if(table){table.setAttribute('aria-busy','true');const cell=table.querySelector('tbody td');if(cell)cell.textContent='선택한 기간의 일별 수치를 조회 중입니다.';}
+    if(node('axis-note'))node('axis-note').textContent='선택 기간 그래프를 다시 확인하고 있습니다.';setDataMessage('');
+  }
+  function render(result){
+    if(result?.status==='superseded')return;
+    loading=false;lastResult=result||{status:'error',series:[],errors:['데이터 응답을 확인해 주세요.']};
+    return draw(lastResult);
+  }
+  function draw(result){
+    const root=node('plot');if(!root)return;const keys=currentKeys(),visible=keys.filter(key=>!hidden.has(key));syncControls(keys);legend(keys);dataTable(result,keys);root.setAttribute('aria-busy','false');
+    const series=Array.isArray(result?.series)?result.series:[],errors=Array.isArray(result?.errors)?result.errors:[];
+    const axis=node('axis-note');if(axis)axis.textContent='';
+    if(!keys.length){empty('그래프 지표가 선택되지 않았습니다. 위에서 원하는 지표를 선택해 주세요.');setDataMessage('');return {points:0};}
+    if(!visible.length){empty('모든 선을 숨겼습니다. 아래 범례를 누르면 다시 표시됩니다.');setDataMessage('숨긴 선의 원래 수치는 아래 표에서 확인할 수 있습니다.');return {points:0};}
+    if(!series.length){empty(errors.length?errors.join(' / '):'조회한 기간에 표시할 데이터가 없습니다.');setDataMessage('미확인 날짜를 0으로 표시하지 않습니다.');return {points:0};}
+    const values=normalizedSeries(series,visible),flat=values.converted.flat().filter(Number.isFinite);
+    if(!flat.length){empty('선택한 지표의 수치를 확인하지 못했습니다. 조회 기간과 데이터 수집 상태를 확인해 주세요.');setDataMessage(errors.join(' / ')||'미확인 수치는 0으로 바꾸지 않습니다.');return {points:0};}
+    const layoutWidth=Math.round(root.clientWidth||root.getBoundingClientRect().width||960),width=Math.max(300,layoutWidth);lastWidth=layoutWidth;
+    const height=width<500?275:315,left=width<500?43:58,right=16,top=29,bottom=42,area=width-left-right;
+    const bounds=domain(flat),x=index=>left+area*(series.length===1?.5:index/(series.length-1)),y=value=>top+(height-top-bottom)*(bounds.max-value)/(bounds.max-bounds.min);
+    const svg=svgElement('svg',{viewBox:'0 0 '+width+' '+height,role:'img',tabindex:'0',class:'ads-graph-svg','aria-labelledby':'ads-graph-svg-title ads-graph-svg-description'});
+    svg.append(svgElement('title',{id:'ads-graph-svg-title'},'선택 기간 지표 추이'),svgElement('desc',{id:'ads-graph-svg-description'},'방향키 좌우로 날짜별 값을 확인할 수 있습니다. 빈 점과 점선은 부분 집계이며, 값이 없는 날짜는 선을 연결하지 않습니다. 아래 펼침 표에 원래 수치가 있습니다.'));
+    for(const tick of bounds.ticks){const yy=y(tick);svg.append(svgElement('line',{x1:left,y1:yy,x2:width-right,y2:yy,class:tick===0?'ads-graph-zero':'ads-graph-grid'}),svgElement('text',{x:left-8,y:yy+4,'text-anchor':'end'},new Intl.NumberFormat('ko-KR',{maximumFractionDigits:1}).format(tick)));}
+    svg.append(svgElement('text',{x:left,y:14},values.scale==='relative'?'지수 · 시작값=100':'지수 · 지표별 |최대|=100'));
+    const labelCount=width<500?3:Math.min(7,Math.max(3,Math.floor(area/125))),labelIndices=new Set([0,series.length-1]);
+    for(let i=1;i<labelCount-1;i++)labelIndices.add(Math.round(i*(series.length-1)/(labelCount-1)));
+    for(const index of [...labelIndices].sort((a,b)=>a-b)){const row=series[index];svg.append(svgElement('text',{x:x(index),y:height-14,'text-anchor':index===0&&series.length>1?'start':index===series.length-1&&series.length>1?'end':'middle'},row.label||String(row.from||row.date||'').slice(5)));}
+    let pointCount=0,partialCount=0;
+    visible.forEach((key,j)=>{
+      const points=values.converted[j],color=colors[keys.indexOf(key)],paths={solid:'',partial:''};
+      for(let i=1;i<points.length;i++){
+        if(!Number.isFinite(points[i-1])||!Number.isFinite(points[i]))continue;
+        const prior=series[i-1],row=series[i],gap=Date.parse((row.from||row.date)+'T00:00:00Z')-Date.parse((prior.to||prior.date)+'T00:00:00Z');
+        if(Number.isFinite(gap)&&gap>86400000)continue;
+        const kind=field(prior,key).partial||field(row,key).partial?'partial':'solid';paths[kind]+='M'+x(i-1).toFixed(2)+' '+y(points[i-1]).toFixed(2)+'L'+x(i).toFixed(2)+' '+y(points[i]).toFixed(2)+' ';
+      }
+      for(const kind of ['solid','partial'])if(paths[kind])svg.append(svgElement('path',{d:paths[kind],class:'ads-graph-series',stroke:color,'data-metric':key,'data-partial':String(kind==='partial'),...(kind==='partial'?{'stroke-dasharray':'6 4'}:{})}));
+      points.forEach((value,i)=>{
+        if(!Number.isFinite(value))return;const row=series[i],metric=field(row,key),partial=!!metric.partial;
+        const circle=svgElement('circle',{cx:x(i),cy:y(value),r:partial?4:series.length>120?2:3,fill:partial?'var(--app-surface)':color,stroke:color,'stroke-width':partial?2:1,'data-metric':key,'data-index':i,'data-date':row.from||row.date,'data-to':row.to||row.date,'data-value':metric.value,'data-partial':String(partial)});
+        circle.append(svgElement('title',{},dateLabel(row)+' · '+(byKey.get(key)?.label||key)+': '+format(key,metric.value)+(config.window>1?' (구간 수치)':'')+' · '+valueDetail(row,key)));svg.append(circle);pointCount++;if(partial)partialCount++;
+      });
+    });
+    const cursor=svgElement('line',{x1:left,y1:top,x2:left,y2:height-bottom,class:'ads-graph-cursor',visibility:'hidden'});svg.append(cursor);
+    const tooltip=document.createElement('div');tooltip.id='ads-graph-tooltip';tooltip.className='ads-graph-tooltip';tooltip.hidden=true;tooltip.setAttribute('role','status');tooltip.setAttribute('aria-live','off');
+    root.replaceChildren(svg,tooltip);let hovered=0;
+    function show(index){
+      hovered=Math.max(0,Math.min(series.length-1,index));const row=series[hovered];tooltip.replaceChildren();const title=document.createElement('strong');title.textContent=dateLabel(row)+(config.window>1?' · 구간 수치':'');tooltip.append(title);
+      visible.forEach(key=>{const metric=field(row,key),line=document.createElement('div');line.className='ads-graph-tooltip-row';const dot=document.createElement('i');dot.className='ads-graph-swatch';dot.style.backgroundColor=colors[keys.indexOf(key)];const label=document.createElement('span');label.textContent=byKey.get(key)?.label||key;const amount=document.createElement('b');amount.textContent=format(key,metric.value)+(metric.partial&&Number.isFinite(metric.value)?' 확인분':'');const detail=document.createElement('small');detail.textContent=valueDetail(row,key);line.append(dot,label,amount,detail);tooltip.append(line);});
+      tooltip.hidden=false;cursor.setAttribute('x1',x(hovered));cursor.setAttribute('x2',x(hovered));cursor.setAttribute('visibility','visible');
+      const rendered=root.clientWidth||width,px=x(hovered)*rendered/width,tw=tooltip.offsetWidth;
+      tooltip.style.left=Math.max(4,Math.min(rendered-tw-4,px+12))+'px';tooltip.style.top='25px';
+    }
+    function hide(){tooltip.hidden=true;cursor.setAttribute('visibility','hidden');}
+    svg.addEventListener('pointermove',event=>{tooltip.setAttribute('aria-live','off');const rect=svg.getBoundingClientRect(),px=(event.clientX-rect.left)*width/(rect.width||width);show(series.length===1?0:Math.round((px-left)/area*(series.length-1)));});
+    svg.addEventListener('pointerleave',hide);svg.addEventListener('focus',()=>{tooltip.setAttribute('aria-live','polite');show(hovered);});svg.addEventListener('blur',()=>{tooltip.setAttribute('aria-live','off');hide();});
+    svg.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End','Escape'].includes(event.key)){event.preventDefault();tooltip.setAttribute('aria-live','polite');if(event.key==='Escape')hide();else show(event.key==='Home'?0:event.key==='End'?series.length-1:hovered+(event.key==='ArrowRight'?1:-1));}});
+    const aggregation=config.window===1?'일별 원본':config.window+'일 구간 · 매월 1일부터 나눈 겹치지 않는 구간 · 금액·건수는 확인된 날짜의 일평균, 비율은 구간 합계 기준';
+    if(axis)axis.textContent=(series[0].from||series[0].date)+' ~ '+(series.at(-1).to||series.at(-1).date)+' · '+aggregation+' · '+(values.scale==='relative'?'각 지표의 첫 확인값을 100으로 비교합니다.':'각 지표의 최대 절댓값을 100으로 맞춥니다. 음수는 0선 아래에 표시합니다.')+(values.fallback?' 시작값이 0 또는 음수인 지표가 있어 이 표시 방식으로 전환했습니다.':'');
+    setDataMessage((partialCount?'빈 점·점선 '+partialCount+'개는 확인분입니다. ':'')+'미확인 구간은 선을 연결하지 않습니다. 범례를 눌러 선을 숨기거나 다시 표시하세요. 그래프에 마우스를 올리거나 좌우 방향키로 실제 값을 확인할 수 있습니다.'+(errors.length?' · '+errors.join(' / '):''));
+    return {points:pointCount,keys:visible,effectiveScale:values.scale};
+  }
+  return {setup,options,render,setLoading};
 })();
 
 // Per-ad columns and period summary cards have independent, explicitly saved settings.
@@ -460,19 +739,83 @@ function adsMetricCell(metric,ad){
  const formatted=!Number.isFinite(value)?'—':metric.format==='won'?dual(value):metric.format==='pct'?pct(value):metric.format==='frequency'?value.toFixed(1):num(value);
  return '<td data-metric="'+metric.key+'" title="'+safe(detail)+'">'+(metric.key==='roas'?'<b>'+safe(formatted)+'</b>':safe(formatted))+(partial?'<span class="ads-metric-partial">확인분</span>':'')+'</td>';
 }
+// Overview choices are real table columns. Period totals have their own row,
+// because store orders cannot be assigned to individual Meta advertisements.
+const adsSharedOverviewKeys=new Set(['revenue','purchases','cpa','cpc','cpm','ctr','impressions','clicks']);
+let adsPeriodViewSignature='',adsPeriodViewResult=null,adsPeriodViewPending=null,adsPeriodViewVersion=0;
+function adsTableColumns(configuration=adsDisplaySaved){
+ const columns=configuration.columns.map(key=>adsColumnMetrics.find(metric=>metric.key===key)).filter(Boolean).map(metric=>({key:metric.key,kind:'ad',metric,overviewKey:null}));
+ for(const key of configuration.summary){
+  const overview=AdsOverviewSummary.metrics.find(metric=>metric.key===key);if(!overview)continue;
+  if(adsSharedOverviewKeys.has(key)){
+   const existing=columns.find(column=>column.kind==='ad'&&column.key===key);
+   if(existing){existing.overviewKey=key;existing.metric={...existing.metric,label:overview.label};}
+   else{
+    const metric=adsColumnMetrics.find(item=>item.key===key);
+    if(metric)columns.push({key,kind:'ad',metric:{...metric,label:overview.label},overviewKey:key});
+   }
+  }else columns.push({key:'overview-'+key,kind:'period',metric:overview,overviewKey:key});
+ }
+ return columns;
+}
+function adsTableCell(column,ad){
+ if(column.kind==='period')return '<td class="ads-period-reference" data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(column.metric.description)+' 선택 기간 합계 행에서 확인하세요."><span>합계 행 참조</span></td>';
+ const cell=adsMetricCell(column.metric,ad);
+ return column.overviewKey?cell.replace('<td ','<td data-summary-key="'+column.overviewKey+'" '):cell;
+}
+function renderAdsPeriodTotal(){
+ const body=$('ads-period-total'),note=$('ads-table-summary-note');if(!body)return;
+ const keys=adsDisplaySaved.summary,columns=adsTableColumns();
+ body.hidden=keys.length===0;if(note)note.hidden=keys.length===0;
+ if(!keys.length){body.replaceChildren();if(note)note.textContent='';return;}
+ const result=adsPeriodViewResult,metrics=new Map((result?.metrics||[]).map(metric=>[metric.key,metric]));
+ const dates=[$('since')?.value,$('until')?.value].filter(Boolean).join(' ~ ');
+ const cells=columns.map(column=>{
+  if(!column.overviewKey)return '<td data-metric="'+column.key+'" title="이 항목은 아래 광고별 행에서 확인하세요.">—</td>';
+  const metric=metrics.get(column.overviewKey),value=metric?.value;
+  const text=!Number.isFinite(value)?'—':column.metric.format==='won'?dual(value):column.metric.format==='pct'?pct(value):num(value);
+  const detail=metric?(metric.scope+' · '+metric.detail):result?.status==='error'?'조회 실패 · 데이터를 확인해 주세요.':'선택 기간 데이터 조회 중…';
+  return '<td data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(detail)+'"><strong>'+safe(text)+'</strong>'+(metric?.partial&&Number.isFinite(value)?'<span class="ads-metric-partial">확인분</span>':'')+'<small class="ads-total-state">'+safe(metric?.scope||column.metric.scope||'선택 기간 합계')+'</small></td>';
+ }).join('');
+ body.innerHTML='<tr id="ads-period-total-row"><th scope="row"><b>선택 기간 합계</b><small>'+safe(dates)+'</small></th>'+cells+'</tr>';
+ if(note)note.textContent='한눈에 보기에서 선택한 지표 '+keys.length+'개를 표에 표시합니다. 합계 행은 선택 기간과 각 지표에 표시된 집계 범위를 따르며, 아래 광고의 캠페인·소재·검색 필터와 별도로 집계합니다.'+
+  (!result?' 데이터 조회 중…':result.errors?.length?' 일부 데이터 확인 필요: '+result.errors.join(' / '):' 전체·채널 매출과 이익은 합계 행에서 확인하세요.');
+ body.setAttribute('aria-busy',String(!result));
+}
 function renderAdsTable(shown){
- const metrics=adsDisplaySaved.columns.map(key=>adsColumnMetrics.find(metric=>metric.key===key)).filter(Boolean);
- const head=$('ad-head');
- if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+metrics.map(metric=>'<th scope="col" data-metric="'+metric.key+'" title="'+safe(metric.description)+'">'+safe(metric.label)+'</th>').join('');
- $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+metrics.map(metric=>adsMetricCell(metric,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(metrics.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
- $('table-footer').textContent='광고 '+shown.length+'개 · 선택한 표 항목 '+metrics.length+'개 · 기간 중 중복 도달은 합산하지 않습니다.';
+ const columns=adsTableColumns(),head=$('ad-head');
+ if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+columns.map(column=>'<th scope="col" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(column.metric.description)+'">'+safe(column.metric.label)+(column.kind==='period'?'<small class="ads-table-scope">기간 합계</small>':'')+'</th>').join('');
+ $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+columns.map(column=>adsTableCell(column,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(columns.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
+ $('table-footer').textContent='광고 '+shown.length+'개 · 표 지표 '+columns.length+'개'+(adsDisplaySaved.summary.length?' · 한눈에 보기 선택 지표는 합계 행에 표시 · 공통 항목은 같은 열에 표시':'')+' · 기간 중 중복 도달은 합산하지 않습니다.';
  updateAdsPeriodSummary();
+}
+function invalidateAdsPeriodData(){
+ AdsOverviewSummary.invalidate();adsPeriodViewVersion++;adsPeriodViewSignature='';adsPeriodViewResult=null;adsPeriodViewPending=null;
 }
 function updateAdsPeriodSummary(force=false){
  const accountIds={naver:String($('naver-account')?.value||'').trim().replace(/^act_/,''),cafe:String($('cafe-account')?.value||'').trim().replace(/^act_/,'')};
  const channel=state.channel!=='all'?state.channel:($('account-choice')?.value||'all');
- return AdsOverviewSummary.update({keys:adsDisplaySaved.summary,since:$('since')?.value||'',until:$('until')?.value||'',fx:state.fxRate,accountIds,channel,force});
+ const graph=AdsPerformanceGraph.options();
+ const input={keys:adsDisplaySaved.summary.slice(),seriesKeys:graph.keys,window:graph.window,since:$('since')?.value||'',until:$('until')?.value||'',fx:state.fxRate,accountIds,channel,force};
+ const signature=JSON.stringify({...input,force:false,scale:graph.scale});
+ if(!force&&signature===adsPeriodViewSignature&&(adsPeriodViewResult||adsPeriodViewPending)){
+  renderAdsPeriodTotal();return adsPeriodViewPending||Promise.resolve(adsPeriodViewResult);
+ }
+ const version=++adsPeriodViewVersion;
+ adsPeriodViewSignature=signature;adsPeriodViewResult=null;
+ renderAdsPeriodTotal();AdsPerformanceGraph.setLoading();
+ adsPeriodViewPending=AdsOverviewSummary.update(input).then(result=>{
+  if(version!==adsPeriodViewVersion||result.status==='superseded')return {status:'superseded',metrics:[],series:[]};
+  adsPeriodViewResult=result;adsPeriodViewPending=null;
+  renderAdsPeriodTotal();AdsPerformanceGraph.render(result);return result;
+ }).catch(error=>{
+  if(version!==adsPeriodViewVersion)return {status:'superseded',metrics:[],series:[]};
+  const result={status:'error',metrics:[],series:[],dailySeries:[],errors:[String(error?.message||error)]};
+  adsPeriodViewResult=result;adsPeriodViewPending=null;renderAdsPeriodTotal();AdsPerformanceGraph.render(result);return result;
+ });
+ return adsPeriodViewPending;
 }
+
 function renderAdsDisplayEditor(){
  const editor=$('ads-display-editor'),toggle=$('ads-display-toggle');if(!editor||!toggle)return;
  const editing=!!adsDisplayDraft;
@@ -486,7 +829,7 @@ function renderAdsDisplayEditor(){
   $('ads-'+prefix+'-order').innerHTML=keys.length?keys.map((key,index)=>{
    const metric=catalog.find(item=>item.key===key),label=metric.label;
    return '<li><span>'+(index+1)+'. '+safe(label)+'</span><button type="button" id="ads-'+prefix+'-move-'+key+'-back" data-ads-move="'+scope+'" data-ads-key="'+key+'" data-ads-step="-1" aria-label="'+safe(label)+' 앞으로 이동"'+(index===0?' disabled':'')+'>←</button><button type="button" id="ads-'+prefix+'-move-'+key+'-next" data-ads-move="'+scope+'" data-ads-key="'+key+'" data-ads-step="1" aria-label="'+safe(label)+' 뒤로 이동"'+(index===keys.length-1?' disabled':'')+'>→</button></li>';
-  }).join(''):'<li class="ads-order-empty">'+(scope==='columns'?'광고 이름만 표시합니다.':'전체 지표 요약을 숨깁니다.')+'</li>';
+  }).join(''):'<li class="ads-order-empty">'+(scope==='columns'?'광고 이름만 표시합니다.':'한눈에 보기 추가 열과 합계 행을 숨깁니다.')+'</li>';
  }
  if(focused)$(focused)?.focus({preventScroll:true});
 }
@@ -540,7 +883,7 @@ function setupAdsDisplaySettings(){
   try{localStorage.setItem(ADS_DISPLAY_STORAGE_KEY,JSON.stringify(next));}
   catch{adsDisplayMessage('설정을 저장하지 못했습니다. 브라우저 저장 공간 또는 사이트 저장 권한을 확인해 주세요. 변경 사항은 아직 적용되지 않았습니다.',true);return;}
   adsDisplaySaved=cloneAdsDisplaySettings(next);
-  closeAdsDisplayEditor('표 항목 '+next.columns.length+'개 · 전체 지표 '+next.summary.length+'개를 저장했습니다. 이 브라우저에서 다시 열어도 유지됩니다.');
+  closeAdsDisplayEditor('표 항목 '+adsTableColumns(next).length+'개를 저장했습니다. 한눈에 보기 선택 지표 '+next.summary.length+'개는 표의 합계 행에 표시됩니다.');
   render();
  });
  for(const id of ['since','until','account-choice'])$(id)?.addEventListener('change',()=>updateAdsPeriodSummary());
@@ -561,7 +904,7 @@ renderAdsTable(shown);
 for(const el of document.querySelectorAll('.ad-row'))el.addEventListener('click',()=>{state.selected=el.dataset.id;render();$('detail').scrollIntoView({behavior:'smooth',block:'nearest'});});
 const chosen=ads.find(a=>String(a.id)===String(state.selected));if(chosen){$('detail-title').textContent=`${chosen.ad} · ${chosen.campaign}`;$('detail-status').className=`status ${chosen.diagnosis.status}`;$('detail-status').textContent=statusNames[chosen.diagnosis.status];const chips=[['ROAS',pct(chosen.roas)],['CPA',dual(chosen.cpa)],['링크 CPC',dual(chosen.cpc)],['빈도',chosen.frequency==null?'기간 전체 미확인':chosen.frequency.toFixed(2)+'회'],['랜딩 조회',chosen.landing==null?'미수집':num(chosen.landing)],['구매 전환율',chosen.landing>0&&chosen.purchases!=null?pct(chosen.purchases/chosen.landing*100):'—'],['링크 CTR',pct(chosen.ctr)],['도달',chosen.reach==null?'일별 중복·미수집':num(chosen.reach)]];$('detail-body').classList.remove('muted');$('detail-body').innerHTML=`<div class="detail-metrics">${chips.map(([k,v])=>`<div class="metric-chip">${k}<strong>${v}</strong></div>`).join('')}</div><div class="reasons"><div class="reason-box"><h3>진단 근거</h3><ul>${chosen.diagnosis.reasons.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div><div class="reason-box"><h3>추천 액션</h3><ul>${chosen.diagnosis.actions.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div></div>`;}else{$('detail-title').textContent='목록에서 광고를 선택하세요.';$('detail-status').textContent='선택 대기';$('detail-status').className='status neutral';$('detail-body').textContent='성과표의 행을 누르면 진단 근거가 표시됩니다.';$('detail-body').classList.add('muted');}
 plot();if(typeof renderComparison==='function')renderComparison();}
-function load(rows,source,currency='KRW'){AdsOverviewSummary.invalidate();state.rows=rows.map(r=>source==='api'?{...r,rawSpend:r.spend,rawRevenue:r.revenue,spend:r.spend*(r.currency==='USD'?state.fxRate:1),revenue:r.revenue==null?null:r.revenue*(r.currency==='USD'?state.fxRate:1)}:r);state.channel='all';$('channel-filter').value='all';$('channel-bar').hidden=!(source==='api'&&rows.some(r=>r.channel));state.currency=currency;state.source=source;state.selected=null;$('data-badge').textContent={api:'● Meta API 데이터',csv:'● CSV 업로드 데이터',demo:'● 샘플 데이터'}[source];$('source-status').textContent={api:'Meta API · 조회 완료',csv:'CSV · 분석 준비 완료',demo:'데모 데이터 활성화'}[source];$('message').textContent=rows.length? '': '선택한 기간의 광고 데이터가 없습니다.';if(source==='api')$('message').textContent=`Meta 원본 통화: ${currency} · USD 금액은 1달러 ${num(state.fxRate)}원으로 환산 · ${state.fxMeta} · ROAS는 환율과 무관합니다.`;render();}
+function load(rows,source,currency='KRW'){invalidateAdsPeriodData();state.rows=rows.map(r=>source==='api'?{...r,rawSpend:r.spend,rawRevenue:r.revenue,spend:r.spend*(r.currency==='USD'?state.fxRate:1),revenue:r.revenue==null?null:r.revenue*(r.currency==='USD'?state.fxRate:1)}:r);state.channel='all';$('channel-filter').value='all';$('channel-bar').hidden=!(source==='api'&&rows.some(r=>r.channel));state.currency=currency;state.source=source;state.selected=null;$('data-badge').textContent={api:'● Meta API 데이터',csv:'● CSV 업로드 데이터',demo:'● 샘플 데이터'}[source];$('source-status').textContent={api:'Meta API · 조회 완료',csv:'CSV · 분석 준비 완료',demo:'데모 데이터 활성화'}[source];$('message').textContent=rows.length? '': '선택한 기간의 광고 데이터가 없습니다.';if(source==='api')$('message').textContent=`Meta 원본 통화: ${currency} · USD 금액은 1달러 ${num(state.fxRate)}원으로 환산 · ${state.fxMeta} · ROAS는 환율과 무관합니다.`;render();}
 function csvExport(){const cols=['광고 ID','캠페인','광고 세트','광고명','지출(KRW)','지출(USD 환산)','구매','매출(KRW)','매출(USD 환산)','ROAS (%)','CPA(KRW)','CPA(USD 환산)','링크 CPC(KRW)','링크 CPC(USD 환산)','링크 CTR (%)','빈도(회)','판단','근거','권장 조치'];const quote=s=>'"'+String(s??'').replace(/"/g,'""')+'"';const lines=[cols,...(state.ads||[]).map(a=>[a.id,a.campaign,a.adset,a.ad,a.spend,state.source==='api'?(a.spend/state.fxRate).toFixed(2):'',a.purchases,a.revenue,state.source==='api'&&a.revenue!=null?(a.revenue/state.fxRate).toFixed(2):'',a.roas?.toFixed(2),a.cpa?.toFixed(0),state.source==='api'&&a.cpa!=null?(a.cpa/state.fxRate).toFixed(2):'',a.cpc?.toFixed(0),state.source==='api'&&a.cpc!=null?(a.cpc/state.fxRate).toFixed(2):'',a.ctr?.toFixed(2),a.frequency?.toFixed(2),statusNames[a.diagnosis.status],a.diagnosis.reasons.join(' / '),a.diagnosis.actions.join(' / ')])].map(r=>r.map(quote).join(','));const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`meta_roas_diagnosis_${new Date().toISOString().slice(0,10)}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function readFile(file){const b=await file.arrayBuffer();let s=new TextDecoder('utf-8',{fatal:false}).decode(b);if(s.includes('\uFFFD'))s=new TextDecoder('euc-kr').decode(b);return s;}
 function updateDiagnosisHierarchy(changed){
@@ -577,7 +920,7 @@ function updateDiagnosisHierarchy(changed){
  const filteredSet=filteredCampaign.filter(r=>!adset.value||JSON.stringify([r.channel||'',r.campaign||'',r.adset||''])===adset.value);
  build(ad,filteredSet,'ad','전체 광고 소재');
 }
-async function init(){setupAdsDisplaySettings();for(const nav of document.querySelectorAll('.nav'))nav.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n===nav));$(nav.dataset.anchor).scrollIntoView({behavior:'smooth'});});
+async function init(){setupAdsDisplaySettings();AdsPerformanceGraph.setup({metrics:AdsOverviewSummary.metrics,getTableKeys:()=>adsDisplaySaved.summary.slice(),onChange:()=>updateAdsPeriodSummary()});for(const nav of document.querySelectorAll('.nav'))nav.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n===nav));$(nav.dataset.anchor).scrollIntoView({behavior:'smooth'});});
 for(const k of ['target-roas','target-cpa','min-purchases'])$(k).addEventListener('input',render);for(const k of ['search','filter'])$(k).addEventListener('input',render);
 for(const id of ['diag-channel','diag-campaign','diag-adset','diag-ad'])$(id).addEventListener('change',()=>{updateDiagnosisHierarchy(id);render();});
 $('export').addEventListener('click',csvExport);
@@ -607,7 +950,7 @@ $('save-accounts').addEventListener('click',()=>{const n=cleanId($('naver-accoun
 $('channel-filter').addEventListener('change',()=>{state.channel=$('channel-filter').value;state.selected=null;render();});
 try{const resp=await fetch('/api/status');const info=await resp.json();$('api-state').textContent=info.configured?`API 토큰 설정됨 · ${info.version} · 읽기 전용 조회 가능`:'서버에 META_ACCESS_TOKEN을 설정해야 API 조회가 가능합니다. 실행 파일에서 토큰을 입력하세요.';if(info.account&&!$('naver-account').value&&!$('cafe-account').value)$('api-state').textContent+=' · 기존 기본 광고 계정: '+info.account;}catch{$('api-state').textContent='API 서버에 연결할 수 없습니다. 서버를 실행하세요.';}
 let refreshing=false; let lastRangeDate=toLocalDate(new Date());
-async function refreshApi(reason='manual'){if(refreshing)return;refreshing=true;let summaryReloaded=false;const btn=$('connect');btn.disabled=true;btn.textContent='조회 중…';$('auto-status').textContent='API 조회 중…';$('message').textContent='';try{const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};const choice=$('account-choice').value;const targets=choice==='all'?['naver','cafe']:[choice];if(targets.some(t=>!/^\d{5,30}$/.test(ids[t])))throw Error('조회할 채널의 광고 계정 ID를 먼저 입력하세요.');if(targets.length===2&&ids.naver===ids.cafe)throw Error('두 채널의 계정 ID가 동일합니다. 서로 다른 광고 계정인지 확인하세요.');let all=[],currencies=new Set(),failed=[],cacheWarnings=[];for(const channel of targets){try{const q=new URLSearchParams({account:ids[channel],since:$('since').value,until:$('until').value});const response=await fetch('/api/insights?'+q);const data=await response.json();if(!response.ok)throw Error(data.error||'API 조회 실패');currencies.add(data.currency||'KRW');if(data.cache){const c=data.cache;if(c.missingDays.length||c.staleDays.length||c.warnings.length)cacheWarnings.push((channel==='naver'?'네이버':'카페24')+': '+c.storedDays+'/'+c.totalDays+'일 저장 · 미저장 '+c.missingDays.length+'일 · 갱신 지연 '+c.staleDays.length+'일'+(c.warnings.length?' · '+c.warnings.join('; '):''));}all.push(...data.rows.map(r=>({...normalizeApi(r),channel})));}catch(err){failed.push((channel==='naver'?'네이버':'카페24')+': '+err.message);}}if(!all.length)throw Error(failed.join(' / ')||'조회 결과가 없습니다.');if([...currencies].some(c=>!['KRW','USD'].includes(c)))throw Error('USD/KRW 이외의 통화가 포함되어 합산할 수 없습니다.');load(all,'api',[...currencies].join('+')||'KRW');summaryReloaded=true;if(failed.length||cacheWarnings.length)$('message').textContent=[failed.length?'일부 계정 조회 실패: '+failed.join(' / '):'',...cacheWarnings].filter(Boolean).join(' / ')+' · 저장된 날짜만 반영될 수 있습니다.';const stamped=new Date().toLocaleString('ko-KR');$('auto-status').textContent=`마지막 갱신: ${stamped}${(failed.length||cacheWarnings.length)?' · 일부 미갱신/누락 (주의)':' · 날짜별 로컬 저장 완료'} · 최근 7일: 하루 1회 검증`; }catch(err){$('message').textContent='Meta API 조회 오류: '+err.message;$('auto-status').textContent='자동 갱신 실패 · '+new Date().toLocaleTimeString('ko-KR')+' · 수동 재시도 가능';}finally{refreshing=false;btn.disabled=false;btn.textContent='지금 새로고침 ↻';if(!summaryReloaded){AdsOverviewSummary.invalidate();updateAdsPeriodSummary();}}}
+async function refreshApi(reason='manual'){if(refreshing)return;refreshing=true;let summaryReloaded=false;const btn=$('connect');btn.disabled=true;btn.textContent='조회 중…';$('auto-status').textContent='API 조회 중…';$('message').textContent='';try{const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};const choice=$('account-choice').value;const targets=choice==='all'?['naver','cafe']:[choice];if(targets.some(t=>!/^\d{5,30}$/.test(ids[t])))throw Error('조회할 채널의 광고 계정 ID를 먼저 입력하세요.');if(targets.length===2&&ids.naver===ids.cafe)throw Error('두 채널의 계정 ID가 동일합니다. 서로 다른 광고 계정인지 확인하세요.');let all=[],currencies=new Set(),failed=[],cacheWarnings=[];for(const channel of targets){try{const q=new URLSearchParams({account:ids[channel],since:$('since').value,until:$('until').value});const response=await fetch('/api/insights?'+q);const data=await response.json();if(!response.ok)throw Error(data.error||'API 조회 실패');currencies.add(data.currency||'KRW');if(data.cache){const c=data.cache;if(c.missingDays.length||c.staleDays.length||c.warnings.length)cacheWarnings.push((channel==='naver'?'네이버':'카페24')+': '+c.storedDays+'/'+c.totalDays+'일 저장 · 미저장 '+c.missingDays.length+'일 · 갱신 지연 '+c.staleDays.length+'일'+(c.warnings.length?' · '+c.warnings.join('; '):''));}all.push(...data.rows.map(r=>({...normalizeApi(r),channel})));}catch(err){failed.push((channel==='naver'?'네이버':'카페24')+': '+err.message);}}if(!all.length)throw Error(failed.join(' / ')||'조회 결과가 없습니다.');if([...currencies].some(c=>!['KRW','USD'].includes(c)))throw Error('USD/KRW 이외의 통화가 포함되어 합산할 수 없습니다.');load(all,'api',[...currencies].join('+')||'KRW');summaryReloaded=true;if(failed.length||cacheWarnings.length)$('message').textContent=[failed.length?'일부 계정 조회 실패: '+failed.join(' / '):'',...cacheWarnings].filter(Boolean).join(' / ')+' · 저장된 날짜만 반영될 수 있습니다.';const stamped=new Date().toLocaleString('ko-KR');$('auto-status').textContent=`마지막 갱신: ${stamped}${(failed.length||cacheWarnings.length)?' · 일부 미갱신/누락 (주의)':' · 날짜별 로컬 저장 완료'} · 최근 7일: 하루 1회 검증`; }catch(err){$('message').textContent='Meta API 조회 오류: '+err.message;$('auto-status').textContent='자동 갱신 실패 · '+new Date().toLocaleTimeString('ko-KR')+' · 수동 재시도 가능';}finally{refreshing=false;btn.disabled=false;btn.textContent='지금 새로고침 ↻';if(!summaryReloaded){invalidateAdsPeriodData();updateAdsPeriodSummary();}}}
 for(const preset of document.querySelectorAll('.preset'))preset.addEventListener('click',()=>{const end=new Date();end.setHours(12,0,0,0);const start=new Date(end);const choice=preset.dataset.days;if(choice==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}else if(choice==='3months'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(choice==='6months'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(choice==='1year'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(choice==='2years'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else if(choice!=='today'){start.setDate(start.getDate()-(Number(choice)-1));}$('since').value=toLocalDate(start);$('until').value=toLocalDate(end);document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('active',b===preset));if($('auto-enabled').checked)refreshApi('preset');else updateAdsPeriodSummary();});
 for(const id of ['since','until'])$(id).addEventListener('change',()=>document.querySelectorAll('.preset').forEach(b=>b.classList.remove('active')));
 $('connect').addEventListener('click',()=>refreshApi('manual'));

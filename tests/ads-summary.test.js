@@ -60,6 +60,19 @@ function setup(){
 }
 const byKey=result=>Object.fromEntries(result.metrics.map(metric=>[metric.key,metric]));
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-9,actual+' != '+expected);
+function dateRange(since,until){
+  const result=[];
+  for(let time=Date.parse(since+'T00:00:00Z');time<=Date.parse(until+'T00:00:00Z');time+=86400000)result.push(new Date(time).toISOString().slice(0,10));
+  return result;
+}
+function rangeFixture(since,until){
+  const range=dateRange(since,until);
+  return {
+    accounts:{'11111':{rows:[],currency:'KRW'},'22222':{rows:[],currency:'KRW'}},
+    coverage:{since,until,totalDays:range.length,sources:{meta:{'11111':{missingDays:[]},'22222':{missingDays:[]}}}},
+    profit:{days:range.map(date=>({date,...full(0,0,0),profit:0,naver:full(0,0,0),cafe24:full(0,0,0)}))}
+  };
+}
 
 test('selected summaries preserve full-spend ratios, scopes, financial subtotals and reusable cache',async()=>{
   const env=setup();const keys=env.adapter.metrics.map(metric=>metric.key);
@@ -148,4 +161,110 @@ test('invalid dates, exchange rates and account IDs do not fetch',async()=>{
   assert.equal(result.status,'error');assert.equal(env.calls.length,0);
   await env.adapter.update({...base,keys:['spend'],fx:0});assert.equal(env.calls.length,0);
   await env.adapter.update({...base,keys:['spend'],accountIds:{naver:'bad',cafe:''}});assert.equal(env.calls.length,0);
+});
+
+test('graph-only requests load daily numeric series while the legacy card panel stays hidden',async()=>{
+  const env=setup();
+  const result=await env.adapter.update({...base,keys:[],seriesKeys:['spend','profit'],window:1});
+  assert.equal(result.status,'ready');assert.equal(result.metrics.length,0);
+  assert.equal(env.nodes['ads-period-summary'].hidden,true);assert.equal(env.nodes['ads-period-summary-cards'].children.length,0);
+  assert.equal(result.series.length,2);assert.equal(result.dailySeries.length,2);
+  assert.equal(result.series[0].date,dates[0]);assert.equal(result.series[0].from,dates[0]);assert.equal(result.series[0].to,dates[0]);assert.equal(result.series[0].days,1);
+  assert.equal(result.series[0].metrics.spend.value,20000);assert.equal(result.series[1].metrics.spend.value,90000);
+  assert.equal(result.series[0].metrics.profit.value,62300);assert.equal(result.series[1].metrics.profit.value,-53500);
+  assert.equal(result.series[1].metrics.profit.partial,true);assert.equal(env.calls.length,4);
+});
+
+test('totals and graph data work without any legacy card DOM',async()=>{
+  const env=setup();for(const id of Object.keys(env.nodes))delete env.nodes[id];
+  const result=await env.adapter.update({...base,keys:['spend','profit'],seriesKeys:['spend'],window:1});
+  assert.equal(result.status,'ready');assert.equal(byKey(result).spend.value,110000);assert.equal(byKey(result).profit.value,8800);
+  assert.equal(result.series.length,2);assert.equal(env.calls.length,4);
+});
+
+test('3, 5 and 7 day graph buckets reset at each month and clip only to the selected calendar range',async()=>{
+  const env=setup(),since='2026-09-29',until='2026-10-08',range=dateRange(since,until),data=rangeFixture(since,until);
+  data.accounts['11111'].rows=range.map((date,index)=>row(date,index+1,index+1,1,'KRW'));env.setData(data);
+  const expected={
+    3:[['2026-09-29','2026-09-30',2,1.5],['2026-10-01','2026-10-03',3,4],['2026-10-04','2026-10-06',3,7],['2026-10-07','2026-10-08',2,9.5]],
+    5:[['2026-09-29','2026-09-30',2,1.5],['2026-10-01','2026-10-05',5,5],['2026-10-06','2026-10-08',3,9]],
+    7:[['2026-09-29','2026-09-30',2,1.5],['2026-10-01','2026-10-07',7,6],['2026-10-08','2026-10-08',1,10]]
+  };
+  let previousSignature;
+  for(const window of [3,5,7]){
+    const result=await env.adapter.update({...base,since,until,keys:['spend'],seriesKeys:['spend'],window});
+    assert.equal(result.status,'ready');assert.equal(byKey(result).spend.value,55,'table totals remain totals for every graph window');
+    assert.deepEqual(JSON.parse(JSON.stringify(result.series.map(bucket=>[bucket.from,bucket.to,bucket.days,bucket.metrics.spend.value]))),expected[window]);
+    assert.equal(result.series[0].label,'09/29~09/30');assert.equal(result.dailySeries.length,10);
+    assert.deepEqual(JSON.parse(JSON.stringify(result.dailySeries.map(bucket=>bucket.metrics.spend.value))),range.map((date,index)=>index+1));
+    assert.ok(result.series.every(bucket=>bucket.metrics.spend.partial===false),'short month/query edges are not missing data');
+    assert.notEqual(result.requestSignature,previousSignature);previousSignature=result.requestSignature;
+  }
+  assert.equal(env.calls.length,4,'changing graph window reuses the snapshot');
+});
+
+test('grouped ROAS, CPA, CTR, CPC and CPM use underlying totals rather than averaging daily ratios',async()=>{
+  const env=setup(),since='2026-10-01',until='2026-10-03',data=rangeFixture(since,until);
+  data.accounts['11111'].rows=[
+    {...row(since,100,100,1,'KRW'),inline_link_clicks:'1',impressions:'10'},
+    {...row('2026-10-02',900,1800,9,'KRW'),inline_link_clicks:'9',impressions:'900'},
+    {...row(until,0,0,0,'KRW'),inline_link_clicks:'0',impressions:'0'}
+  ];env.setData(data);
+  const result=await env.adapter.update({...base,since,until,keys:['spend'],seriesKeys:['spend','roas','cpa','ctr','cpc','cpm','revenue'],window:3});
+  const m=result.series[0].metrics;
+  assert.equal(m.roas.value,190);assert.equal(m.cpa.value,100);assert.equal(m.cpc.value,100);
+  close(m.ctr.value,10/910*100);close(m.cpm.value,1000/910*1000);
+  close(m.spend.value,1000/3);close(m.revenue.value,1900/3);
+  assert.equal(result.dailySeries[0].metrics.roas.value,100);assert.equal(result.dailySeries[1].metrics.roas.value,200);assert.equal(result.dailySeries[2].metrics.roas.value,null);
+  const additive=await env.adapter.update({...base,since,until,seriesKeys:['purchases','clicks','impressions','cost','fee','profit'],seriesWindow:3});
+  close(additive.series[0].metrics.purchases.value,10/3);close(additive.series[0].metrics.clicks.value,10/3);close(additive.series[0].metrics.impressions.value,910/3);
+  assert.equal(additive.series[0].metrics.profit.value,0);assert.equal(env.calls.length,4,'new graph metrics and the seriesWindow alias reuse cached inputs');
+});
+
+test('zero and negative graph values survive while missing days stay gaps and partial averages use only known days',async()=>{
+  const env=setup(),since='2026-10-01',until='2026-10-03',data=rangeFixture(since,until);
+  data.accounts['11111'].rows=[row(since,0,0,0,'KRW'),row('2026-10-02',600,null,null,'KRW')];
+  data.coverage.sources.meta['11111'].missingDays=[until];data.coverage.sources.meta['22222'].missingDays=[until];
+  data.profit.days[1].profit=-600;data.profit.days[2].profit=null;data.profit.days[2].confirmedAvailable=false;
+  env.setData(data);
+  const result=await env.adapter.update({...base,since,until,seriesKeys:['spend','profit','roas','revenue','purchases'],window:3});
+  assert.equal(result.dailySeries.length,3);assert.equal(result.dailySeries[0].metrics.profit.value,0);
+  assert.equal(result.dailySeries[1].metrics.profit.value,-600);assert.equal(result.dailySeries[2].metrics.profit.value,null);
+  assert.equal(result.dailySeries[0].metrics.spend.value,0);assert.equal(result.dailySeries[2].metrics.spend.value,null);
+  const m=result.series[0].metrics;
+  assert.equal(m.spend.value,300);assert.equal(m.spend.partial,true);assert.equal(m.spend.knownDays,2);assert.equal(m.spend.totalDays,3);
+  assert.equal(m.profit.value,-300);assert.equal(m.profit.partial,true);assert.equal(m.profit.knownDays,2);
+  assert.equal(m.roas.value,null,'missing spend date cannot be removed from the grouped denominator');
+  assert.equal(m.revenue.value,0);assert.equal(m.revenue.partial,true);assert.equal(m.purchases.value,0);
+});
+
+test('completely missing dates are retained as null calendar buckets rather than invented zero points',async()=>{
+  const env=setup(),since='2026-10-01',until='2026-10-07',data=rangeFixture(since,until),range=dateRange(since,until);
+  data.coverage.sources.meta['11111'].missingDays=range;data.coverage.sources.meta['22222'].missingDays=range;data.profit.days=[];
+  env.setData(data);
+  const result=await env.adapter.update({...base,since,until,seriesKeys:['spend','profit','clicks','roas'],window:3});
+  assert.equal(result.series.length,3);assert.equal(result.dailySeries.length,7);
+  for(const bucket of [...result.series,...result.dailySeries])for(const metric of Object.values(bucket.metrics))assert.equal(metric.value,null);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.series.map(bucket=>bucket.days))),[3,3,1]);
+});
+
+test('graph click and impression gaps cannot fabricate CPC, CPM or CTR denominators',async()=>{
+  const env=setup(),since='2026-10-01',data=rangeFixture(since,since),ad=row(since,10,20,1,'KRW');
+  delete ad.inline_link_clicks;delete ad.impressions;data.accounts['11111'].rows=[ad];env.setData(data);
+  const result=await env.adapter.update({...base,since,until:since,accountIds:{naver:'11111',cafe:''},seriesKeys:['clicks','impressions','cpc','cpm','ctr'],window:1});
+  for(const metric of Object.values(result.series[0].metrics))assert.equal(metric.value,null);
+  assert.match(result.series[0].metrics.cpc.detail,/계산 보류/);
+});
+
+test('graph requests deduplicate and cap metric keys and reject stale responses after window changes',async()=>{
+  const env=setup();let release;const pending=new Promise(resolve=>release=resolve);env.setGate(()=>pending);
+  const first=env.adapter.update({...base,seriesKeys:['spend','profit'],window:1});
+  const keys=['spend','spend','__proto__','profit','revenue','purchases','roas','cpa','cpc','cpm'];
+  const second=env.adapter.update({...base,seriesKeys:keys,window:7});
+  assert.equal(env.calls.length,4);release();
+  const stale=await first,current=await second;
+  assert.equal(stale.status,'superseded');assert.equal(stale.series.length,0);assert.equal(current.status,'ready');
+  assert.notEqual(stale.requestSignature,current.requestSignature);
+  assert.equal(Object.keys(current.series[0].metrics).length,7);
+  assert.equal(Object.prototype.hasOwnProperty.call(current.series[0].metrics,'__proto__'),false);
 });
