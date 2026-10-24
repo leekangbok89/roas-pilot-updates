@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.66';
+const appVersion='2.8.67';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -524,16 +524,37 @@ async function cafeAuthorizedGet(endpoint){
 }
 // The Cafe24 order list usually does not include items. Fetch the order's item subresource
 // using the existing read-order scope, then fall back to the order embed form.
-async function cafeOrderItems(order,getter=cafeAuthorizedGet){
+function cafeRawItems(value){
+ const body=value?.order||value;
+ const list=Array.isArray(body)?body:(body?.items??body?.order_items??body?.orderItems??[]);
+ return Array.isArray(list)?list:[];
+}
+async function cafeOrderItems(order,getter=cafeAuthorizedGet,diagnose=()=>{}){
  const id=String(order?.id||order?.order_id||order||'');
  if(!id||id.length>100)throw Error('카페24 주문번호 형식 확인 필요');
- const shop=Number(order?.shop_no)||1;
- const base='orders/'+encodeURIComponent(id),qs='shop_no='+encodeURIComponent(shop);
- const response=await getter(base+'/items?'+qs);
- const items=itemsFromCafeOrder(response);
- if(items.length)return items;
- const embedded=await getter(base+'?'+qs+'&embed=items');
- return itemsFromCafeOrder(embedded.order||embedded);
+ const shop=Number(order?.shop_no)||1,base='orders/'+encodeURIComponent(id),qs='shop_no='+encodeURIComponent(shop);
+ const paths=[['품목 목록',base+'/items?'+qs],['주문 상세 embed',base+'?'+qs+'&embed=items']];
+ const failures=[];
+ for(const [stage,endpoint] of paths){
+  try{
+   const payload=await getter(endpoint),raw=cafeRawItems(payload),items=itemsFromCafeOrder(payload?.order||payload);
+   const schema=raw[0]&&typeof raw[0]==='object'?Object.keys(raw[0]).slice(0,16).join(','):'없음';
+   if(raw.length>0&&raw.length===items.length){
+    diagnose({stage,result:'복구 성공',detail:'품목 '+items.length+'개'});
+    return items;
+   }
+   const result=raw.length?'상품명·옵션·수량 일부 미확인':'응답에 품목 배열 없음';
+   diagnose({stage,result,detail:'원본 품목수 '+raw.length+', 유효 품목수 '+items.length+', 필드 이름: '+schema});
+   failures.push(result);
+  }catch(e){
+   // Report only the HTTP status and classification, never a raw API body or order identifier.
+   const code=String(e.message||'').match(/HTTP\s*(\d{3})/)?.[1]||'오류';
+   diagnose({stage,result:'API '+code,detail:code==='401'||code==='403'?'카페24 주문 읽기 권한 또는 토큰 확인':'요청 실패'});
+   failures.push('API '+code);
+  }
+ }
+ if(failures.every(v=>v.startsWith('API')))throw Error('카페24 품목 조회 두 경로 모두 실패: '+failures.join(', '));
+ return [];
 }
 async function cafeFetchDate(date){
  const q=new URLSearchParams({shop_no:'1',date_type:'pay_date',start_date:date+' 00:00:00',end_date:date+' 23:59:59',limit:'100',offset:'0'});
@@ -601,7 +622,24 @@ function cafeAutoCollect(){
 
 // Product/option cost ledger. Stored separately from deployment-managed files.
 const costFile=path.join(__dirname,'.roas-data','product-costs.json');
-const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,cafeRestored:0,cafeRemaining:0};
+const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,cafeRestored:0,cafeRemaining:0,cafeChecked:0,lastAttemptAt:null,failures:{},examples:[]};
+function recoveryMark(date,stage,result,detail=''){
+ const label=String(stage)+' / '+String(result);
+ catalogJob.failures[label]=(catalogJob.failures[label]||0)+1;
+ if(catalogJob.examples.length<18)catalogJob.examples.push({date:String(date||'날짜 미확인').slice(0,10),stage:String(stage).slice(0,24),result:String(result).slice(0,100),detail:String(detail).slice(0,180)});
+}
+function cafeMissingSummary(){
+ const orders=Object.values(cafeCache(cafeOrdersFile,{orders:{}}).orders||{});
+ const missing=orders.filter(o=>Number(o.net)>0&&!(o.items||[]).length);
+ const byDate={};for(const o of missing){const date=String(o.date||'날짜 없음').slice(0,10);byDate[date]=(byDate[date]||0)+1;}
+ return {total:missing.length,byDate,positiveOrders:orders.filter(o=>Number(o.net)>0).length};
+}
+function catalogDiagnostics(){
+ const missing=cafeMissingSummary();
+ return {version:appVersion,cafe24:{...missing},lastAttemptAt:catalogJob.lastAttemptAt,
+  job:{running:catalogJob.running,progress:catalogJob.progress,error:catalogJob.error,cafeRestored:catalogJob.cafeRestored,cafeRemaining:catalogJob.cafeRemaining,cafeChecked:catalogJob.cafeChecked,failures:catalogJob.failures,examples:catalogJob.examples},
+  note:'카페24 주문 아이템 복구 진단. 주문번호, 구매자정보, API 토큰 및 금액은 포함되지 않습니다.'};
+}
 const cleanCostText=v=>String(v??'').trim().replace(/\s+/g,' ').slice(0,180);
 function productKey(channel,name,option){return crypto.createHash('sha256').update(JSON.stringify([channel,name,option])).digest('hex').slice(0,24);}
 function orderProduct(channel,name,option,quantity){
@@ -638,7 +676,7 @@ function costList(){
 }
 async function enrichCostCatalog(){
  if(catalogJob.running)throw Object.assign(Error('판매품 목록 수집 진행 중'),{status:409});
- catalogJob.running=true;catalogJob.done=0;catalogJob.total=0;catalogJob.progress='상품 옵션 확인 중';catalogJob.error=null;catalogJob.cafeRestored=0;catalogJob.cafeRemaining=0;
+ catalogJob.running=true;catalogJob.done=0;catalogJob.total=0;catalogJob.progress='상품 옵션 확인 중';catalogJob.error=null;catalogJob.cafeRestored=0;catalogJob.cafeRemaining=0;catalogJob.cafeChecked=0;catalogJob.lastAttemptAt=new Date().toISOString();catalogJob.failures={};catalogJob.examples=[];
  try{
   const n=naverRead(naverOrderFile,{orders:{}}),c=cafeCache(cafeOrdersFile,{orders:{}});
   const nMissing=Object.values(n.orders||{}).filter(o=>!(o.items||[]).length).slice(0,1000);
@@ -656,13 +694,16 @@ async function enrichCostCatalog(){
    for(const [index,o] of cMissing.entries()){
     catalogJob.progress='카페24 주문 상세 복구 '+(index+1)+'/'+cMissing.length+' · 복구 '+catalogJob.cafeRestored+'건';
     try{
-     const items=await cafeOrderItems(o.id);
+     const items=await cafeOrderItems(o.id,cafeAuthorizedGet,entry=>recoveryMark(o.date,entry.stage,entry.result,entry.detail));
+     catalogJob.cafeChecked++;
      if(items.length){c.orders[o.id].items=items;catalogJob.cafeRestored++;}
      else catalogJob.cafeRemaining++;
     }catch(e){
      catalogJob.cafeRemaining++;
-     catalogJob.error='카페24 상품 상세 재조회 일부 실패: '+e.message.slice(0,170);
-     if(/HTTP 40[13]\b/.test(e.message))break;
+     catalogJob.cafeChecked++;
+     catalogJob.error='카페24 상품 상세 재조회 일부 실패: '+String(e.message).slice(0,170);
+     // A failed request must not stop recovery of other orders; continue and count causes.
+     if(/API (401|403)/.test(e.message))catalogJob.error='카페24 API 주문 읽기 권한·토큰 확인 필요. 조회 기록을 확인하세요.';
     }
     catalogJob.done++;
     if(index%20===19)cafeWrite(cafeOrdersFile,c);
@@ -824,6 +865,7 @@ const server=http.createServer(async (req,res)=> {
     if(u.pathname==='/api/strategy/chat'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 채팅할 수 있습니다.'});return json(res,200,await strategyAsk(JSON.parse((await payload(req)).toString('utf8'))));
     }
+    if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
     if(u.pathname==='/api/costs/products'&&req.method==='GET')return json(res,200,costList());
     if(u.pathname==='/api/costs/products'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 원가를 저장할 수 있습니다.'});
@@ -929,5 +971,5 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems};
+module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems};
 
