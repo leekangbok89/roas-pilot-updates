@@ -224,3 +224,40 @@ test('Cafe24 catalog diagnosis returns order counts and dates without order iden
  assert.equal(JSON.stringify(d).includes('order1'),false);
  assert.equal(JSON.stringify(d).includes('40000'),false);
 });
+
+test('Explicit channel-specific alias restores missing option cost without changing stored source',t=>{
+ const f=fixture(t),src='백도씨',target='위마망 백도씨';
+ f.order('cafe24',300000,[{name:target,option:'화이트 신형',quantity:2}]);
+ f.saveCost('cafe24',src,'화이트',85000);
+ assert.equal(f.row().profit,null);
+ const sourceKey=crypto.createHash('sha256').update(JSON.stringify(['cafe24',src,'화이트'])).digest('hex').slice(0,24);
+ const result=f.linkCostAlias({channel:'cafe24',name:target,option:'화이트 신형',sourceKey});
+ assert.equal(result.cost,85000);
+ assert.equal(f.row().cost,170000);
+ assert.equal(f.row().profit,119500);
+ f.saveCost('cafe24',src,'화이트',90000);
+ assert.equal(f.row().cost,180000,'Alias tracks updates to the original source cost');
+ assert.equal(f.row().profit,109500);
+ assert.equal(f.unlinkCostAlias({channel:'cafe24',name:target,option:'화이트 신형'}).unlinked,true);
+ assert.equal(f.row().profit,null);
+});
+test('Cost alias disallows cross-channel mapping, fabricated target and blank source costs',t=>{
+ const f=fixture(t);
+ f.order('naver',100000,[{name:'아직 미연결',option:'기본',quantity:1}]);
+ f.saveCost('cafe24','다른 채널','기본',34000);
+ f.saveCost('naver','원가 미입력','기본',null);
+ const key=(channel,name,variant)=>crypto.createHash('sha256').update(JSON.stringify([channel,name,variant])).digest('hex').slice(0,24);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'아직 미연결',option:'기본',sourceKey:key('cafe24','다른 채널','기본')}),/동일한 판매 채널/);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'아직 미연결',option:'기본',sourceKey:key('naver','원가 미입력','기본')}),/유효한 원가/);
+ f.saveCost('naver','기존 상품','기본',25000);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'주문에 없음',option:'기본',sourceKey:key('naver','기존 상품','기본')}),/실제 판매 주문/);
+});
+test('Directly saved option cost takes precedence over earlier cost alias',t=>{
+ const f=fixture(t),sourceKey=crypto.createHash('sha256').update(JSON.stringify(['naver','기존','블랙'])).digest('hex').slice(0,24);
+ f.order('naver',100000,[{name:'새 옵션명',option:'블랙',quantity:1}]);
+ f.saveCost('naver','기존','블랙',10000);
+ f.linkCostAlias({channel:'naver',name:'새 옵션명',option:'블랙',sourceKey});
+ assert.equal(f.row().cost,10000);
+ f.saveCost('naver','새 옵션명','블랙',19000);
+ assert.equal(f.row().cost,19000);
+});
