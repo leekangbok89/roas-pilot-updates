@@ -37,7 +37,7 @@ function ga4Credentials(){
  if(!fs.existsSync(ga4SecretsPath))return null;
  try{
   const x=JSON.parse(dpapi('decrypt',fs.readFileSync(ga4SecretsPath,'utf8')));
-  if(!/^\\d{6,15}$/.test(x.propertyId)||!x.clientEmail||!x.privateKey)throw Error('invalid');
+  if(!/^\d{6,15}$/.test(x.propertyId)||!x.clientEmail||!x.privateKey)throw Error('invalid');
   return x;
  }catch{throw Object.assign(Error('GA4 암호화된 인증정보를 읽지 못했습니다. 저장한 Windows 사용자 계정인지 확인하세요.'),{status:500});}
 }
