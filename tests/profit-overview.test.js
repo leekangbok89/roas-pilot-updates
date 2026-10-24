@@ -167,6 +167,6 @@ test('unmatched cost options appear with dates and a priced candidate from the s
  assert.equal(rows[0].name,'위마망 백도씨');
  assert.deepEqual(rows[0].dates,['2026-09-01']);
  const table=h.node('unmatched-table').children[0],tr=table.children[1].children[0],select=tr.children[3].children[0];
- assert.equal(select.children.length,2,'Only the same-channel priced source is offered');
+ assert.equal(select.children.length,3,'Both store price sources are offered for manual confirmation');
  assert.equal(select.children[1].value,'cafecafecafecafecafecafe');
 });
