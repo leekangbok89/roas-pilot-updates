@@ -95,6 +95,7 @@
 <p class="helper" style="margin:12px 0">먼저 실제 운영하는 HTTPS 앱 도메인이 필요합니다. 카페24 개발자센터의 Redirect URI와 아래 주소가 정확히 같아야 합니다. 아직 HTTPS 도메인을 연결하지 않았다면 설정을 보류하세요.</p>
 <div class="api-form" style="flex-wrap:wrap;gap:12px">
 <label>쇼핑몰 ID<input id="cafe-mall" placeholder="카페24 몰 ID"></label>
+<label>위마망 상점 번호 (shop_no)<input id="cafe-shop-no" type="number" min="1" max="15" step="1" value="1" inputmode="numeric"></label>
 <label>Client ID<input id="cafe-client-id" autocomplete="off" placeholder="카페24 Client ID"></label>
 <label>Client Secret<input id="cafe-client-secret" type="password" autocomplete="new-password" placeholder="카페24 Client Secret"></label>
 <label>실제 HTTPS Redirect URI<input id="cafe-redirect" type="url" placeholder="https://실제앱도메인/cafe24/callback"></label>
@@ -102,7 +103,9 @@
 <button class="button primary" type="button" id="cafe-save">암호화 저장</button>
 <button class="button ghost" type="button" id="cafe-start">OAuth 인증 시작</button>
 <button class="button ghost" type="button" id="cafe-test">주문 API 테스트</button>
-</div><p class="helper" id="cafe-status" style="white-space:pre-wrap" aria-live="polite">카페24 연결 상태 확인 중…</p>
+<button class="button ghost" type="button" id="cafe-shop-detect">위마망 상점 자동 찾기</button>
+<button class="button primary" type="button" id="cafe-shop-apply">선택 상점 저장 + 전체 재수집</button>
+</div><p class="helper" id="cafe-shop-status" style="white-space:pre-wrap" aria-live="polite">현재 기본 상점 1번을 사용합니다. tourtem 안에 위마망이 별도 멀티쇼핑몰이면 상점 번호를 찾아 저장하세요.</p><p class="helper" id="cafe-status" style="white-space:pre-wrap" aria-live="polite">카페24 연결 상태 확인 중…</p>
 <div class="api-form" style="gap:12px;flex-wrap:wrap"><label>인증 코드(code)<input id="cafe-code" autocomplete="off" placeholder="HTTPS 콜백 화면에서 받은 일회용 code"></label><label>검증 값(state)<input id="cafe-state" autocomplete="off" placeholder="HTTPS 콜백 화면의 state"></label><button class="button ghost" type="button" id="cafe-finish">인증 완료</button></div>
 <p class="helper">카페24 인증 코드는 발급 후 약 1분 내에 만료됩니다. 앱 외부 공개와 무관한 로컬 관리 도구이므로 개발 환경에서만 인증 절차를 진행하세요. Client Secret, 토큰은 브라우저나 채팅에 저장하지 않습니다.</p>
 <div class="channel-config" style="margin:16px 0"><h3>카페24 주문·매출 수집</h3><p class="helper">2026년 6월 1일부터 주문을 수집합니다. 실패한 날짜는 완료로 기록하지 않으며 기존 데이터는 유지합니다.</p><div class="api-form" style="gap:10px;flex-wrap:wrap"><button class="button primary" id="cafe-backfill" type="button">6월 1일부터 전체 수집</button><button class="button ghost" id="cafe-recent" type="button">최근 14일 갱신</button><button class="button ghost" id="cafe-refresh" type="button">수집 상태 확인</button></div><p id="cafe-sync-status" class="helper" aria-live="polite" style="white-space:pre-wrap">상태 확인 중…</p><div class="table-wrap"><table><thead><tr><th>결제일</th><th>주문 수</th><th>최초 결제액</th><th>취소·환불 반영액</th><th>잔여 매출</th></tr></thead><tbody id="cafe-sales-daily"></tbody></table></div></div></section>
@@ -199,11 +202,36 @@ button.addEventListener('click',async()=>{
 (()=>{
 const $=id=>document.getElementById(id),out=$('cafe-status'),headers={'Content-Type':'application/json','X-ROAS-Local-Action':'yes'};
 async function request(url,body){const resp=await fetch(url,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'});const data=await resp.json();if(!resp.ok)throw Error(data.error||'요청 실패');return data;}
-async function status(){try{const s=await request('/api/cafe24/status');out.textContent=s.configured?'설정 저장됨 · 쇼핑몰 '+s.mallId+' · ID '+s.maskedId+' · '+(s.connected?'OAuth 연결 완료':'OAuth 승인 필요'):'아직 카페24 앱 연결정보가 없습니다.';}catch(e){out.textContent=e.message;}}
-$('cafe-save').onclick=async()=>{out.textContent='Windows 암호화 저장 중…';try{await request('/api/cafe24/settings',{mallId:$('cafe-mall').value,clientId:$('cafe-client-id').value,clientSecret:$('cafe-client-secret').value,redirectUri:$('cafe-redirect').value});$('cafe-client-secret').value='';await status();}catch(e){out.textContent='저장 실패: '+e.message;}};
+async function status(){try{const s=await request('/api/cafe24/status');if($('cafe-shop-no'))$('cafe-shop-no').value=s.shopNo||1;out.textContent=s.configured?'설정 저장됨 · 쇼핑몰 '+s.mallId+' · 위마망 상점 shop_no '+(s.shopNo||1)+' · ID '+s.maskedId+' · '+(s.connected?'OAuth 연결 완료':'OAuth 승인 필요'):'아직 카페24 앱 연결정보가 없습니다.';}catch(e){out.textContent=e.message;}}
+$('cafe-save').onclick=async()=>{out.textContent='Windows 암호화 저장 중…';try{await request('/api/cafe24/settings',{mallId:$('cafe-mall').value,shopNo:Number($('cafe-shop-no').value||1),clientId:$('cafe-client-id').value,clientSecret:$('cafe-client-secret').value,redirectUri:$('cafe-redirect').value});$('cafe-client-secret').value='';await status();}catch(e){out.textContent='저장 실패: '+e.message;}};
 $('cafe-start').onclick=async()=>{try{const r=await request('/api/cafe24/authorize',{});out.textContent=r.message;window.open(r.authorizationUrl,'_blank','noopener,noreferrer');}catch(e){out.textContent='인증 시작 실패: '+e.message;}};
 $('cafe-finish').onclick=async()=>{out.textContent='카페24 인증 코드 확인 중…';try{const r=await request('/api/cafe24/complete',{code:$('cafe-code').value,state:$('cafe-state').value});$('cafe-code').value='';$('cafe-state').value='';out.textContent=r.message+' · '+r.mallId;}catch(e){out.textContent='인증 실패: '+e.message;}};
-$('cafe-test').onclick=async()=>{try{out.textContent='카페24 주문 API 권한 확인 중…';const r=await request('/api/cafe24/orders/test',{});out.textContent=r.message+' · 오늘 주문 '+(r.todayOrderCount??'미확인')+'건';}catch(e){out.textContent='주문 조회 실패: '+e.message;}};
+$('cafe-test').onclick=async()=>{try{out.textContent='카페24 주문 API 권한 확인 중…';const r=await request('/api/cafe24/orders/test',{});out.textContent=r.message+' · shop_no '+(r.shopNo||'?')+' · 오늘 주문 '+(r.todayOrderCount??'미확인')+'건';}catch(e){out.textContent='주문 조회 실패: '+e.message;}};
+async function applyCafeShop(shopNo,auto=false){
+ const shopStatus=$('cafe-shop-status');shopStatus.textContent='shop_no '+shopNo+'을 위마망 상점으로 저장하고 기존 카페24 주문 캐시를 백업하는 중…';
+ const saved=await request('/api/cafe24/shop',{shopNo:Number(shopNo)});
+ $('cafe-shop-no').value=saved.shopNo||shopNo;
+ shopStatus.textContent='위마망 상점 shop_no '+saved.shopNo+' 저장 완료'+(saved.cacheReset?' · 기존 카페24 주문 캐시 백업 후 초기화':'')+' · 2026-06-01부터 전체 재수집을 시작합니다.';
+ await request('/api/cafe24/orders/sync',{mode:'backfill'});
+ await status();
+ if(typeof syncStatus==='function')syncStatus().catch(()=>{});
+}
+$('cafe-shop-detect').onclick=async()=>{
+ const shopStatus=$('cafe-shop-status');shopStatus.textContent='카페24 멀티쇼핑몰 1~15번에서 최근 주문의 상품명을 확인해 위마망 상점을 찾고 있습니다…';
+ try{
+  const since=document.getElementById('since')?.value||'',until=document.getElementById('until')?.value||'';
+  const r=await request('/api/cafe24/shop/detect',{since,until});
+  const lines=(r.candidates||[]).map(x=>'shop_no '+x.shopNo+' · 주문 '+x.orderCount+'건 · 위마망 상품 '+x.wemamangItems+'개 · 트루버 상품 '+x.truverItems+'개'+(x.sampleProducts?.length?' · 예: '+x.sampleProducts.slice(0,2).join(' / '):''));
+  if(r.recommendedShopNo){
+   $('cafe-shop-no').value=r.recommendedShopNo;
+   shopStatus.textContent='위마망 상점 후보를 1개 찾았습니다.\n'+lines.join('\n')+'\n자동으로 shop_no '+r.recommendedShopNo+'을 적용하고 전체 재수집을 시작합니다.';
+   await applyCafeShop(r.recommendedShopNo,true);
+  }else{
+   shopStatus.textContent='자동으로 하나를 확정하지 못했습니다. 아래 후보를 보고 위마망 상점 번호를 입력한 뒤 “선택 상점 저장 + 전체 재수집”을 누르세요.\n'+(lines.join('\n')||'선택 기간에 주문이 있는 상점을 찾지 못했습니다.');
+  }
+ }catch(e){shopStatus.textContent='상점 자동 찾기 실패: '+e.message;}
+};
+$('cafe-shop-apply').onclick=async()=>{const shopNo=Number($('cafe-shop-no').value);if(!Number.isInteger(shopNo)||shopNo<1||shopNo>15){$('cafe-shop-status').textContent='shop_no는 1~15 사이 숫자로 입력해 주세요.';return;}try{await applyCafeShop(shopNo);}catch(e){$('cafe-shop-status').textContent='상점 적용 실패: '+e.message;}};
 status();
 })();
 </script><script>
