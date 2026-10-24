@@ -34,11 +34,11 @@ nav a{font-size:13px!important;padding:13px 16px!important;border-radius:11px!im
 button,input,select{font-family:inherit}
 @media(max-width:750px){aside{position:static!important;width:100%!important;height:auto!important}main{margin-left:0!important;padding:15px!important}}
 </style></head><body><aside><div class="logo">ROAS<span>Pilot</span><small>Meta Performance Intelligence</small></div><nav><a class="active" href="/visual-overview.html">◉ 한눈에 보기</a><a href="/#overview">◫ 성과 개요</a><a href="/#ads-section">▤ 광고별 진단</a><a href="/#daily-compare">◷ 날짜별 비교</a><a href="/#funnel">⌁ 구매 퍼널</a><a href="/cost-management.html">▦ 원가관리</a><a href="/#data-source">⛓ 데이터 연결 · 설정</a></nav></aside>
-<main><h1>한눈에 보기 <span class="small" style="font-weight:400">v2.8.69</span></h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
+<main><h1>한눈에 보기 <span class="small" style="font-weight:400">v2.8.70</span></h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
 <section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
 <button data-period="yesterday">어제</button><button data-period="today">오늘</button><button data-period="7" class="active">최근 7일</button><button data-period="30">최근 30일</button><button data-period="3months">최근 3달</button><button data-period="6months">최근 6개월</button><button data-period="1year">최근 1년</button><button data-period="2years">최근 2년</button>
 <label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
-<button id="reload" class="primary">데이터 조회 ↻</button><span class="status small" id="updated">조회 대기</span></section>
+<button id="reload" class="primary" title="선택한 시작일과 종료일의 저장된 데이터를 조회합니다. 외부 API를 새로 호출하지 않습니다.">기간별 데이터 조회</button><button id="recent3-refresh" type="button" title="오늘 포함 최근 3일간 스마트스토어·카페24 주문과 연결된 전체 Meta 광고계정의 데이터를 업데이트합니다.">최근 3일 데이터 업데이트 (오늘 포함)</button><span class="status small" id="updated">조회 대기</span><span id="recent3-status" role="status" class="small" style="flex-basis:100%;display:none"></span></section>
 <div id="alert" class="alert"></div>
 <section class="metrics"><div class="metric"><small>총 광고비</small><strong id="spend">—</strong><small id="spendSub">—</small></div><div class="metric"><small>구매 전환매출</small><strong id="revenue">—</strong><small id="revenueSub">—</small></div><div class="metric highlight"><small>구매 ROAS</small><strong id="roas">—</strong><small>Meta 귀속 구매 전환값 기준</small></div><div class="metric"><small>구매 CPA</small><strong id="cpa">—</strong><small id="purchaseSub">—</small></div>
 <div class="metric"><small>구매 건수</small><strong id="purchases">—</strong></div><div class="metric"><small>링크 CTR</small><strong id="ctr">—</strong></div><div class="metric"><small>노출수</small><strong id="impressions">—</strong></div><div class="metric"><small>링크 클릭수</small><strong id="clicks">—</strong></div></section>
@@ -369,9 +369,10 @@ function draw(rows){
 }
 async function run(){
  const version=++requestVersion,since=$('since').value,until=$('until').value;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('updated').textContent='시작일과 종료일을 확인해 주세요.';return;}
  const warnings=[],nextData={naver:[],cafe:[]},nextCurrency={...currency};
  let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',available=0;
- $('reload').disabled=true;$('updated').textContent='데이터 조회 중…';
+ $('reload').disabled=true;$('updated').textContent=since+' ~ '+until+' 저장 데이터 조회 중…';
  try{
   let savedIds={};try{savedIds=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{warnings.push('저장된 광고 계정 설정을 읽을 수 없습니다.');}
   const ids=Object.fromEntries(['naver','cafe'].map(key=>[key,String(savedIds[key]||'').replace(/\D/g,'')]));
@@ -384,7 +385,7 @@ async function run(){
   await Promise.all(accountIds.map(async account=>{
    const keys=Object.keys(ids).filter(key=>ids[key]===account);
    try{
-    const q=new URLSearchParams({account,since,until});const resp=await fetch('/api/insights?'+q,{signal:AbortSignal.timeout(120000)});const body=await resp.json();if(!resp.ok)throw Error(body.error||'조회 실패');
+    const q=new URLSearchParams({account,since,until,cacheOnly:'1'});const resp=await fetch('/api/insights?'+q,{signal:AbortSignal.timeout(120000)});const body=await resp.json();if(!resp.ok)throw Error(body.error||'조회 실패');
     for(const key of keys){nextCurrency[key]=body.currency||'USD';nextData[key]=(body.rows||[]).map(row=>normalize({...row,account_currency:row.account_currency||nextCurrency[key]},key));}
     available++;if(body.cache?.missingDays?.length||body.cache?.warnings?.length)warnings.push(keys.join('/')+' 광고 누락 '+(body.cache.missingDays||[]).length+'일 · '+(body.cache.warnings||[]).join('; '));
    }catch(e){warnings.push(keys.join('/')+' 광고: '+e.message);}
@@ -401,7 +402,7 @@ async function run(){
   storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;
   $('profit-naver-fee').value=profitFees.naver;$('profit-cafe-fee').value=profitFees.cafe24;
   if(!available&&!storeSales.size&&!profitDays.size)warnings.push('수집된 데이터가 없습니다.');
-  $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();$('updated').textContent='마지막 확인: '+new Date().toLocaleString('ko-KR');
+  $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();$('updated').textContent='조회 기간 '+since+' ~ '+until+' · 저장 데이터 표시 · '+new Date().toLocaleString('ko-KR');
  }catch(e){
   if(version!==requestVersion)return;
   data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();profitLoadError=e.message;render();
@@ -457,7 +458,36 @@ async function repairProfitDetails(){
  finally{button.disabled=false;}
 }
 $('profit-repair').onclick=repairProfitDetails;
-$('profit-save-fees').onclick=async()=>{try{const r=await fetch('/api/profit/fees',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({naver:Number($('profit-naver-fee').value),cafe24:Number($('profit-cafe-fee').value)})});const j=await r.json();if(!r.ok)throw Error(j.error);run();}catch(e){alert(e.message)}};$('budget-step').onchange=renderBudgetAnalysis;$('reload').onclick=run;$('channel').onchange=run;document.querySelectorAll('.metric-choice').forEach((select,i)=>select.onchange=()=>{const slots=[...document.querySelectorAll('.metric-choice')].map(x=>x.value);const chosen=select.value;if(chosen){for(let j=0;j<slots.length;j++){if(j!==i&&slots[j]===chosen)slots[j]='';}}setChartMetrics(slots);syncChartControls();render();});$('preset-save').onclick=addPreset;$('preset-manage').onclick=managePresets;renderCustomPresets();$('chart-scale').onchange=render;$('chart-window').onchange=render;setChartMetrics(customPresets.length?customPresets[0].keys:['spend','smartstoreRevenue','mallRevenue','profit']);$('chart-window').value='1';if(customPresets[0]?.scale)$('chart-scale').value=customPresets[0].scale;syncChartControls();run();setInterval(()=>{if(!document.hidden)run()},3600000);
+$('profit-save-fees').onclick=async()=>{try{const r=await fetch('/api/profit/fees',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({naver:Number($('profit-naver-fee').value),cafe24:Number($('profit-cafe-fee').value)})});const j=await r.json();if(!r.ok)throw Error(j.error);run();}catch(e){alert(e.message)}};
+async function refreshRecentThreeDays(){
+ const button=$('recent3-refresh'),msg=$('recent3-status');
+ button.disabled=true;msg.style.display='block';msg.textContent='오늘 포함 최근 3일의 전체 주문·광고 데이터 업데이트를 시작합니다…';
+ let config={};try{config=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{}
+ const accounts=[...new Set(['naver','cafe'].map(k=>String(config[k]||'').replace(/\D/g,'')).filter(Boolean))];
+ try{
+  const response=await fetch('/api/data/recent3/refresh',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({accounts})});
+  const start=await response.json();if(!response.ok)throw Error(start.error||'업데이트 시작 실패');
+  const period=start.since+' ~ '+start.until;
+  msg.textContent=period+' · 수집 중…';
+  for(let attempt=0;attempt<300;attempt++){
+   await new Promise(resolve=>setTimeout(resolve,2000));
+   const statusResponse=await fetch('/api/data/recent3/status',{cache:'no-store'});
+   const job=await statusResponse.json();if(!statusResponse.ok)throw Error(job.error||'상태 확인 실패');
+   const sources=job.sources||{},list=[['스마트스토어',sources.naver],['카페24',sources.cafe24],...Object.entries(sources.meta||{}).map(([id,value])=>['Meta 계정 '+id,value])];
+   const labels=list.map(([name,info])=>name+': '+(info?.status||'대기')+(info?.error?' ('+String(info.error).slice(0,80)+')':''));
+   msg.textContent=period+' · '+(job.progress||'업데이트 중')+' · '+labels.join(' / ');
+   if(!job.running){
+    await run();
+    msg.textContent=period+' · '+(job.progress||'업데이트 완료')+' · '+labels.join(' / ')+(job.error?' · '+job.error:'')+' · 현재 선택한 조회 기간 화면을 갱신했습니다.';
+    return;
+   }
+  }
+  msg.textContent='현재 서버에서 수집이 계속 진행 중입니다. 이후 상태를 확인하려면 버튼을 다시 누르지 말고 설정 관리에서 수집 상태를 확인하세요.';
+ }catch(e){msg.textContent='최근 3일 업데이트 오류: '+e.message;}
+ finally{button.disabled=false;}
+}
+$('recent3-refresh').onclick=refreshRecentThreeDays;
+$('budget-step').onchange=renderBudgetAnalysis;$('reload').onclick=run;$('channel').onchange=run;document.querySelectorAll('.metric-choice').forEach((select,i)=>select.onchange=()=>{const slots=[...document.querySelectorAll('.metric-choice')].map(x=>x.value);const chosen=select.value;if(chosen){for(let j=0;j<slots.length;j++){if(j!==i&&slots[j]===chosen)slots[j]='';}}setChartMetrics(slots);syncChartControls();render();});$('preset-save').onclick=addPreset;$('preset-manage').onclick=managePresets;renderCustomPresets();$('chart-scale').onchange=render;$('chart-window').onchange=render;setChartMetrics(customPresets.length?customPresets[0].keys:['spend','smartstoreRevenue','mallRevenue','profit']);$('chart-window').value='1';if(customPresets[0]?.scale)$('chart-scale').value=customPresets[0].scale;syncChartControls();run();setInterval(()=>{if(!document.hidden)run()},3600000);
 </script><style>
 .roas-range-mask{position:fixed;inset:0;background:#101d3440;z-index:500;display:flex;align-items:center;justify-content:center;padding:14px}
 .roas-range-modal{background:#fff;border:1px solid #dce4f0;border-radius:14px;box-shadow:0 24px 70px #10203838;width:min(760px,100%);max-height:90vh;overflow:auto;padding:18px;color:#1e2940}
