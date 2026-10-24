@@ -97,7 +97,7 @@ test('the dedicated total row renders confirmed zero, negative partial profit an
  assert.match(html,/data-summary-key="spend"[^>]*><strong>0원<\/strong>/);
  assert.match(html,/data-summary-key="profit"[^>]*><strong>-10,000원<\/strong><span class="ads-metric-partial">확인분/);
  assert.match(html,/data-summary-key="mallRevenue"[^>]*><strong>—<\/strong>/);
- assert.match(h.node('ads-table-summary-note').textContent,/캠페인·소재·검색 필터와 별도/);
+ assert.match(h.node('ads-table-summary-note').textContent,/선택 기간과 각 지표의 집계 범위를 따릅니다/);
  h.run('adsDisplaySaved.summary=[];renderAdsPeriodTotal();');
  assert.equal(h.node('ads-period-total').hidden,true);
  assert.equal(h.node('ads-period-total').innerHTML,'');
