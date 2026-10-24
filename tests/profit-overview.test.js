@@ -23,10 +23,10 @@ class Element{
  addEventListener(name,handler){this.events[name]=handler;}
  getBoundingClientRect(){return {left:0,top:0,width:1020,height:310};}
 }
-function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unexpected fetch');}}={}){
+function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unexpected fetch');},confirm=()=>true}={}){
  const nodes=new Map();
  const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
- const context=vm.createContext({console,Intl,URLSearchParams,AbortSignal,fetch,localStorage:{getItem:key=>key==='roas-account-ids'?JSON.stringify(ids):null,setItem(){}},document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()}});
+ const context=vm.createContext({console,Intl,URLSearchParams,AbortSignal,fetch,confirm,localStorage:{getItem:key=>key==='roas-account-ids'?JSON.stringify(ids):null,setItem(){}},document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()}});
  node('channel').value='all';node('chart-window').value='1';node('chart-scale').value='relative';node('since').value='2026-09-01';node('until').value='2026-09-03';node('budget-step').value='20000';
  vm.runInContext(source,context);
  vm.runInContext("activeMetricKeys=['profit'];",context);
@@ -190,4 +190,85 @@ test('Wemamang-only store revenue chart cannot be overridden by all-brand sales 
  assert.match(h.node('graph').innerHTML,/통합 매출: 15,000원/);
  assert.doesNotMatch(h.node('graph').innerHTML,/1,500,000원/);
  assert.match(h.node('profit-table').innerHTML,/15,000원/);
+});
+
+const scopedProfit=(date,extra={})=>profit(date,null,{
+ revenue:null,fee:null,cost:null,adSpend:30000,complete:false,partial:true,confirmedAvailable:true,
+ confirmed:{revenue:300000,fee:21000,cost:150000,profit:99000,orders:1},
+ pending:{unclassifiedOrders:2,mixedOrders:0,missingItemOrders:0,invalidOrders:0,totalOrders:2},
+ reasons:['스마트스토어: 위마망 여부를 확인할 미분류 주문 2건'],
+ naver:{revenue:null,fee:null,cost:null,complete:false,confirmedAvailable:true,confirmed:{revenue:300000,fee:21000,cost:150000,orders:1},unclassifiedOrders:2,unclassifiedProducts:[{name:'교체용 유리컵',options:['화이트'],orders:1,source:'브랜드명 미표기',canChoose:true},{name:'위마망 트루버 공용 케이스',options:['기본'],orders:1,source:'두 브랜드 모두 포함',canChoose:true}]},
+ cafe24:{revenue:0,fee:0,cost:0,complete:true},...extra
+});
+const elementText=element=>[element.textContent,...(element.children||[]).map(elementText)].join(' ');
+
+test('known Wemamang orders remain visible beside unresolved brands with matching table, point, and hover disclosure',()=>{
+ const h=harness();h.context.input=[scopedProfit('2026-09-01')];
+ h.run("profitDays=new Map(input.map(p=>[p.date,p]));storeSales=new Map([['2026-09-01',{total:9999999}]]);activeMetricKeys=['totalStoreRevenue','profit'];render();");
+ const svg=h.node('graph').innerHTML;
+ assert.match(svg,/통합 매출: 300,000원/);
+ assert.match(svg,/통합 예상 이익: 99,000원/);
+ assert.match(svg,/data-partial="true"/);
+ assert.match(svg,/확인된 위마망 주문만 · 부분 집계/);
+ assert.doesNotMatch(svg,/9,999,999원/);
+ assert.match(h.node('profit-table').innerHTML,/300,000원/);
+ assert.match(h.node('profit-table').innerHTML,/부분 집계 · 확인된 위마망만/);
+ assert.match(h.node('profit-total').textContent,/99,000원.*부분 집계/);
+ assert.match(h.node('profit-status').textContent,/전체 확인 0일 · 부분 집계 1일/);
+ const chart=h.node('graph').querySelector('svg');chart.events.mousemove({clientX:500,clientY:140});
+ assert.match(h.node('graph').querySelector('#roas-chart-hover').innerHTML,/미분류 2건/);
+ assert.equal(h.node('profit-brand-review').style.display,'block');
+ assert.match(elementText(h.node('profit-brand-list')),/교체용 유리컵/);
+ assert.match(elementText(h.node('profit-brand-list')),/위마망 트루버 공용 케이스/);
+ assert.match(elementText(h.node('profit-brand-list')),/화이트/);
+ assert.match(elementText(h.node('unmatched-table')),/아직 원가 검토가 완료된 주문이 아닙니다/);
+});
+
+test('unknown-only dates do not turn confirmed nulls or zero subtotals into invented sales or advertising losses',()=>{
+ const h=harness();h.context.input=[scopedProfit('2026-09-01',{
+ confirmedAvailable:false,confirmed:{revenue:0,fee:0,cost:0,profit:null,orders:0},
+ naver:{revenue:null,confirmedAvailable:false,confirmed:{revenue:0,fee:0,cost:0,orders:0},unclassifiedOrders:2}
+ })];
+ h.run("profitDays=new Map(input.map(p=>[p.date,p]));activeMetricKeys=['totalStoreRevenue','profit'];render();");
+ assert.doesNotMatch(h.node('graph').innerHTML,/<path data-metric="(?:profit|totalStoreRevenue)"/);
+ assert.equal(h.node('profit-total').textContent,'산출 불가');
+ h.context.input=[scopedProfit('2026-09-01',{confirmed:{revenue:300000,fee:21000,cost:null,profit:null,orders:1}})];
+ h.run('profitDays=new Map(input.map(p=>[p.date,p]));render();');
+ assert.match(h.node('graph').innerHTML,/통합 매출: 300,000원/);
+ assert.doesNotMatch(h.node('graph').innerHTML,/<path data-metric="profit"/);
+});
+
+test('every partial day keeps a hollow marker beyond 35 points and its connecting segment is dashed',()=>{
+ const h=harness();h.node('since').value='2026-09-01';h.node('until').value='2026-10-11';
+ h.context.input=Array.from({length:41},(_,i)=>scopedProfit(new Date(Date.UTC(2026,8,i+1)).toISOString().slice(0,10)));
+ h.run("profitDays=new Map(input.map(p=>[p.date,p]));activeMetricKeys=['totalStoreRevenue','profit'];render();");
+ const svg=h.node('graph').innerHTML;
+ assert.equal((svg.match(/<circle data-metric="profit"[^>]*data-partial="true"[^>]*fill="white"/g)||[]).length,41);
+ assert.equal((svg.match(/<circle data-metric="totalStoreRevenue"[^>]*data-partial="true"[^>]*fill="white"/g)||[]).length,41);
+ assert.match(svg,/<path data-metric="profit" data-partial="true"[^>]*stroke-dasharray="6 4"/);
+ assert.match(h.node('profit-total').textContent,/확인된 위마망만 · 부분 집계/);
+});
+
+test('brand scope is never guessed from saved costs and classification saves only after explicit user confirmation',async()=>{
+ let approved=false;const requests=[],confirmations=[];
+ const h=harness({confirm:message=>{confirmations.push(message);return approved;},fetch:async(url,options={})=>{
+  requests.push({url,options});
+  if(url==='/api/brand-products')return {ok:true,json:async()=>({ok:true})};
+  if(url.startsWith('/api/insights'))return {ok:true,json:async()=>({currency:'KRW',rows:[],cache:{missingDays:[]}})};
+  if(url.startsWith('/api/profit/daily'))return {ok:true,json:async()=>({fees:{naver:7,cafe24:3.5},days:[profit('2026-09-01',152000)],pendingProducts:[]})};
+  return {ok:true,json:async()=>({days:[]})};
+ }});
+ h.context.input=[scopedProfit('2026-09-01')];
+ h.run("profitDays=new Map(input.map(p=>[p.date,p]));existingCostRows=[{name:'교체용 유리컵',cost:40000}];render();");
+ assert.equal(requests.length,0,'Rendering unknown products must never classify them automatically');
+ const tbody=h.node('profit-brand-list').children[0].children[1],button=tbody.children[0].children[3].children[0];
+ assert.equal(button.attributes['data-brand-choice'],'wemamang');
+ await button.onclick();assert.equal(requests.length,0,'Declining must not write a classification');
+ approved=true;await button.onclick();
+ const save=requests.find(r=>r.url==='/api/brand-products');
+ assert.equal(save.options.method,'POST');assert.deepEqual(JSON.parse(save.options.body),{name:'교체용 유리컵',scope:'wemamang'});
+ assert.match(confirmations[0],/모든 판매 채널·옵션/);
+ assert.equal(h.node('profit-total').textContent,'152,000원');
+ assert.ok(requests.filter(r=>r.url.startsWith('/api/insights')).every(r=>new URL(r.url,'http://local').searchParams.get('cacheOnly')==='1'));
+ assert.equal(requests.some(r=>r.url.includes('/recent3/refresh')),false,'Classification must not trigger external data collection');
 });

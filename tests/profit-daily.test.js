@@ -323,3 +323,142 @@ test('cache-only Meta range query shows saved rows without forced API sync',asyn
  assert.equal(payload.rows.length,1);
  assert.equal(payload.rows[0].spend,'1000');
 });
+
+function scopedOrders(f) {
+ f.write('naver-orders/orders.json',{orders:{
+  wm:{id:'wm',paymentDate:day,net:300000,items:[{name:'위마망 백도씨',option:'화이트',quantity:1}]},
+  tr:{id:'tr',paymentDate:day,net:900000,items:[{name:'트루버 사하라',option:'블랙',quantity:1}]},
+  unknown:{id:'unknown',paymentDate:day,net:100000,items:[{name:'분유 제조 구성품',option:'기본',quantity:1}]},
+  both:{id:'both',paymentDate:day,net:50000,items:[{name:'위마망 트루버 구성품',option:'화이트',quantity:1}]}
+ }});
+ f.saveCost('naver','위마망 백도씨','화이트',150000);
+ f.saveCost('naver','트루버 사하라','블랙',500000);
+ f.saveCost('naver','분유 제조 구성품','기본',40000);
+ f.saveCost('naver','위마망 트루버 구성품','화이트',10000);
+ f.ads('11111',[{spend:'30000',account_currency:'KRW'}],'KRW');
+}
+
+test('unclassified orders preserve explicitly partial confirmed-Wemamang subtotals without including unknown or Truver sales',t=>{
+ const f=fixture(t);scopedOrders(f);
+ const report=f.report(),r=report.days[0];
+ assert.equal(r.revenue,null);assert.equal(r.cost,null);assert.equal(r.fee,null);assert.equal(r.profit,null);
+ assert.equal(r.complete,false);assert.equal(r.partial,true);assert.equal(r.confirmedAvailable,true);
+ assert.deepEqual(r.confirmed,{revenue:300000,fee:21000,cost:150000,orders:1,profit:99000});
+ assert.equal(r.pending.unclassifiedOrders,2);assert.equal(r.pending.totalOrders,2);
+ assert.equal(r.naver.excludedOrders,1);
+ assert.deepEqual(report.pendingProducts.map(x=>x.name).sort(),['분유 제조 구성품','위마망 트루버 구성품'].sort());
+ assert.ok(report.pendingProducts.every(x=>x.canChoose&&x.orders===1&&x.channels[0]==='naver'&&x.dates[0]===day));
+});
+
+test('explicit include/exclude choices move partial subtotals to complete totals without changing excluded Truver sales',t=>{
+ const f=fixture(t);scopedOrders(f);
+ f.saveBrandScope({name:'분유 제조 구성품',scope:'wemamang'});
+ let r=f.row();
+ assert.equal(r.profit,null);assert.equal(r.confirmed.profit,152000);assert.equal(r.partial,true);
+ assert.equal(r.confirmed.revenue,400000);assert.equal(r.pending.unclassifiedOrders,1);
+ f.saveBrandScope({name:'위마망 트루버 구성품',scope:'excluded'});
+ r=f.row();
+ assert.equal(r.profit,152000);assert.equal(r.complete,true);assert.equal(r.partial,false);
+ assert.equal(r.revenue,400000);assert.equal(r.cost,190000);assert.equal(r.fee,28000);
+ assert.deepEqual(f.report().pendingProducts,[]);
+ f.saveBrandScope({name:'분유 제조 구성품',scope:'clear'});
+ assert.equal(f.row().profit,null);assert.equal(f.row().confirmed.profit,99000);
+});
+
+test('unknown-only days cannot become a fabricated loss from a zero confirmed subtotal',t=>{
+ const f=fixture(t);
+ f.order('naver',100000,[{name:'브랜드 없는 상품',option:'',quantity:1}]);
+ f.saveCost('naver','브랜드 없는 상품','',40000);
+ f.ads('11111',[{spend:'30000',account_currency:'KRW'}],'KRW');
+ let r=f.row();
+ assert.equal(r.profit,null);assert.equal(r.confirmed.profit,null);
+ assert.equal(r.confirmedAvailable,false);assert.equal(r.confirmed.orders,0);
+ f.saveBrandScope({name:'브랜드 없는 상품',scope:'excluded'});
+ r=f.row();
+ assert.equal(r.confirmedAvailable,true);assert.equal(r.complete,true);
+ assert.equal(r.profit,-30000,'all orders explicitly excluded is confirmed zero Wemamang sales');
+});
+
+test('any missing cost on an included Wemamang order blocks the partial cost and profit, never only drops its cost',t=>{
+ const f=fixture(t);
+ f.write('naver-orders/orders.json',{orders:{
+  known:{paymentDate:day,net:100000,items:[{name:'위마망 원가 있음',option:'',quantity:1}]},
+  missing:{paymentDate:day,net:200000,items:[{name:'위마망 원가 없음',option:'',quantity:1}]},
+  pending:{paymentDate:day,net:50000,items:[{name:'분류 전 상품',option:'',quantity:1}]}
+ }});
+ f.saveCost('naver','위마망 원가 있음','',40000);
+ const r=f.row();
+ assert.equal(r.confirmedAvailable,true);assert.equal(r.confirmed.revenue,300000);assert.equal(r.confirmed.fee,21000);
+ assert.equal(r.confirmed.cost,null);assert.equal(r.confirmed.profit,null);
+ assert.equal(r.naver.missingCostOrders,1);assert.equal(r.pending.unclassifiedOrders,1);
+});
+
+test('mixed-brand order payment is wholly unresolved while a separate confirmed order remains visible',t=>{
+ const f=fixture(t);
+ f.order('naver',300000,[{name:'위마망 백도씨',option:'화이트',quantity:1}]);
+ f.saveCost('naver','위마망 백도씨','화이트',150000);
+ f.order('cafe24',500000,[{name:'위마망 부속',option:'',quantity:1},{name:'트루버 부속',option:'',quantity:1}]);
+ f.saveCost('cafe24','위마망 부속','',20000);
+ const r=f.row();
+ assert.equal(r.profit,null);assert.equal(r.confirmed.revenue,300000);assert.equal(r.confirmed.cost,150000);
+ assert.equal(r.confirmed.profit,129000);assert.equal(r.pending.mixedOrders,1);
+ assert.equal(r.cafe24.confirmed.orders,0);assert.deepEqual(f.report().pendingProducts,[]);
+});
+
+test('missing historical item metadata does not erase the confirmed cost of separate known orders',t=>{
+ const f=fixture(t);
+ f.write('naver-orders/orders.json',{orders:{
+  known:{paymentDate:day,net:100000,items:[{name:'위마망 백도씨',option:'',quantity:1}]},
+  missing:{paymentDate:day,net:200000,items:[]}
+ }});
+ f.saveCost('naver','위마망 백도씨','',40000);
+ const r=f.row();
+ assert.equal(r.confirmed.revenue,100000);assert.equal(r.confirmed.cost,40000);assert.equal(r.confirmed.profit,53000);
+ assert.equal(r.pending.missingItemOrders,1);assert.equal(r.profit,null);
+});
+
+test('pending product review deduplicates order counts and keeps exact channels, options and queried dates',t=>{
+ const f=fixture(t),next='2026-09-02',name='브랜드 확인할 품목';
+ f.write('naver-orders/orders.json',{orders:{
+  a:{paymentDate:day,net:100000,items:[{name,option:'옵션 A',quantity:1},{name,option:'옵션 B',quantity:1}]},
+  outside:{paymentDate:'2026-08-31',net:100000,items:[{name:'조회 밖 품목',option:'',quantity:1}]}
+ }});
+ f.write('cafe24-orders/orders.json',{orders:{b:{date:next,net:200000,items:[{name,option:'옵션 C',quantity:1}]}}});
+ const report=f.profitDaily(day,next,{accounts,fx:1350}),p=report.pendingProducts[0];
+ assert.equal(report.pendingProducts.length,1);assert.equal(p.name,name);assert.equal(p.orders,2);
+ assert.deepEqual(p.channels,['cafe24','naver']);assert.deepEqual(p.options,['옵션 A','옵션 B','옵션 C']);assert.deepEqual(p.dates,[day,next]);
+ assert.equal(report.days[0].naver.unclassifiedProducts[0].orders,1);
+});
+
+test('unnameable items remain actionable as metadata repair rather than a selectable guessed product',t=>{
+ const f=fixture(t);f.order('naver',100000,[{name:'',option:'',quantity:1}]);
+ const report=f.report();
+ assert.equal(report.pendingProducts[0].canChoose,false);
+ assert.equal(report.pendingProducts[0].name,'상품명 없음');
+ assert.equal(report.days[0].confirmedAvailable,false);assert.equal(report.days[0].confirmed.profit,null);
+});
+
+test('sales comparison and profit share Wemamang scope and complete versus confirmed subtotal semantics',t=>{
+ const f=fixture(t);scopedOrders(f);
+ let comparison=f.combinedAnalysis(day,day,day),r=f.row();
+ assert.equal(comparison.scope,'wemamang');assert.equal(comparison.days[0].total,r.revenue);
+ assert.equal(comparison.days[0].confirmed.total,r.confirmed.revenue);
+ assert.equal(comparison.days[0].complete,false);assert.equal(comparison.after.totalRevenue,null);
+ assert.equal(comparison.after.confirmed.totalRevenue,300000);
+ f.saveBrandScope({name:'분유 제조 구성품',scope:'excluded'});f.saveBrandScope({name:'위마망 트루버 구성품',scope:'excluded'});
+ comparison=f.combinedAnalysis(day,day,day);
+ assert.equal(comparison.days[0].total,300000);assert.equal(comparison.days[0].complete,true);
+ assert.equal(comparison.after.totalRevenue,300000,'Truver revenue cannot leak into the sales comparison');
+});
+
+test('sales completeness does not depend on cost entry, and AI complete profit cannot substitute a partial subtotal',t=>{
+ const f=fixture(t);scopedOrders(f);
+ const ai=f.strategySnapshot(accounts,day,day,1350);
+ assert.equal(ai.completeDays,0);assert.equal(ai.days[0].estimatedContribution,null);
+ assert.equal(ai.days[0].confirmedScopeSubtotal.profit,99000);assert.equal(ai.days[0].partial,true);
+ f.order('naver',100000,[{name:'위마망 원가 미입력',option:'',quantity:1}]);
+ const comparison=f.combinedAnalysis(day,day,day);
+ assert.equal(comparison.days[0].complete,true);assert.equal(comparison.days[0].total,100000);
+ assert.equal(f.row().profit,null);assert.equal(f.row().confirmed.profit,null);
+});
+

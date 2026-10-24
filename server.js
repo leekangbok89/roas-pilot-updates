@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.71';
+const appVersion='2.8.72';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -861,9 +861,9 @@ function profitDaily(since,until,options={}){
  const includeAds=options.accounts!==undefined,accounts=includeAds?profitAccounts(options.accounts):[],fx=Number(options.fx??1350);
  if(includeAds&&(!Number.isFinite(fx)||fx<=0))throw Object.assign(Error('USD→KRW 환율값을 확인하세요.'),{status:400});
  const nv=naverRead(naverOrderFile,{orders:{}}).orders||{},cv=cafeCache(cafeOrdersFile,{orders:{}}).orders||{},ns=naverRead(naverSyncFile,{days:{}}).days||{},cs=cafeCache(cafeSyncFile,{days:{}}).days||{},costs=costRead(),fees=profitFees();
- const aliases=costAliasesRead(),brandChoices=brandScopeRead(),summaries=new Map();
+ const aliases=costAliasesRead(),brandChoices=brandScopeRead(),summaries=new Map(),pendingProducts=new Map();
 
- const emptySummary=()=>({revenue:0,cost:0,missingOrders:0,missingItemOrders:0,invalidOrders:0,orders:0,mixedOrders:0,unclassifiedOrders:0,excludedOrders:0,missingCostItems:new Map(),unclassifiedProducts:new Map()});
+ const emptySummary=()=>({revenue:0,cost:0,missingOrders:0,missingCostOrders:0,missingItemOrders:0,invalidOrders:0,orders:0,mixedOrders:0,unclassifiedOrders:0,excludedOrders:0,missingCostItems:new Map(),unclassifiedProducts:new Map()});
  const add=(channel,o)=>{
   const d=channel==='naver'?o.paymentDate:o.date;
   if(!d||d<since||d>until)return;
@@ -877,10 +877,15 @@ function profitDaily(since,until,options={}){
   const unknown=classified.filter(x=>x.brand.scope==='unclassified');
   if(unknown.length){
    rec.unclassifiedOrders++;
+   const counted=new Set();
    for(const item of unknown){
-    const name=cleanCostText(item?.name)||'상품명 없음',itemKey=brandScopeKey(name);
-    const found=rec.unclassifiedProducts.get(itemKey)||{name,orders:0};
-    found.orders++;rec.unclassifiedProducts.set(itemKey,found);
+    const rawName=cleanCostText(item?.name),name=rawName||'상품명 없음',itemKey=brandScopeKey(rawName),option=cleanCostText(item?.option);
+    const found=rec.unclassifiedProducts.get(itemKey)||{name,orders:0,options:new Set(),dates:new Set(),source:item.brand.source,canChoose:!!rawName};
+    const pending=pendingProducts.get(itemKey)||{name,channels:new Set(),options:new Set(),orders:0,dates:new Set(),source:item.brand.source,canChoose:!!rawName};
+    if(!counted.has(itemKey)){found.orders++;pending.orders++;counted.add(itemKey);}
+    found.options.add(option);found.dates.add(d);
+    pending.channels.add(channel);pending.options.add(option);pending.dates.add(d);
+    rec.unclassifiedProducts.set(itemKey,found);pendingProducts.set(itemKey,pending);
    }
    summaries.set(key,rec);return;
   }
@@ -898,7 +903,7 @@ function profitDaily(since,until,options={}){
     missing.orders++;rec.missingCostItems.set(itemKey,missing);
    }else{subtotal+=unitCost*quantity;}
   }
-  if(valid)rec.cost+=subtotal;else rec.missingOrders++;
+  if(valid)rec.cost+=subtotal;else{rec.missingOrders++;rec.missingCostOrders++;}
   summaries.set(key,rec);
  };
 
@@ -912,34 +917,48 @@ function profitDaily(since,until,options={}){
    if(sum.unclassifiedOrders)reasons.push('위마망 여부를 확인할 미분류 주문 '+sum.unclassifiedOrders+'건 (원가관리 → 미분류 상품 확인)');
    if(sum.mixedOrders)reasons.push('위마망·타 브랜드 혼합 주문 '+sum.mixedOrders+'건 (상품별 실결제금액 확인 필요)');
    if(sum.missingCostItems.size)reasons.push('상품·옵션 원가 또는 수량 미확정 '+sum.missingCostItems.size+'개');
-   row[channel]={revenue:revenueKnown?sum.revenue:null,cost:costKnown?sum.cost:null,fee:revenueKnown?Math.round(sum.revenue*fees[channel]/100):null,complete:costKnown,missingOrders:sum.missingOrders,missingItemOrders:sum.missingItemOrders,missingCostItems:[...sum.missingCostItems.values()],unclassifiedProducts:[...sum.unclassifiedProducts.values()],excludedOrders:sum.excludedOrders,mixedOrders:sum.mixedOrders,unclassifiedOrders:sum.unclassifiedOrders,orders:sum.orders,reason:reasons.join(' · ')||null};
+   const pending={unclassifiedOrders:sum.unclassifiedOrders,mixedOrders:sum.mixedOrders,missingItemOrders:sum.missingItemOrders,invalidOrders:sum.invalidOrders};
+   pending.totalOrders=Object.values(pending).reduce((a,b)=>a+b,0);
+   // These subtotals include only whole orders whose items are all confirmed
+   // Wemamang. Pending/mixed orders never donate revenue or cost to this subset.
+   // A missing cost on an included order still blocks this subset's total cost.
+   const confirmed={revenue:collected?sum.revenue:null,fee:collected?Math.round(sum.revenue*fees[channel]/100):null,cost:collected&&sum.missingCostOrders===0?sum.cost:null,orders:sum.orders};
+   const confirmedAvailable=collected&&(sum.orders>0||pending.totalOrders===0);
+   row[channel]={revenue:revenueKnown?sum.revenue:null,cost:costKnown?sum.cost:null,fee:revenueKnown?Math.round(sum.revenue*fees[channel]/100):null,complete:costKnown,revenueComplete:revenueKnown,collected,confirmed,confirmedAvailable,partial:!costKnown&&confirmedAvailable,pending,missingOrders:sum.missingOrders,missingCostOrders:sum.missingCostOrders,missingItemOrders:sum.missingItemOrders,missingCostItems:[...sum.missingCostItems.values()],unclassifiedProducts:[...sum.unclassifiedProducts.values()].map(x=>({...x,options:[...x.options].sort(),dates:[...x.dates].sort()})),excludedOrders:sum.excludedOrders,mixedOrders:sum.mixedOrders,unclassifiedOrders:sum.unclassifiedOrders,orders:sum.orders,reason:reasons.join(' · ')||null};
   }
   row.revenue=row.naver.revenue!=null&&row.cafe24.revenue!=null?row.naver.revenue+row.cafe24.revenue:null;
   row.cost=row.naver.cost!=null&&row.cafe24.cost!=null?row.naver.cost+row.cafe24.cost:null;
   row.fee=row.naver.fee!=null&&row.cafe24.fee!=null?row.naver.fee+row.cafe24.fee:null;
   row.reasons=[...['naver','cafe24'].flatMap(ch=>row[ch].reason?[(ch==='naver'?'스마트스토어':'카페24')+': '+row[ch].reason]:[])];
-  if(includeAds){const ad=profitAdSpend(accounts,date,fx);row.adSpend=ad.adSpend;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.naver.complete&&row.cafe24.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;}
+  row.pending=Object.fromEntries(['unclassifiedOrders','mixedOrders','missingItemOrders','invalidOrders','totalOrders'].map(k=>[k,row.naver.pending[k]+row.cafe24.pending[k]]));
+  const combinedConfirmed=key=>row.naver.confirmed[key]!=null&&row.cafe24.confirmed[key]!=null?row.naver.confirmed[key]+row.cafe24.confirmed[key]:null;
+  row.confirmed={revenue:combinedConfirmed('revenue'),fee:combinedConfirmed('fee'),cost:combinedConfirmed('cost'),orders:row.naver.orders+row.cafe24.orders};
+  row.confirmedAvailable=row.naver.collected&&row.cafe24.collected&&(row.confirmed.orders>0||row.pending.totalOrders===0);
+  row.revenueComplete=row.naver.revenueComplete&&row.cafe24.revenueComplete;
+  row.complete=row.naver.complete&&row.cafe24.complete;
+  if(includeAds){
+   const ad=profitAdSpend(accounts,date,fx);row.adSpend=ad.adSpend;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
+   row.confirmed.profit=row.confirmedAvailable&&ad.adComplete&&row.confirmed.revenue!=null&&row.confirmed.fee!=null&&row.confirmed.cost!=null?row.confirmed.revenue-row.confirmed.fee-row.confirmed.cost-ad.adSpend:null;
+  }
+  row.partial=!row.complete&&row.confirmedAvailable;
   days.push(row);
  }
- return {fees,days,...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 분류된 상품만 대상입니다. 상품명에 트루버 포함은 제외, 위마망 포함은 포함, 그 외는 사용자의 확인이 필요합니다. 같은 주문에 다른 브랜드가 함께 있으면 상품별 실결제금액 없이 주문총액을 임의 배분하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
+ return {fees,days,pendingProducts:[...pendingProducts.values()].map(x=>({...x,channels:[...x.channels].sort(),options:[...x.options].sort(),dates:[...x.dates].sort()})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko')),...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 확인된 상품만 대상입니다. 상품명에 트루버만 포함은 제외, 위마망만 포함은 포함, 둘 다 있거나 둘 다 없으면 사용자의 확인이 필요합니다. 미분류·혼합 주문이 있으면 전체 확정값과 확인된 위마망 주문 소계를 구분합니다. 상품별 실결제금액이 없는 혼합 주문의 총액은 임의 배분하지 않습니다. 확인된 주문의 원가가 하나라도 없으면 그 소계 이익도 계산하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 부분집계 이익도 전체 연결 Meta 광고비를 한 번 차감하며, 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
 }
 
 function combinedAnalysis(start,end,pivot){
  if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
- const c=cafeSalesState(),n=naverPublicState();
- const cafeCompleted=cafeCache(cafeSyncFile,{days:{}}).days||{},naverCompleted=naverRead(naverSyncFile,{days:{}}).days||{};
- const nMap=new Map(n.days.map(x=>[x.date,x])),cMap=new Map(c.days.map(x=>[x.date,x]));
- const result=[];for(let ts=dayUTC(start);ts<=dayUTC(end);ts+=86400000){
-  const d=dayString(ts),nv=nMap.get(d),cv=cMap.get(d);
-  const complete=!!(naverCompleted[d]&&cafeCompleted[d]);const nVal=naverCompleted[d]?(nv?.net??0):null,cVal=cafeCompleted[d]?(cv?.net??0):null;
-  result.push({date:d,naver:nVal,cafe24:cVal,total:complete?nVal+cVal:null,complete});
- }
+ // Sales and profit must use the same brand scope. Sales completeness depends
+ // on attributable revenue, not whether the included product costs are entered.
+ const scoped=profitDaily(start,end);
+ const result=scoped.days.map(row=>({date:row.date,naver:row.naver.revenue,cafe24:row.cafe24.revenue,total:row.revenue,complete:row.revenueComplete,confirmed:{naver:row.naver.confirmed.revenue,cafe24:row.cafe24.confirmed.revenue,total:row.confirmed.revenue},confirmedAvailable:row.confirmedAvailable,partial:!row.revenueComplete&&row.confirmedAvailable,pending:row.pending,reasons:row.reasons}));
  const metrics=arr=>{
   const covered=arr.filter(x=>x.complete),revenue=covered.reduce((s,x)=>s+x.total,0);
-  return {days:arr.length,coveredDays:covered.length,totalRevenue:covered.length?revenue:null,averageDailyRevenue:covered.length?revenue/covered.length:null};
+  const known=arr.filter(x=>x.confirmedAvailable&&Number.isFinite(x.confirmed.total)),knownRevenue=known.reduce((s,x)=>s+x.confirmed.total,0);
+  return {days:arr.length,coveredDays:covered.length,totalRevenue:covered.length?revenue:null,averageDailyRevenue:covered.length?revenue/covered.length:null,confirmed:{coveredDays:known.length,partialDays:known.filter(x=>x.partial).length,totalRevenue:known.length?knownRevenue:null,averageDailyRevenue:known.length?knownRevenue/known.length:null}};
  };
  const before=metrics(result.filter(x=>x.date<pivot)),after=metrics(result.filter(x=>x.date>=pivot));
- return {before,after,change:before.averageDailyRevenue!=null&&after.averageDailyRevenue!=null?after.averageDailyRevenue-before.averageDailyRevenue:null,days:result,warning:'관측 매출 변화이며 광고의 인과적 증분 효과가 아닙니다. 매출 수집 상태와 다른 광고·요일·품절 영향을 확인하세요.'};
+ return {scope:'wemamang',before,after,change:before.averageDailyRevenue!=null&&after.averageDailyRevenue!=null?after.averageDailyRevenue-before.averageDailyRevenue:null,days:result,pendingProducts:scoped.pendingProducts,warning:'위마망으로 확인된 상품만 집계합니다. 미분류·혼합 주문이 있으면 전체 확정 매출과 확인된 주문 소계가 다릅니다. 관측 매출 변화이며 광고의 인과적 증분 효과가 아닙니다. 매출 수집 상태와 다른 광고·요일·품절 영향을 확인하세요.'};
 }
 
 
@@ -949,8 +968,8 @@ function strategySnapshot(accounts,since,until,fx){
  const start=isDate(since)?since:dayString(dayUTC(todaySeoul())-29*86400000),end=isDate(until)?until:todaySeoul();
  if(start>end||(dayUTC(end)-dayUTC(start))/86400000>120)throw Object.assign(Error('최근 121일 이내로 기간을 지정하세요.'),{status:400});
  const ids=profitAccounts(accounts),report=profitDaily(start,end,{accounts:ids,fx});
- const data=report.days.filter(row=>row.date!==todaySeoul()).map(row=>({date:row.date,adSpend:row.adSpend,sales:row.revenue,fees:row.fee,orders:row.revenue!=null?row.naver.orders+row.cafe24.orders:null,knownProductCosts:row.cost,ordersMissingCost:row.naver.missingOrders+row.cafe24.missingOrders,estimatedContribution:row.profit,complete:row.complete,reasons:row.reasons}));
- return {period:{since:start,until:end},accounts:ids.length,fxUsed:fx,feeRates:report.fees,completeDays:data.filter(row=>row.complete).length,days:data,limitations:['예상 이익은 스마트스토어·자사몰 매출-각 채널 평균 판매수수료-총 Meta 광고비-등록 옵션 원가×판매 수량입니다. 배송비·부가세·반품 처리시차·고정비는 별도입니다.','광고비별 순이익 증대는 상관관계만으로 인과관계를 확정할 수 없습니다.','원가 미입력 주문 또는 수집 누락이 있으면 해당 날짜 이익은 null입니다.']};
+ const data=report.days.filter(row=>row.date!==todaySeoul()).map(row=>({date:row.date,adSpend:row.adSpend,sales:row.revenue,fees:row.fee,orders:row.revenue!=null?row.naver.orders+row.cafe24.orders:null,knownProductCosts:row.cost,ordersMissingCost:row.naver.missingOrders+row.cafe24.missingOrders,estimatedContribution:row.profit,complete:row.complete,confirmedScopeSubtotal:row.confirmedAvailable?row.confirmed:null,partial:row.partial,pending:row.pending,reasons:row.reasons}));
+ return {period:{since:start,until:end},accounts:ids.length,fxUsed:fx,feeRates:report.fees,completeDays:data.filter(row=>row.complete).length,days:data,limitations:['예상 이익은 위마망 스마트스토어·자사몰 매출-각 채널 평균 판매수수료-총 Meta 광고비-등록 옵션 원가×판매 수량입니다. 배송비·부가세·반품 처리시차·고정비는 별도입니다.','confirmedScopeSubtotal은 확인된 위마망 주문만의 소계입니다. partial=true이면 미분류·혼합·미확인 주문 등이 제외되어 전체 이익으로 해석하거나 최적 예산 판단에 사용하면 안 됩니다.','광고비별 순이익 증대는 상관관계만으로 인과관계를 확정할 수 없습니다.','원가 미입력 주문 또는 수집 누락이 있으면 해당 날짜 이익은 null입니다.']};
 }
 async function strategyAsk(body){
  const question=String(body.question||'').trim();if(!question||question.length>1500)throw Object.assign(Error('질문은 1~1500자로 입력하세요.'),{status:400});
@@ -1113,5 +1132,6 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow};
+module.exports={server,isDate,profitDaily,combinedAnalysis,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow};
+
 
