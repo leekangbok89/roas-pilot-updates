@@ -1,6 +1,6 @@
 {
   "name": "meta-roas-analyzer",
-  "version": "2.8.88",
+  "version": "2.8.89",
   "private": true,
   "description": "CSV + Meta Marketing API ROAS analysis dashboard",
   "scripts": {
@@ -11,4 +11,3 @@
     "node": ">=20"
   }
 }
-

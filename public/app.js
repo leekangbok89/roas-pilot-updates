@@ -743,7 +743,8 @@ function adsMetricCell(metric,ad){
 // because store orders cannot be assigned to individual Meta advertisements.
 const adsSharedOverviewKeys=new Set(['revenue','purchases','cpa','cpc','cpm','ctr','impressions','clicks']);
 let adsPeriodViewSignature='',adsPeriodViewResult=null,adsPeriodViewPending=null,adsPeriodViewVersion=0;
-function adsTableColumns(configuration=adsDisplaySaved){
+function effectiveAdsDisplaySettings(){return adsDisplayDraft||adsDisplaySaved;}
+function adsTableColumns(configuration=effectiveAdsDisplaySettings()){
  const columns=configuration.columns.map(key=>adsColumnMetrics.find(metric=>metric.key===key)).filter(Boolean).map(metric=>({key:metric.key,kind:'ad',metric,overviewKey:null}));
  for(const key of configuration.summary){
   const overview=AdsOverviewSummary.metrics.find(metric=>metric.key===key);if(!overview)continue;
@@ -765,7 +766,7 @@ function adsTableCell(column,ad){
 }
 function renderAdsPeriodTotal(){
  const body=$('ads-period-total'),note=$('ads-table-summary-note');if(!body)return;
- const keys=adsDisplaySaved.summary,columns=adsTableColumns();
+ const active=effectiveAdsDisplaySettings(),keys=active.summary,columns=adsTableColumns(active);
  body.hidden=keys.length===0;if(note)note.hidden=keys.length===0;
  if(!keys.length){body.replaceChildren();if(note)note.textContent='';return;}
  const result=adsPeriodViewResult,metrics=new Map((result?.metrics||[]).map(metric=>[metric.key,metric]));
@@ -786,7 +787,8 @@ function renderAdsTable(shown){
  const columns=adsTableColumns(),head=$('ad-head');
  if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+columns.map(column=>'<th scope="col" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(column.metric.description)+'">'+safe(column.metric.label)+(column.kind==='period'?'<small class="ads-table-scope">기간 합계</small>':'')+'</th>').join('');
  $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+columns.map(column=>adsTableCell(column,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(columns.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
- $('table-footer').textContent='광고 '+shown.length+'개 · 표 지표 '+columns.length+'개'+(adsDisplaySaved.summary.length?' · 한눈에 보기 선택 지표는 합계 행에 표시 · 공통 항목은 같은 열에 표시':'')+' · 기간 중 중복 도달은 합산하지 않습니다.';
+ const active=effectiveAdsDisplaySettings();
+ $('table-footer').textContent='광고 '+shown.length+'개 · 표 지표 '+columns.length+'개'+(active.summary.length?' · 한눈에 보기 선택 지표는 합계 행에 표시 · 공통 항목은 같은 열에 표시':'')+' · 기간 중 중복 도달은 합산하지 않습니다.';
  updateAdsPeriodSummary();
 }
 function invalidateAdsPeriodData(){
@@ -796,7 +798,8 @@ function updateAdsPeriodSummary(force=false){
  const accountIds={naver:String($('naver-account')?.value||'').trim().replace(/^act_/,''),cafe:String($('cafe-account')?.value||'').trim().replace(/^act_/,'')};
  const channel=state.channel!=='all'?state.channel:($('account-choice')?.value||'all');
  const graph=AdsPerformanceGraph.options();
- const input={keys:adsDisplaySaved.summary.slice(),seriesKeys:graph.keys,window:graph.window,since:$('since')?.value||'',until:$('until')?.value||'',fx:state.fxRate,accountIds,channel,force};
+ const active=effectiveAdsDisplaySettings();
+ const input={keys:active.summary.slice(),seriesKeys:graph.keys,window:graph.window,since:$('since')?.value||'',until:$('until')?.value||'',fx:state.fxRate,accountIds,channel,force};
  const signature=JSON.stringify({...input,force:false,scale:graph.scale});
  if(!force&&signature===adsPeriodViewSignature&&(adsPeriodViewResult||adsPeriodViewPending)){
   renderAdsPeriodTotal();return adsPeriodViewPending||Promise.resolve(adsPeriodViewResult);
@@ -834,7 +837,7 @@ function renderAdsDisplayEditor(){
  if(focused)$(focused)?.focus({preventScroll:true});
 }
 function closeAdsDisplayEditor(message){
- adsDisplayDraft=null;renderAdsDisplayEditor();adsDisplayMessage(message);$('ads-display-toggle')?.focus({preventScroll:true});
+ adsDisplayDraft=null;renderAdsDisplayEditor();render();adsDisplayMessage(message);$('ads-display-toggle')?.focus({preventScroll:true});
 }
 function setupAdsDisplaySettings(){
  if(!$('ads-display-toggle'))return;
@@ -854,7 +857,7 @@ function setupAdsDisplaySettings(){
   if(!adsDisplayDraft||!['columns','summary'].includes(scope)||!key)return;
   if(input.checked){if(!adsDisplayDraft[scope].includes(key))adsDisplayDraft[scope].push(key);}
   else adsDisplayDraft[scope]=adsDisplayDraft[scope].filter(item=>item!==key);
-  renderAdsDisplayEditor();adsDisplayMessage('변경 사항은 설정 저장을 눌러야 적용됩니다.');
+  renderAdsDisplayEditor();render();adsDisplayMessage('체크한 항목을 표·합계·그래프에 미리 표시했습니다. 설정 저장을 누르면 다음 접속에도 유지됩니다.');
  });
  $('ads-display-editor').addEventListener('click',event=>{
   const button=event.target.closest('button');if(!button||!adsDisplayDraft)return;
@@ -862,20 +865,20 @@ function setupAdsDisplaySettings(){
    const [scope,mode]=button.dataset.adsSelect.split(':');
    const catalog=scope==='columns'?adsColumnMetrics:AdsOverviewSummary.metrics;
    adsDisplayDraft[scope]=mode==='all'?catalog.map(metric=>metric.key):[];
-   renderAdsDisplayEditor();adsDisplayMessage('변경 사항은 설정 저장을 눌러야 적용됩니다.');
+   renderAdsDisplayEditor();render();adsDisplayMessage('선택 변경을 표·합계·그래프에 미리 표시했습니다. 설정 저장을 누르면 다음 접속에도 유지됩니다.');
   }
   if(button.dataset.adsMove){
    const keys=adsDisplayDraft[button.dataset.adsMove],from=keys.indexOf(button.dataset.adsKey),to=from+Number(button.dataset.adsStep);
    if(from<0||to<0||to>=keys.length)return;
-   [keys[from],keys[to]]=[keys[to],keys[from]];renderAdsDisplayEditor();
-   adsDisplayMessage('표시 순서를 변경했습니다. 설정 저장을 누르면 적용됩니다.');
+   [keys[from],keys[to]]=[keys[to],keys[from]];renderAdsDisplayEditor();render();
+   adsDisplayMessage('표시 순서를 미리 반영했습니다. 설정 저장을 누르면 다음 접속에도 유지됩니다.');
   }
  });
  $('ads-display-editor').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeAdsDisplayEditor('변경 사항을 취소했습니다.');}});
  $('ads-display-cancel').addEventListener('click',()=>closeAdsDisplayEditor('변경 사항을 취소했습니다.'));
  $('ads-display-reset').addEventListener('click',()=>{
-  adsDisplayDraft=normalizeAdsDisplaySettings(null);renderAdsDisplayEditor();
-  adsDisplayMessage('기본 구성을 선택했습니다. 설정 저장을 눌러 적용하세요.');
+  adsDisplayDraft=normalizeAdsDisplaySettings(null);renderAdsDisplayEditor();render();
+  adsDisplayMessage('기본 구성을 미리 표시했습니다. 설정 저장을 누르면 다음 접속에도 유지됩니다.');
  });
  $('ads-display-save').addEventListener('click',()=>{
   if(!adsDisplayDraft)return;
