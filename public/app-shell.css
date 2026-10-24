@@ -1,6 +1,6 @@
 /* One readable, fluid shell for every workspace page. */
 :root {
-  --app-rail-width:28px; --app-drawer-width:236px; --app-pad:28px;
+  --app-rail-width:28px; --app-drawer-width:236px; --app-pad:20px;
   --app-bg:#f3f6fa; --app-surface:#fff; --app-surface-soft:#f0f4f9;
   --app-text:#172b46; --app-muted:#506078; --app-border:#d4deeb;
   --app-accent:#5346cf; --app-accent-soft:#eeebff; --app-link:#4f42c7;
@@ -34,20 +34,21 @@ body[data-app-page] .shell { display:block; min-height:100vh; }
 body[data-app-page] .app-main { box-sizing:border-box; width:calc(100% - var(--app-rail-width)); max-width:none; min-width:0; min-height:100vh; margin:0 0 0 var(--app-rail-width); padding:var(--app-pad); outline:none; }
 body[data-app-page="index"]:not(.app-route-ready) .app-main { visibility:hidden; }
 body[data-app-page] [hidden],body[data-app-page] .workspace-hidden { display:none!important; }
-.app-page-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:16px; margin:0 0 22px; }
+.app-page-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:0 0 14px; }
 body .app-main .app-page-title { margin:0; font-size:26px; line-height:1.35; font-weight:700; letter-spacing:-.6px; color:var(--app-text); }
-body .app-main .app-page-subtitle { margin:7px 0 0; font-size:14px; line-height:1.6; color:var(--app-muted); }
+body .app-main .app-page-subtitle { margin:4px 0 0; font-size:14px; line-height:1.5; color:var(--app-muted); }
 body .app-main h2 { color:var(--app-text); font-size:18px; line-height:1.45; font-weight:600; letter-spacing:-.25px; }
-body .app-main h3 { color:var(--app-text); font-size:16px; line-height:1.5; font-weight:600; }
-body .app-main p { color:var(--app-muted); }
-body .app-main :is(.small,.sub,.helper,.note,.empty,.table-footer,.legend,small,.status,footer) { color:var(--app-muted); font-size:14px; line-height:1.6; }
+body .app-main h3 { margin:0 0 8px; color:var(--app-text); font-size:16px; line-height:1.5; font-weight:600; }
+body .app-main p { margin:6px 0; color:var(--app-muted); }
+body .app-main :is(.small,.sub,.helper,.note,.empty,.table-footer,.legend,small,.status,footer) { color:var(--app-muted); font-size:14px; line-height:1.5; }
 body .app-main :is(.panel-title p,.section-head p,.reason-box li,.detail-content.muted) { font-size:14px; color:var(--app-muted); }
-body .app-main label { font-size:14px; line-height:1.5; color:var(--app-muted); font-weight:600; }
+body .app-main label { gap:3px; font-size:14px; line-height:1.5; color:var(--app-muted); font-weight:600; }
 body .app-main #daily-compare :is(.compare-filter-row,.compare-date-row) label { font-size:14px; color:var(--app-muted); }
 body .app-main :is(button,input,select,textarea),body .roas-range-modal button { font-family:inherit; font-size:14px!important; line-height:1.4; color:var(--app-text); border:1px solid var(--app-border); border-radius:8px; background:var(--app-surface); }
-body .app-main :is(button,select,input:not([type="checkbox"]):not([type="radio"])),body .roas-range-modal button { min-height:38px; }
-body .app-main button,body .roas-range-modal button { padding:8px 12px; font-weight:600; cursor:pointer; }
-body .app-main :is(input,select,textarea) { padding:8px 10px; font-weight:400; }
+body .app-main :is(button,select,input:not([type="checkbox"]):not([type="radio"])),body .roas-range-modal button { min-height:32px; }
+body .app-main button,body .roas-range-modal button { padding:5px 8px; font-weight:600; cursor:pointer; }
+body .app-main :is(input,select,textarea) { padding:5px 8px; font-weight:400; }
+body .app-main :is(.date-field input,.date-field select,.date-presets .preset,.compact-refresh) { height:32px; }
 body .app-main .button.ghost { background:var(--app-surface); color:var(--app-text); border:1px solid var(--app-border); }
 body .app-main :is(input[type="checkbox"],input[type="radio"]) { min-height:0; accent-color:var(--app-accent); }
 body .app-main option { background:var(--app-surface); color:var(--app-text); }
@@ -59,13 +60,15 @@ body .app-main :is(button:disabled,input:disabled,select:disabled) { opacity:.65
 body[data-app-page] :is(a,button,input,select,textarea,summary):focus-visible { outline:3px solid var(--app-link); outline-offset:3px; }
 body .app-main a { color:var(--app-link); text-underline-offset:3px; }
 body .app-main :is(.panel,.control-panel,.setting-bar,.fx-bar,.date-controls,.settings-tabs,.toolbar,.metric),body[data-app-page="cost"] .app-main>section { background:var(--app-surface); color:var(--app-text); border-color:var(--app-border); border-radius:14px; box-shadow:var(--app-shadow); }
-body .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section { padding:20px; margin:0 0 18px; }
-body .app-main :is(.toolbar,.date-controls,.settings-tabs) { padding:14px; gap:10px; margin:0 0 18px; }
-body .app-main .panel .toolbar { margin-top:14px; }
-body .app-main :is(.panelhead,.section-head,.panel-title) { gap:14px; }
+body .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section { padding:14px; margin:0 0 12px; }
+body .app-main :is(.toolbar,.date-controls,.settings-tabs) { padding:10px; gap:8px; margin:0 0 12px; }
+body .app-main .panel .toolbar { margin-top:10px; }
+body .app-main :is(.panelhead,.section-head,.panel-title) { gap:10px; }
+body .app-main .panelhead { margin-bottom:10px; }
 body .app-main .section-head { flex-wrap:wrap; }
-body .app-main .metric { padding:18px; }
-body .app-main .metric strong { font-size:26px; font-weight:600; line-height:1.35; }
+body .app-main .metrics { gap:8px; margin-bottom:12px; }
+body .app-main .metric { padding:12px; min-height:90px; }
+body .app-main .metric strong { margin:4px 0 0; font-size:26px; font-weight:600; line-height:1.35; overflow-wrap:anywhere; }
 body .app-main .metric.highlight { background:var(--app-accent); color:#fff; border-color:var(--app-accent); }
 body .app-main .metric.highlight small { color:#fff; }
 body .app-main #profit-total { font-size:26px; font-weight:700; }
@@ -73,12 +76,15 @@ body .app-main :is(.channel-config,.reason-box,#compare-diagnostics,#history-rep
 body .app-main :is(.channel-bar,.tabs,.summary-item,.metric-chip,#ai-thread) { background:var(--app-surface-soft)!important; color:var(--app-text); border-color:var(--app-border)!important; }
 body .app-main :is(.metric-chip strong,.summary-item b,.setting-caption) { color:var(--app-text); }
 body .app-main :is(.pill,.ai-tag) { background:var(--app-accent-soft); color:var(--app-link); font-size:12px; font-weight:600; }
-body .app-main table,body .app-main :is(th,td) { font-size:14px!important; line-height:1.55; color:var(--app-text); border-color:var(--app-border); font-variant-numeric:tabular-nums; }
-body .app-main :is(th,td) { padding:12px 10px; }
+body .app-main table,body .app-main :is(th,td) { font-size:14px!important; line-height:1.45; color:var(--app-text); border-color:var(--app-border); font-variant-numeric:tabular-nums; }
+body .app-main :is(th,td) { padding:7px 8px; }
 body .app-main th { background:var(--app-surface-soft); color:var(--app-muted); font-weight:600; }
 body .app-main td { font-weight:400; }
 body .app-main td:first-child b { font-size:14px; font-weight:600; }
 body .app-main td small { font-size:14px; color:var(--app-muted); }
+body .app-main table :is(button,select,input:not([type="checkbox"]):not([type="radio"])) { min-height:30px; padding:4px 7px; }
+body .app-main td:has(> :is(button,select,input:not([type="checkbox"]):not([type="radio"]))) { padding-top:8px; padding-bottom:8px; }
+body[data-app-page="cost"] #items td:first-child,body[data-app-page="cost"] #items button { white-space:nowrap; }
 body .app-main .ad-row:hover,body .app-main .ad-row.selected { background:var(--app-accent-soft); }
 body .app-main tr[data-dirty="true"] { background:var(--app-warning-bg); }
 body .app-main #compare-result :is(th,td):nth-child(2),body .app-main #compare-result :is(th,td):nth-child(3) { background:var(--app-info-bg); }
@@ -112,6 +118,20 @@ body .roas-range-month-title { color:var(--app-text); font-weight:600; }
 :root[data-theme="dark"] .app-main #ai-thread>div { background:var(--app-surface)!important; color:var(--app-text); border-color:var(--app-border)!important; }
 :root[data-theme="dark"] .app-main #ai-thread>div[style*="#e9e7ff"] { background:var(--app-accent-soft)!important; }
 
+/* Compact spacing preserves text sizes and the full-height chart at 100% zoom. */
+body .app-main :is(.api-form,.channel-bar,.fx-bar,.setting-bar) { gap:8px; }
+body .app-main :is(.channel-bar,.fx-bar,.setting-bar,.channel-config) { padding:10px 12px; margin:8px 0 12px; }
+body .app-main :is(.source-pane,.table-wrap) { margin-top:12px; }
+body .app-main .summary { gap:10px; }
+body .app-main .chartpicker { gap:7px; }
+body .app-main .metric-choices { gap:6px; }
+body .app-main .legend { gap:8px; }
+body .app-main #daily-compare :is(.compare-filter-row,.compare-date-row) { gap:8px; margin:10px 0; }
+body .app-main #daily-compare :is(.compare-filter-row,.compare-date-row) label { gap:3px; }
+body .app-main #daily-compare .compare-date-row #compare-run { min-height:32px; }
+@media(min-width:1400px) { body .app-main .metric-choices { grid-template-columns:repeat(7,minmax(0,1fr)); } }
+@media(min-width:1800px) { body .app-main .metrics { grid-template-columns:repeat(8,minmax(0,1fr)); } }
+
 /* The rail and drawer are fixed overlays. Opening them never changes main bounds. */
 body .app-nav-rail { position:fixed; inset:0 auto 0 0; width:var(--app-rail-width); z-index:101; background:var(--app-nav-bg); border-right:1px solid #ffffff1a; display:flex; flex-direction:column; align-items:center; padding:16px 0 12px; }
 body .app-rail-button { display:flex; align-items:center; justify-content:center; width:28px; height:42px; min-height:42px; flex:none; padding:0; border:0; border-radius:0 6px 6px 0; background:transparent; color:#e6edf7; cursor:pointer; font-family:inherit; font-size:20px; font-weight:600; line-height:1; }
@@ -130,5 +150,9 @@ body .app-nav-footer { margin-top:auto; padding-top:28px; color:var(--app-nav-te
 body .app-nav-footer p { color:var(--app-nav-text); margin:12px 0 0; font-size:12px; line-height:1.6; }
 body .app-theme-drawer-toggle { display:flex; align-items:center; gap:9px; width:100%; margin:0; padding:10px 4px; color:#e6edf7; background:transparent; border:0; border-top:1px solid #ffffff26; border-radius:0; font-family:inherit; font-size:13px; font-weight:600; text-align:left; cursor:pointer; }
 body .app-theme-drawer-toggle [data-theme-icon] { font-size:20px; }
-@media(max-width:750px) { :root { --app-pad:18px; } body .app-page-head { gap:12px; } body .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section { padding:16px; } body .app-main .header-actions { width:auto; flex-wrap:wrap; } }
+@media(max-width:750px) { :root { --app-pad:14px; } body .app-page-head { gap:10px; } body .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section { padding:12px; } body .app-main .header-actions { width:auto; flex-wrap:wrap; } }
+@media(pointer:coarse) {
+  body .app-main :is(button,select,input:not([type="checkbox"]):not([type="radio"])),body .app-main table :is(button,select,input:not([type="checkbox"]):not([type="radio"])),body .roas-range-modal button,body .app-main #daily-compare .compare-date-row #compare-run { min-height:42px; }
+  body .app-main :is(.date-field input,.date-field select,.date-presets .preset,.compact-refresh) { height:42px; }
+}
 @media(prefers-reduced-motion:reduce) { body .app-drawer { transition:none; } }
