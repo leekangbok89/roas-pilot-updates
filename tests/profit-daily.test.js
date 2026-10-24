@@ -485,3 +485,29 @@ test('sales completeness does not depend on cost entry, and AI complete profit c
  assert.equal(f.row().profit,null);assert.equal(f.row().confirmed.profit,null);
 });
 
+
+test('single-pass dashboard overview returns identical scoped profit, comparison and coverage without stale reporting',async t=>{
+ const f=fixture(t),name='위마망 백도씨 하이브리드';
+ f.order('cafe24',120000,[{name,option:'화이트',quantity:1}]);
+ f.saveCost('cafe24',name,'화이트',45000);
+ await new Promise(resolve=>f.server.listen(0,'127.0.0.1',resolve));
+ t.after(()=>new Promise(resolve=>f.server.close(resolve)));
+ const base='http://127.0.0.1:'+f.server.address().port;
+ const query=new URLSearchParams({since:day,until:day,accounts:accounts.join(','),fx:'1350'});
+ const read=async route=>{const response=await fetch(base+route);assert.equal(response.status,200,route);return response.json();};
+ const snap=await read('/api/overview/snapshot?'+query);
+ const [legacyProfit,legacyCoverage,legacySales]=await Promise.all([
+  read('/api/profit/daily?'+query),
+  read('/api/data/coverage?'+query),
+  read('/api/sales/compare?'+new URLSearchParams({since:day,until:day,pivot:day}))
+ ]);
+ assert.deepEqual(snap.profit,legacyProfit);
+ assert.deepEqual(snap.coverage,legacyCoverage);
+ assert.deepEqual(snap.sales,legacySales);
+ assert.equal(snap.profit.revenueDiagnostics.cafe24.includedOrders,1);
+ assert.ok(Number.isFinite(snap.timingsMs.total)&&snap.timingsMs.total>=0);
+ f.saveBrandScope({name,scope:'excluded'});
+ const updated=await read('/api/overview/snapshot?'+query);
+ assert.equal(updated.profit.revenueDiagnostics.cafe24.includedOrders,0,'Changing brand scope must be reflected on the next request');
+ assert.equal(updated.profit.revenueDiagnostics.cafe24.excludedOrders,1);
+});

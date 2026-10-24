@@ -724,3 +724,31 @@ test('overview loading accepts Cafe24 diagnostics from profit data or same-range
   assert.equal(calls.some(call=>call.options.method==='POST'),false,'Displaying a diagnostic must not start collection or repair');
  }
 });
+
+test('single-pass overview request shows charts before auxiliary product/status fetches complete',async()=>{
+ const calls=[];let releaseProducts;
+ const productsPending=new Promise(resolve=>{releaseProducts=resolve;});
+ const h=harness({fetch:async(url,options={})=>{
+  const parsed=new URL(url,'http://local');calls.push(parsed.pathname);
+  if(parsed.pathname==='/api/overview/snapshot')return {ok:true,json:async()=>({
+   profit:{fees:{naver:7,cafe24:3.5},days:[profit('2026-09-01',53000,{adSpend:0})]},
+   sales:{days:[{date:'2026-09-01',complete:true,naver:100000,cafe24:0,total:100000}]},
+   coverage:{since:'2026-09-01',until:'2026-09-03',totalDays:3,sources:{naver:{missingDays:[]},cafe24:{missingDays:[]},meta:{}}},
+   timingsMs:{profit:7,sales:1,coverage:2,total:10}
+  })};
+  if(parsed.pathname==='/api/insights')return {ok:true,json:async()=>({currency:'KRW',rows:[],cache:{missingDays:[],warnings:[]}})};
+  if(parsed.pathname==='/api/costs/products'){await productsPending;return {ok:true,json:async()=>({items:[]})};}
+  if(parsed.pathname==='/api/costs/catalog/diagnostics')return {ok:true,json:async()=>({job:{running:false,total:0,done:0,sources:{}}})};
+  if(parsed.pathname==='/api/cafe24/orders/recovery/status')return {ok:true,json:async()=>({job:{running:false,startedAt:null}})};
+  throw Error('Unexpected request '+url);
+ }});
+ const finishing=h.run('run()');
+ for(let tick=0;tick<8;tick++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(h.node('profit-total').textContent,'53,000원','Primary sales and profit must be visible before product catalogue completes');
+ assert.match(h.node('updated').textContent,/서버 계산 10ms/);
+ assert.equal(h.node('reload').disabled,false);
+ for(const path of ['/api/profit/daily','/api/sales/compare','/api/data/coverage'])assert.equal(calls.includes(path),false,'Fast path must avoid redundant legacy call '+path);
+ releaseProducts();
+ await finishing;
+ assert.equal(h.node('profit-total').textContent,'53,000원');
+});
