@@ -1298,8 +1298,8 @@ async function verifyCafeRevenueRecovery(base, requests) {
   assert.equal(await page.locator('#until').inputValue(), '2026-10-01');
   assert.equal(await cafeCard().locator('strong').innerText(), money(400000), 'Finishing a September recovery does not replace the selected October view');
   assert.match(await page.locator('#cafe-revenue-recovery-reason').innerText(), /복구 기간은 2026-09-03 ~ 2026-09-04.*화면은 현재 선택한 2026-10-01 ~ 2026-10-01/);
-  const completionReads = requests.slice(completionStart).filter(request => new URL(request.url).pathname === '/api/profit/daily');
-  assert.ok(completionReads.length > 0, 'Completion performs a fresh financial read');
+  const completionReads = requests.slice(completionStart).filter(request => ['/api/overview/snapshot','/api/profit/daily'].includes(new URL(request.url).pathname));
+  assert.ok(completionReads.length > 0, 'Completion performs a fresh financial read using the single-pass endpoint or its legacy fallback');
   assert.ok(completionReads.every(request => new URL(request.url).searchParams.get('since') === '2026-10-01' && new URL(request.url).searchParams.get('until') === '2026-10-01'));
   assert.deepEqual(read('browser-cafe-recovery-calls.json').body, selected);
   assert.deepEqual(read('browser-cafe-recovery-calls.json').dates, ['2026-09-03', '2026-09-04']);
