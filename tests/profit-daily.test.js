@@ -309,7 +309,7 @@ test('Saved manual brand classification can be revised or cleared',t=>{
  assert.equal(f.row().cafe24.revenue,null);
 });
 test('Explicit user classification overrides automatic brand keywords and clear restores the keyword rule',t=>{
- const f=fixture(t),name='트루버 이름이 들어간 실제 위마망 상품';
+ const f=fixture(t),name='트루버 카탈로그명 오분류 상품';
  f.order('cafe24',120000,[{name,option:'기본',quantity:1}]);
  assert.equal(f.row().cafe24.revenue,0);
  const included=f.saveBrandScope({name,scope:'wemamang'});
