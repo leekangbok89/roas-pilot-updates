@@ -247,7 +247,7 @@ test('Cost alias disallows cross-channel mapping, fabricated target and blank so
  f.saveCost('cafe24','다른 채널','기본',34000);
  f.saveCost('naver','원가 미입력','기본',null);
  const key=(channel,name,variant)=>crypto.createHash('sha256').update(JSON.stringify([channel,name,variant])).digest('hex').slice(0,24);
- assert.throws(()=>f.linkCostAlias({channel:'naver',name:'위마망 아직 미연결',option:'기본',sourceKey:key('cafe24','다른 채널','기본')}),/동일한 판매 채널/);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'위마망 아직 미연결',option:'기본',sourceKey:key('cafe24','다른 채널','기본')}),/서로 다른 판매 채널/);
  assert.throws(()=>f.linkCostAlias({channel:'naver',name:'위마망 아직 미연결',option:'기본',sourceKey:key('naver','원가 미입력','기본')}),/유효한 원가/);
  f.saveCost('naver','기존 상품','기본',25000);
  assert.throws(()=>f.linkCostAlias({channel:'naver',name:'주문에 없음',option:'기본',sourceKey:key('naver','기존 상품','기본')}),/실제 판매 주문/);
