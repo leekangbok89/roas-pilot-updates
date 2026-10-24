@@ -194,3 +194,33 @@ test('Cafe24 order parsing accepts order-items response fields and refuses incom
  assert.deepEqual(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙',quantity:2}]}).map(x=>x.quantity),[2]);
  assert.equal(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙'}]}).length,0);
 });
+
+test('Cafe24 fallback still runs when first item-list endpoint returns HTTP 404',async t=>{
+ const f=fixture(t),seen=[];
+ const recovered=await f.cafeOrderItems('20261024-100000',async url=>{
+  seen.push(url);
+  if(url.includes('/items?'))throw Error('카페24 주문 조회 HTTP 404');
+  return {order:{items:[{product_name:'백도씨',option_value:'화이트',quantity:2}]}};
+ },entry=>seen.push(entry.result));
+ assert.deepEqual(recovered.map(x=>({name:x.name,option:x.option,quantity:x.quantity})),[{name:'백도씨',option:'화이트',quantity:2}]);
+ assert.ok(seen.some(v=>v==='API 404'));
+ assert.ok(seen.some(v=>v==='복구 성공'));
+});
+test('Cafe24 failed item schemas expose only field names and never invent missing quantities',async t=>{
+ const f=fixture(t),status=[];
+ const result=await f.cafeOrderItems('20261024-100001',async url=>{
+  return {items:[{product_name:'상품',option_value:'블랙'}]};
+ },entry=>status.push(entry));
+ assert.equal(result.length,0);
+ assert.ok(status.some(x=>x.result==='상품명·옵션·수량 일부 미확인'));
+ assert.ok(status.every(x=>!x.detail.includes('20261024-100001')));
+});
+test('Cafe24 catalog diagnosis returns order counts and dates without order identifiers, amounts or credentials',t=>{
+ const f=fixture(t);
+ f.order('cafe24',40000,[]);
+ const d=f.catalogDiagnostics();
+ assert.equal(d.cafe24.total,1);
+ assert.equal(d.cafe24.byDate[day],1);
+ assert.equal(JSON.stringify(d).includes('order1'),false);
+ assert.equal(JSON.stringify(d).includes('40000'),false);
+});
