@@ -623,12 +623,13 @@ function cafeAutoCollect(){
 // Product/option cost ledger. Stored separately from deployment-managed files.
 const costFile=path.join(__dirname,'.roas-data','product-costs.json');
 
+function recent3DateWindow(today=todaySeoul()){if(!isDate(today))throw Error('기준 날짜가 유효하지 않습니다.');return {since:dayString(dayUTC(today)-2*86400000),until:today};}
 const recent3Job={running:false,since:null,until:null,startedAt:null,finishedAt:null,progress:'업데이트 대기',sources:{},error:null};
 function recent3Status(){return {...recent3Job,sources:{...recent3Job.sources}};}
 async function recent3Refresh(accounts){
  const ids=profitAccounts(accounts);
  if(recent3Job.running||naverJobs.running||cafeJob.running)throw Object.assign(Error('다른 주문 수집 또는 최근 3일 업데이트가 진행 중입니다.'),{status:409});
- const until=todaySeoul(),since=dayString(dayUTC(until)-2*86400000);
+ const {since,until}=recent3DateWindow();
  Object.assign(recent3Job,{running:true,since,until,startedAt:new Date().toISOString(),finishedAt:null,progress:'스마트스토어·카페24·Meta 업데이트 중',error:null,sources:{
   naver:{status:'대기'},cafe24:{status:'대기'},meta:Object.fromEntries(ids.map(id=>[id,{status:'대기'}]))
  }});
@@ -992,7 +993,7 @@ const server=http.createServer(async (req,res)=> {
       if(recent3Job.running||naverJobs.running||cafeJob.running)return json(res,409,{error:'기존 주문 수집 또는 데이터 업데이트가 진행 중입니다.'});
       const data=JSON.parse((await payload(req)).toString('utf8')),accounts=profitAccounts(data.accounts||[]);
       recent3Refresh(accounts).catch(e=>{recent3Job.running=false;recent3Job.error=e.message;recent3Job.progress='수집 오류';});
-      return json(res,202,{ok:true,since:dayString(dayUTC(todaySeoul())-2*86400000),until:todaySeoul(),status:'업데이트 시작'});
+      return json(res,202,{ok:true,...recent3DateWindow(),status:'업데이트 시작'});
     }
     if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
     if(u.pathname==='/api/costs/aliases'&&req.method==='POST'){
@@ -1112,5 +1113,5 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status};
+module.exports={server,isDate,profitDaily,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow};
 
