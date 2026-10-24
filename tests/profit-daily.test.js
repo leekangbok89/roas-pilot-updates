@@ -187,7 +187,7 @@ test('Cafe24 item details fallback to order embed and fail closed on missing qua
  });
  assert.equal(requests.length,2);
  assert.match(requests[1],/embed=items/);
- assert.deepEqual(items.map(x=>[x.name,x.option,x.quantity]),[['상품A','기본',3]]);
+ assert.deepEqual(items,[], 'If any purchased item is missing quantity, refuse an incomplete cost total');
 });
 test('Cafe24 order parsing accepts order-items response fields and refuses incomplete item counts',t=>{
  const f=fixture(t);
