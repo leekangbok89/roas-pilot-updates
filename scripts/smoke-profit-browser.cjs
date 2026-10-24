@@ -13,7 +13,7 @@ const { spawn } = require('node:child_process');
 const source = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-profit-browser-'));
 const accountIds = { naver: '111111', cafe: '222222' };
-const knownName = '브라우저 검증 상품';
+const knownName = '위마망 브라우저 검증 상품';
 const option = '기본';
 const money = value => new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(value) + '원';
 let child;
@@ -65,13 +65,13 @@ function fixture(isolated = false) {
     ns[date] = { checkedAt: '2026-10-01T00:00:00Z' };
     cs[date] = { checkedAt: '2026-10-01T00:00:00Z' };
     if (isolated) {
-      naver[date] = order('naver', date, 300000, 1, date === '2026-08-21' ? knownName : '원가 미입력 상품');
+      naver[date] = order('naver', date, 300000, 1, date === '2026-08-21' ? knownName : '위마망 원가 미입력 상품');
       snapshot(accountIds.naver, date, 20000);
       snapshot(accountIds.cafe, date, 10000);
       continue;
     }
     const day = Number(date.slice(8));
-    if (![3, 5].includes(day)) naver[date] = order('naver', date, day === 4 ? 600000 : 300000, day === 4 ? 2 : 1, day === 8 ? '원가 미입력 상품' : knownName);
+    if (![3, 5].includes(day)) naver[date] = order('naver', date, day === 4 ? 600000 : 300000, day === 4 ? 2 : 1, day === 8 ? '위마망 원가 미입력 상품' : knownName);
     if (day === 4) cafe[date] = order('cafe24', date, 200000, 2);
     snapshot(accountIds.naver, date, [2, 5].includes(day) ? 0 : 20000);
     if (day !== 9) snapshot(accountIds.cafe, date, [2, 5].includes(day) ? 0 : 10000);
@@ -167,7 +167,7 @@ async function pointTitles() {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
   await context.addInitScript(ids => {
     localStorage.setItem('roas-account-ids', JSON.stringify(ids));
-    localStorage.setItem('roas-custom-chart-presets-v1', JSON.stringify([{ name: '통합 이익 검증', keys: ['profit'], window: 1, scale: 'absolute' }]));
+    localStorage.setItem('roas-custom-chart-presets-v1', JSON.stringify([{ name: '통합 이익 검증', keys: ['profit'], window: 3, scale: 'absolute' }]));
   }, accountIds);
   await context.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
   page = await context.newPage();
@@ -175,6 +175,11 @@ async function pointTitles() {
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto(base + '/visual-overview.html');
   await idle();
+  assert.equal(await page.locator('#chart-window').inputValue(),'1','Page load defaults to daily raw regardless of saved 3-day preset');
+  await page.locator('#custom-preset-buttons button').first().click();
+  assert.equal(await page.locator('#chart-window').inputValue(),'1','Clicking saved preset never switches to 3-day automatically');
+  await page.locator('#chart-window').selectOption('3');
+  assert.equal(await page.locator('#chart-window').inputValue(),'3','3-day average applies when explicitly selected');
   await range('2026-09-01', '2026-09-07');
   await page.locator('#chart-window').selectOption('1');
   for (let i = 0; i < expected.length; i++) await amount('2026-09-0' + (i + 1), expected[i]);
