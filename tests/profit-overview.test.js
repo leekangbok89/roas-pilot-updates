@@ -156,3 +156,17 @@ test('zero Meta-attributed purchase revenue does not suppress combined store pro
  assert.match(h.node('profit-reconciliation').textContent,/33,000원/);
  assert.match(h.node('profit-troubleshooting-body').children.map(x=>x.textContent||'').join(' '),/Meta 구매 전환매출과 무관/);
 });
+
+test('unmatched cost options appear with dates and a priced candidate from the same channel',()=>{
+ const h=harness(),item={name:'위마망 백도씨',option:'화이트 신형',orders:3,reason:'원가 미입력'};
+ const missing=profit('2026-09-01',null,{cost:null,reasons:['카페24 원가 연결 미완료'],naver:{revenue:0},cafe24:{revenue:100000,missingCostItems:[item]}});
+ h.context.input=[missing];
+ h.run("profitDays=new Map(input.map(x=>[x.date,x]));existingCostRows=[{channel:'cafe24',key:'cafecafecafecafecafecafe',name:'백도씨',option:'화이트',cost:175000},{channel:'naver',key:'navernavernavernavernave',name:'백도씨',option:'화이트',cost:90000}];render();");
+ const rows=JSON.parse(h.run('JSON.stringify(unmatchedProfitItems())'));
+ assert.equal(rows.length,1);
+ assert.equal(rows[0].name,'위마망 백도씨');
+ assert.deepEqual(rows[0].dates,['2026-09-01']);
+ const table=h.node('unmatched-table').children[0],tr=table.children[1].children[0],select=tr.children[3].children[0];
+ assert.equal(select.children.length,2,'Only the same-channel priced source is offered');
+ assert.equal(select.children[1].value,'cafecafecafecafecafecafe');
+});
