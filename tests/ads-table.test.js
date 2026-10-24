@@ -58,6 +58,35 @@ test('ad-capable overview cells show real per-ad values while store totals remai
  assert.match(common,/>3<\/td>/);
 });
 
+test('campaign average row uses per-ad means for absolute values and aggregate ratios for efficiency metrics',()=>{
+ const h=harness();
+ h.node('since').value='2026-10-01';h.node('until').value='2026-10-03';
+ h.run("adsDisplaySaved={version:1,columns:['spend','purchases','revenue','roas','cpa','cpc','cpm','ctr'],summary:[]};adsCampaignAverageScope='캠페인 A';adsCampaignAverageRows=[{channel:'naver',spend:100000,purchases:2,revenue:300000,clicks:100,impressions:10000,landing:80,spendPartial:false,roasPartial:false,cpaPartial:false,missing:{}},{channel:'naver',spend:300000,purchases:4,revenue:600000,clicks:200,impressions:20000,landing:160,spendPartial:false,roasPartial:false,cpaPartial:false,missing:{}}];renderAdsPeriodTotal();");
+ const html=h.node('ads-period-total').innerHTML;
+ assert.match(html,/id="ads-campaign-average-row"/);
+ assert.match(html,/캠페인 광고 평균/);
+ assert.match(html,/캠페인 A · 광고 2개/);
+ assert.match(html,/data-metric="spend"[^>]*><strong>200,000원<\/strong>/,'Spend is average spend per ad');
+ assert.match(html,/data-metric="purchases"[^>]*><strong>3<\/strong>/,'Purchases are average purchases per ad');
+ assert.match(html,/data-metric="revenue"[^>]*><strong>450,000원<\/strong>/,'Revenue is average revenue per ad');
+ assert.match(html,/data-metric="roas"[^>]*><strong>225%<\/strong>/,'ROAS is total revenue divided by total spend, not mean of ad ROAS');
+ assert.match(html,/data-metric="cpa"[^>]*><strong>66,667원<\/strong>/);
+ assert.match(html,/data-metric="cpc"[^>]*><strong>1,333원<\/strong>/);
+ assert.match(html,/data-metric="cpm"[^>]*><strong>13,333원<\/strong>/);
+ assert.match(html,/data-metric="ctr"[^>]*><strong>1%<\/strong>/);
+ assert.match(h.node('ads-table-summary-note').textContent,/광고 1개당 평균/);
+ assert.match(h.node('ads-table-summary-note').textContent,/캠페인 합계에서 다시 계산/);
+});
+
+test('campaign average keeps channel-scoped overview metrics on their own channel and store totals out of averages',()=>{
+ const h=harness();
+ h.run("adsDisplaySaved={version:1,columns:[],summary:['mallRoas','smartstoreRoas','profit']};adsCampaignAverageScope='전체 캠페인';adsCampaignAverageRows=[{channel:'naver',spend:100000,revenue:200000,roas:200,spendPartial:false,roasPartial:false,missing:{}},{channel:'cafe',spend:300000,revenue:900000,roas:300,spendPartial:false,roasPartial:false,missing:{}}];renderAdsPeriodTotal();");
+ const html=h.node('ads-period-total').innerHTML;
+ assert.match(html,/data-metric="overview-mallRoas"[^>]*><strong>300%<\/strong>/);
+ assert.match(html,/data-metric="overview-smartstoreRoas"[^>]*><strong>200%<\/strong>/);
+ assert.match(html,/data-metric="overview-profit"[^>]*>—<\/td>/,'Store profit remains period-only in the average row');
+});
+
 test('the dedicated total row renders confirmed zero, negative partial profit and missing values distinctly',()=>{
  const h=harness();h.node('since').value='2026-10-01';h.node('until').value='2026-10-03';
  h.run("adsDisplaySaved={version:1,columns:[],summary:['spend','profit','mallRevenue']};adsPeriodViewResult={status:'ready',metrics:[{key:'spend',value:0,scope:'전체 광고',detail:'확인 3/3일'},{key:'profit',value:-10000,partial:true,scope:'위마망',detail:'확인분'},{key:'mallRevenue',value:null,scope:'카페24',detail:'미수집'}],errors:[]};renderAdsPeriodTotal();");

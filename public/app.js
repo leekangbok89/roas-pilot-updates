@@ -751,6 +751,46 @@ const adsScopedOverviewMetrics=new Map([
  ['mallRoas',{metric:'roas',scope:'cafe'}]
 ]);
 let adsPeriodViewSignature='',adsPeriodViewResult=null,adsPeriodViewPending=null,adsPeriodViewVersion=0;
+let adsCampaignAverageRows=[],adsCampaignAverageScope='전체 캠페인';
+function adsCampaignAverageStats(rows){
+ const list=Array.isArray(rows)?rows:[];
+ const out={count:list.length,partial:{}};
+ const mean=(key,extraPartial=false)=>{
+  const known=list.filter(row=>Number.isFinite(row?.[key]));
+  out[key]=known.length?known.reduce((sum,row)=>sum+row[key],0)/known.length:null;
+  out.partial[key]=known.length!==list.length || !!extraPartial;
+ };
+ const any=fn=>list.some(fn);
+ mean('spend',any(row=>row?.spendPartial));
+ mean('purchases',any(row=>row?.cpaPartial||row?.missing?.purchases));
+ mean('revenue',any(row=>row?.roasPartial||row?.missing?.revenue));
+ for(const key of ['impressions','clicks','reach','landing','cart','checkout','frequency'])mean(key);
+ const sumKnown=key=>list.reduce((sum,row)=>sum+(Number.isFinite(row?.[key])?row[key]:0),0);
+ const knownCount=key=>list.filter(row=>Number.isFinite(row?.[key])).length;
+ const spend=sumKnown('spend'),purchases=sumKnown('purchases'),revenue=sumKnown('revenue'),clicks=sumKnown('clicks'),impressions=sumKnown('impressions'),landing=sumKnown('landing');
+ const spendPartial=out.partial.spend,revenuePartial=knownCount('revenue')!==list.length||any(row=>row?.roasPartial||row?.missing?.revenue);
+ const purchasePartial=knownCount('purchases')!==list.length||any(row=>row?.cpaPartial||row?.missing?.purchases);
+ const clickPartial=knownCount('clicks')!==list.length,impressionPartial=knownCount('impressions')!==list.length,landingPartial=knownCount('landing')!==list.length;
+ out.roas=spend>0&&knownCount('revenue')?revenue/spend*100:null;out.partial.roas=spendPartial||revenuePartial;
+ out.cpa=purchases>0&&knownCount('spend')?spend/purchases:null;out.partial.cpa=spendPartial||purchasePartial;
+ out.cpc=clicks>0&&knownCount('spend')?spend/clicks:null;out.partial.cpc=spendPartial||clickPartial;
+ out.cpm=impressions>0&&knownCount('spend')?spend/impressions*1000:null;out.partial.cpm=spendPartial||impressionPartial;
+ out.ctr=impressions>0&&knownCount('clicks')?clicks/impressions*100:null;out.partial.ctr=clickPartial||impressionPartial;
+ out.conversionRate=landing>0&&knownCount('purchases')?purchases/landing*100:null;out.partial.conversionRate=purchasePartial||landingPartial;
+ out.status=null;out.partial.status=false;
+ return out;
+}
+function adsCampaignAverageCell(column){
+ if(column.kind==='period')return '<td class="ads-campaign-average-cell" data-metric="'+column.key+'" title="이 항목은 전체 주문 기준이라 광고 평균으로 계산하지 않습니다.">—</td>';
+ let rows=adsCampaignAverageRows;
+ const key=column.kind==='adScoped'?column.sourceKey:column.metric.key;
+ if(column.kind==='adScoped'&&column.adScope&&column.adScope!=='all')rows=rows.filter(row=>row.channel===column.adScope);
+ const stats=adsCampaignAverageStats(rows),value=stats[key],partial=!!stats.partial[key];
+ const format=column.metric.format;
+ const formatted=!Number.isFinite(value)?'—':format==='won'?dual(value):format==='pct'?pct(value):format==='frequency'?value.toFixed(1):num(value);
+ const detail=rows.length?adsCampaignAverageScope+' · 광고 '+rows.length+'개 기준'+(partial?' · 일부 값 미확인':''):'평균을 계산할 광고가 없습니다.';
+ return '<td class="ads-campaign-average-cell" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(detail)+'"><strong>'+safe(formatted)+'</strong>'+(partial&&Number.isFinite(value)?'<span class="ads-metric-partial">확인분</span>':'')+'</td>';
+}
 function effectiveAdsDisplaySettings(){return adsDisplayDraft||adsDisplaySaved;}
 function adsTableColumns(configuration=effectiveAdsDisplaySettings()){
  const columns=configuration.columns.map(key=>adsColumnMetrics.find(metric=>metric.key===key)).filter(Boolean).map(metric=>({key:metric.key,kind:'ad',metric,overviewKey:null}));
@@ -793,23 +833,36 @@ function adsTableCell(column,ad){
 function renderAdsPeriodTotal(){
  const body=$('ads-period-total'),note=$('ads-table-summary-note');if(!body)return;
  const active=effectiveAdsDisplaySettings(),keys=active.summary,columns=adsTableColumns(active);
- body.hidden=keys.length===0;if(note)note.hidden=keys.length===0;
- if(!keys.length){body.replaceChildren();if(note)note.textContent='';return;}
+ const showAverage=columns.length>0&&adsCampaignAverageRows.length>0;
+ body.hidden=keys.length===0&&!showAverage;if(note)note.hidden=keys.length===0&&!showAverage;
+ if(body.hidden){body.replaceChildren();if(note)note.textContent='';return;}
  const result=adsPeriodViewResult,metrics=new Map((result?.metrics||[]).map(metric=>[metric.key,metric]));
  const dates=[$('since')?.value,$('until')?.value].filter(Boolean).join(' ~ ');
- const cells=columns.map(column=>{
-  if(!column.overviewKey)return '<td data-metric="'+column.key+'" title="이 항목은 아래 광고별 행에서 확인하세요.">—</td>';
-  const metric=metrics.get(column.overviewKey),value=metric?.value;
-  const text=!Number.isFinite(value)?'—':column.metric.format==='won'?dual(value):column.metric.format==='pct'?pct(value):num(value);
-  const detail=metric?(metric.scope+' · '+metric.detail):result?.status==='error'?'조회 실패 · 데이터를 확인해 주세요.':'선택 기간 데이터 조회 중…';
-  return '<td data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(detail)+'"><strong>'+safe(text)+'</strong>'+(metric?.partial&&Number.isFinite(value)?'<span class="ads-metric-partial">확인분</span>':'')+'<small class="ads-total-state">'+safe(metric?.scope||column.metric.scope||'선택 기간 합계')+'</small></td>';
- }).join('');
- body.innerHTML='<tr id="ads-period-total-row"><th scope="row"><b>선택 기간 합계</b><small>'+safe(dates)+'</small></th>'+cells+'</tr>';
- if(note)note.textContent='한눈에 보기에서 선택한 지표 '+keys.length+'개를 표에 표시합니다. 합계 행은 선택 기간과 각 지표에 표시된 집계 범위를 따르며, 아래 광고의 캠페인·소재·검색 필터와 별도로 집계합니다.'+
-  (!result?' 데이터 조회 중…':result.errors?.length?' 일부 데이터 확인 필요: '+result.errors.join(' / '):' 전체·채널 매출과 이익은 합계 행에서 확인하세요.');
- body.setAttribute('aria-busy',String(!result));
+ let totalRow='';
+ if(keys.length){
+  const cells=columns.map(column=>{
+   if(!column.overviewKey)return '<td data-metric="'+column.key+'" title="이 항목은 아래 광고별 행에서 확인하세요.">—</td>';
+   const metric=metrics.get(column.overviewKey),value=metric?.value;
+   const text=!Number.isFinite(value)?'—':column.metric.format==='won'?dual(value):column.metric.format==='pct'?pct(value):num(value);
+   const detail=metric?(metric.scope+' · '+metric.detail):result?.status==='error'?'조회 실패 · 데이터를 확인해 주세요.':'선택 기간 데이터 조회 중…';
+   return '<td data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(detail)+'"><strong>'+safe(text)+'</strong>'+(metric?.partial&&Number.isFinite(value)?'<span class="ads-metric-partial">확인분</span>':'')+'<small class="ads-total-state">'+safe(metric?.scope||column.metric.scope||'선택 기간 합계')+'</small></td>';
+  }).join('');
+  totalRow='<tr id="ads-period-total-row"><th scope="row"><b>선택 기간 합계</b><small>'+safe(dates)+'</small></th>'+cells+'</tr>';
+ }
+ let averageRow='';
+ if(showAverage){
+  averageRow='<tr id="ads-campaign-average-row" class="ads-campaign-average-row"><th scope="row"><b>캠페인 광고 평균</b><small>'+safe(adsCampaignAverageScope)+' · 광고 '+adsCampaignAverageRows.length+'개</small></th>'+columns.map(adsCampaignAverageCell).join('')+'</tr>';
+ }
+ body.innerHTML=totalRow+averageRow;
+ if(note){
+  const averageNote=showAverage?' 캠페인 평균은 선택한 판매 채널·캠페인을 기준으로 하며, 광고 세트·소재·검색·판단 필터에는 흔들리지 않습니다. 광고비·구매·매출 등 절대값은 광고 1개당 평균, ROAS·CPA·CPC·CPM·CTR은 캠페인 합계에서 다시 계산합니다.':'';
+  const summaryNote=keys.length?(' 한눈에 보기 선택 지표 '+keys.length+'개 합계는 선택 기간과 각 지표의 집계 범위를 따릅니다.'+(result?.errors?.length?' 일부 데이터 확인 필요: '+result.errors.join(' / '):' 전체·채널 매출과 이익은 합계 행에서 확인하세요.')):'';
+  note.textContent=(averageNote+summaryNote).trim();
+ }
+ body.setAttribute('aria-busy',String(keys.length>0&&!result));
 }
-function renderAdsTable(shown){
+function renderAdsTable(shown,averageRows=shown,averageScope='전체 캠페인'){
+ adsCampaignAverageRows=Array.isArray(averageRows)?averageRows.slice():[];adsCampaignAverageScope=averageScope||'전체 캠페인';
  const columns=adsTableColumns(),head=$('ad-head');
  if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+columns.map(column=>'<th scope="col" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(column.metric.description)+'">'+safe(column.metric.label)+(column.kind==='period'?'<small class="ads-table-scope">기간 합계 전용</small>':column.kind==='adScoped'?'<small class="ads-table-scope">광고별 + 기간 합계</small>':'')+'</th>').join('');
  $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+columns.map(column=>adsTableCell(column,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(columns.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
@@ -929,7 +982,9 @@ const q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
 const chosenChannel=$('diag-channel').value,chosenCampaign=$('diag-campaign').value,chosenSet=$('diag-adset').value,chosenAd=$('diag-ad').value;
 const compareKey=(r,level)=>level==='campaign'?JSON.stringify([r.channel||'',r.campaign||'']):level==='adset'?JSON.stringify([r.channel||'',r.campaign||'',r.adset||'']):JSON.stringify([r.channel||'',r.campaign||'',r.adset||'',String(r.id||r.ad||'')]);
 const shown=ads.filter(a=>(chosenChannel==='all'||a.channel===chosenChannel)&&(!chosenCampaign||compareKey(a,'campaign')===chosenCampaign)&&(!chosenSet||compareKey(a,'adset')===chosenSet)&&(!chosenAd||compareKey(a,'ad')===chosenAd)&&(!q||[a.ad,a.adset,a.campaign].join(' ').toLowerCase().includes(q))&&(filter==='all'||a.diagnosis.status===filter)).sort((a,b)=>b.spend-a.spend);
-renderAdsTable(shown);
+const averageRows=ads.filter(a=>(chosenChannel==='all'||a.channel===chosenChannel)&&(!chosenCampaign||compareKey(a,'campaign')===chosenCampaign));
+const averageScope=chosenCampaign?(averageRows[0]?.campaign||'선택 캠페인'):(chosenChannel==='all'?'전체 캠페인':chosenChannel==='naver'?'네이버 스마트스토어 · 전체 캠페인':'카페24 자사몰 · 전체 캠페인');
+renderAdsTable(shown,averageRows,averageScope);
 for(const el of document.querySelectorAll('.ad-row'))el.addEventListener('click',()=>{state.selected=el.dataset.id;render();$('detail').scrollIntoView({behavior:'smooth',block:'nearest'});});
 const chosen=ads.find(a=>String(a.id)===String(state.selected));if(chosen){$('detail-title').textContent=`${chosen.ad} · ${chosen.campaign}`;$('detail-status').className=`status ${chosen.diagnosis.status}`;$('detail-status').textContent=statusNames[chosen.diagnosis.status];const chips=[['ROAS',pct(chosen.roas)],['CPA',dual(chosen.cpa)],['링크 CPC',dual(chosen.cpc)],['빈도',chosen.frequency==null?'기간 전체 미확인':chosen.frequency.toFixed(2)+'회'],['랜딩 조회',chosen.landing==null?'미수집':num(chosen.landing)],['구매 전환율',chosen.landing>0&&chosen.purchases!=null?pct(chosen.purchases/chosen.landing*100):'—'],['링크 CTR',pct(chosen.ctr)],['도달',chosen.reach==null?'일별 중복·미수집':num(chosen.reach)]];$('detail-body').classList.remove('muted');$('detail-body').innerHTML=`<div class="detail-metrics">${chips.map(([k,v])=>`<div class="metric-chip">${k}<strong>${v}</strong></div>`).join('')}</div><div class="reasons"><div class="reason-box"><h3>진단 근거</h3><ul>${chosen.diagnosis.reasons.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div><div class="reason-box"><h3>추천 액션</h3><ul>${chosen.diagnosis.actions.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div></div>`;}else{$('detail-title').textContent='목록에서 광고를 선택하세요.';$('detail-status').textContent='선택 대기';$('detail-status').className='status neutral';$('detail-body').textContent='성과표의 행을 누르면 진단 근거가 표시됩니다.';$('detail-body').classList.add('muted');}
 plot();if(typeof renderComparison==='function')renderComparison();}
