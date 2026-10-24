@@ -34,7 +34,7 @@ nav a{font-size:13px!important;padding:13px 16px!important;border-radius:11px!im
 button,input,select{font-family:inherit}
 @media(max-width:750px){aside{position:static!important;width:100%!important;height:auto!important}main{margin-left:0!important;padding:15px!important}}
 </style></head><body><aside><div class="logo">ROAS<span>Pilot</span><small>Meta Performance Intelligence</small></div><nav><a class="active" href="/visual-overview.html">◉ 한눈에 보기</a><a href="/#overview">◫ 성과 개요</a><a href="/#ads-section">▤ 광고별 진단</a><a href="/#daily-compare">◷ 날짜별 비교</a><a href="/#funnel">⌁ 구매 퍼널</a><a href="/cost-management.html">▦ 원가관리</a><a href="/#data-source">⛓ 데이터 연결 · 설정</a></nav></aside>
-<main><h1>한눈에 보기 <span class="small" style="font-weight:400">v2.8.70</span></h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
+<main><h1>한눈에 보기 <span class="small" style="font-weight:400">v2.8.71</span></h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
 <section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
 <button data-period="yesterday">어제</button><button data-period="today">오늘</button><button data-period="7" class="active">최근 7일</button><button data-period="30">최근 30일</button><button data-period="3months">최근 3달</button><button data-period="6months">최근 6개월</button><button data-period="1year">최근 1년</button><button data-period="2years">최근 2년</button>
 <label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
@@ -70,7 +70,7 @@ for(const key of ['spend','revenue','roas','cpa','purchases','ctr','impressions'
 $('purchaseSub').textContent=all.hasPurchases?'구매 '+num(all.purchases)+'건':'구매 데이터 없음';
 $('spendSub').textContent='환율 1 USD = '+format.format(rates)+' KRW (USD 계정에만 적용)';$('revenueSub').textContent=all.hasRevenue?'Meta 귀속 매출':'구매 매출 미수집';
 const days=[...new Set([...selected.map(r=>r.date),...storeSales.keys(),...profitDays.keys()])].sort();
-const series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date),p=profitDays.get(date);return {date,...a,smartstoreRevenue:v?.naver??p?.naver?.revenue??null,mallRevenue:v?.cafe24??p?.cafe24?.revenue??null,totalStoreRevenue:v?.total??p?.revenue??null,profit:profitForDate(date)};});
+const series=days.map(date=>{const a=sum(selected.filter(r=>r.date===date)),v=storeSales.get(date),p=profitDays.get(date);return {date,...a,smartstoreRevenue:p?.naver?.revenue??null,mallRevenue:p?.cafe24?.revenue??null,totalStoreRevenue:p?.revenue??null,profit:profitForDate(date)};});
 // The chart and table consume the same server-calculated amount. Table rendering cannot erase it.
 draw(series);try{renderProfit(series);}catch(e){console.error('이익 표시 오류:',e);$('profit-status').textContent='이익 표시 오류: '+e.message;}
 const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
