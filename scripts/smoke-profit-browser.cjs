@@ -178,6 +178,34 @@ function historyFixture() {
   write('.roas-data/browser-repair-fixture.json', { name: knownName, option });
   return { naver, cafe24: cafe };
 }
+function cafeRevenueRecoveryFixture(config = {}) {
+  fixture();
+  const selected = { since: '2026-09-03', until: '2026-09-04' };
+  const cafe = {}, sync = {};
+  for (const date of ['2026-08-31', '2026-10-01']) {
+    const value = order('cafe24', date, 400000);
+    cafe[value.id] = value;
+    sync[date] = { checkedAt: '2026-10-24T00:00:00Z', count: 1 };
+  }
+  for (const date of dates(selected.since, selected.until)) {
+    // A successful sync marker must not prevent a forced order-list re-fetch.
+    // The missing headers cannot be recovered by the old detail-only action.
+    sync[date] = { checkedAt: '2026-10-24T00:00:00Z', count: 1 };
+  }
+  write('.roas-data/cafe24-orders/orders.json', { orders: cafe });
+  write('.roas-data/cafe24-orders/sync.json', { days: sync });
+  const read = relative => JSON.parse(fs.readFileSync(path.join(temp, '.roas-data', relative), 'utf8'));
+  const naverOrders = read('naver-orders/orders.json'), naverSync = read('naver-orders/sync.json');
+  const octoberOrder = order('naver', '2026-10-01', 300000);
+  naverOrders.orders[octoberOrder.id] = octoberOrder;
+  naverSync.days['2026-10-01'] = { checkedAt: '2026-10-24T00:00:00Z', count: 1 };
+  write('.roas-data/naver-orders/orders.json', naverOrders);
+  write('.roas-data/naver-orders/sync.json', naverSync);
+  snapshot(accountIds.naver, '2026-10-01', 20000);
+  snapshot(accountIds.cafe, '2026-10-01', 10000);
+  write('.roas-data/browser-cafe-recovery-fixture.json', { name: knownName, option, ...config });
+  return { selected, outsideOrders: cafe };
+}
 function serverBootstrap() {
   const fs = require('node:fs');
   const path = require('node:path');
@@ -228,13 +256,50 @@ function serverBootstrap() {
         delay: async () => {}
       }).catch(error => { calls.error = error.message;record();throw error; });
   });
+  const actualCafeRecovery = app.cafeRecoverOrders;
+  app.__setCafeRecoveryRunner(range => {
+    const marker = path.join(data, 'browser-cafe-recovery-fixture.json');
+    if (!fs.existsSync(marker)) return actualCafeRecovery(range);
+    const config = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    const calls = { body: range, dates: [], itemIds: [] };
+    const record = () => {
+      const dest = path.join(data, 'browser-cafe-recovery-calls.json');
+      fs.writeFileSync(dest + '.tmp', JSON.stringify(calls));
+      fs.renameSync(dest + '.tmp', dest);
+    };
+    record();
+    return actualCafeRecovery(range, {
+      credentials: () => config.authMissing ? null : { tokens: { access_token: 'synthetic-only' } },
+      fetchDate: async date => {
+        calls.dates.push(date);record();
+        if (config.gated) {
+          const release = path.join(data, 'browser-cafe-recovery-release-' + date + '.json');
+          const deadline = Date.now() + 30000;
+          while (!fs.existsSync(release)) {
+            if (Date.now() > deadline) throw Error('Synthetic Cafe response was not released');
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+        if ((config.failedDates || []).includes(date)) throw Error('Synthetic Cafe HTTP 503');
+        const amount = date === '2026-09-03' ? '100000' : '200000';
+        return [{ order_id: 'qa-cafe-recovered-' + date, payment_date: date + ' 10:00:00', paid: 'T',
+          initial_order_amount: { payment_amount: amount }, actual_order_amount: { payment_amount: amount } }];
+      },
+      orderItems: async order => {
+        calls.itemIds.push(order.id);record();
+        if ((config.missingItemDates || []).some(date => order.id.endsWith(date))) return [];
+        return [{ name: config.name, option: config.option, quantity: 1 }];
+      },
+      delay: async () => {}
+    }).catch(error => { calls.error = error.message;record();throw error; });
+  });
   app.server.listen(3000, '127.0.0.1', () => console.log('READY ' + app.server.address().port));
 }
 async function startServer() {
   for (const name of ['server.js', 'package.json', 'public', 'vendor']) {
     if (fs.existsSync(path.join(source, name))) fs.cpSync(path.join(source, name), path.join(temp, name), { recursive: true });
   }
-  fs.appendFileSync(path.join(temp, 'server.js'), '\nmodule.exports.__setCatalogRunner=fn=>{enrichCostCatalog=fn;};\n');
+  fs.appendFileSync(path.join(temp, 'server.js'), '\nmodule.exports.__setCatalogRunner=fn=>{enrichCostCatalog=fn;};\nmodule.exports.__setCafeRecoveryRunner=fn=>{cafeRecoverOrders=fn;};\n');
   fixture();
   const env = { ...process.env, META_ACCESS_TOKEN: '', META_AD_ACCOUNT_ID: '', OPENAI_API_KEY: '' };
   // Use the application's actual localhost port so browser mutations exercise
@@ -1113,6 +1178,187 @@ async function verifyCafeRevenueDiagnostic(base, requests) {
   await range(date);
 }
 
+async function verifyCafeRevenueRecovery(base, requests) {
+  const read = relative => JSON.parse(fs.readFileSync(path.join(temp, '.roas-data', relative), 'utf8'));
+  const cafeCard = () => page.locator('#summary-cards .summary-card[data-summary-key="mallRevenue"]');
+  const status = async () => {
+    const response = await fetch(base + '/api/cafe24/orders/recovery/status');
+    assert.equal(response.status, 200);
+    return (await response.json()).job;
+  };
+  const start = async (selector, selected) => {
+    const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/cafe24/orders/recover' && response.request().method() === 'POST');
+    await page.locator(selector).click();
+    const response = await responsePromise;
+    assert.equal(response.status(), 202, 'Explicit recovery uses the actual localhost-authorized server route');
+    assert.deepEqual(response.request().postDataJSON(), selected, 'The job captures only the selected dates');
+  };
+  const finished = async () => {
+    await page.waitForFunction(() => !document.getElementById('cafe-revenue-recover').disabled && !document.getElementById('reload').disabled, undefined, { timeout: 18000 });
+    const job = await status();
+    assert.equal(job.running, false);
+    assert.ok(job.finishedAt);
+    assert.ok((await page.locator('#cafe-revenue-recovery-summary').innerText()).includes(job.status));
+    return job;
+  };
+  const release = selected => {
+    for (const date of dates(selected.since, selected.until)) write('.roas-data/browser-cafe-recovery-release-' + date + '.json', { release: true });
+  };
+  const onlyRecoveryPosts = (since, count) => {
+    const traffic = requests.slice(since);
+    assert.deepEqual(traffic.filter(request => request.method === 'POST').map(request => new URL(request.url).pathname), Array(count).fill('/api/cafe24/orders/recover'), 'Cafe recovery must not start Meta, Smartstore, all-channel detail repair, or recent-three-day collection');
+    assert.ok(traffic.filter(request => new URL(request.url).pathname === '/api/insights').every(request => new URL(request.url).searchParams.get('cacheOnly') === '1'), 'Ordinary ad reads remain cache-only');
+  };
+  const protectedFiles = () => {
+    const output = {};
+    const visit = relative => {
+      const file = path.join(temp, '.roas-data', relative);
+      if (fs.statSync(file).isDirectory()) for (const name of fs.readdirSync(file).sort()) visit(path.join(relative, name));
+      else output[relative] = fs.readFileSync(file, 'utf8');
+    };
+    for (const relative of ['naver-orders', 'daily', 'product-costs.json', 'profit-fees.json']) visit(relative);
+    return output;
+  };
+
+  const before = cafeRevenueRecoveryFixture({ gated: true });
+  const { selected } = before, untouched = protectedFiles(), requestStart = requests.length;
+  await page.reload();
+  await idle();
+  await page.mouse.move(1000, 80);
+  await range(selected.since, selected.until);
+  await cafeCard().locator('[data-cafe-revenue-diagnostic="open"]').click();
+  assert.equal(await page.locator('#cafe-revenue-recover-diagnostic').isVisible(), true);
+  assert.ok(requests.slice(requestStart).some(request => new URL(request.url).pathname === '/api/cafe24/orders/recovery/status' && request.method === 'GET'));
+  onlyRecoveryPosts(requestStart, 0);
+  await start('#cafe-revenue-recover-diagnostic', selected);
+  let job = await status();
+  assert.equal(job.running, true);
+  assert.equal(job.total, 2);
+  assert.equal(job.checkedDays, 0);
+  assert.equal(job.ordersFetched, 0, 'A waiting response is not a successful empty order list');
+  for (const id of ['cafe-revenue-recover', 'cafe-revenue-recover-diagnostic', 'history-repair', 'profit-repair', 'recent3-refresh']) {
+    assert.equal(await page.locator('#' + id).isDisabled(), true, 'Competing collection is disabled while recovery runs: ' + id);
+  }
+  assert.equal(await page.locator('#reload').isDisabled(), false, 'Read-only date queries remain available');
+  assert.match(await page.locator('#cafe-revenue-recovery-summary').innerText(), /2026-09-03 ~ 2026-09-04.*진행 중/);
+  assert.deepEqual(read('browser-cafe-recovery-calls.json').dates, ['2026-09-03']);
+  check('Cafe recovery: page load only reads status; an explicit diagnostic action captures the selected dates and locks competing collectors without treating a waiting response as zero orders');
+
+  release(selected);
+  job = await finished();
+  assert.equal(job.status, '완료');
+  for (const field of ['checkedDays', 'completedDays', 'ordersFetched', 'ordersRestored', 'itemsChecked', 'itemsRestored']) assert.equal(job[field], 2, field);
+  assert.equal(job.failedDays, 0);
+  assert.equal(job.itemsMissing, 0);
+  assert.equal(job.backupCreated, true);
+  assert.equal(await cafeCard().locator('strong').innerText(), money(300000), 'Completion redraws the recovered store revenue without a manual reload');
+  await amount('2026-09-03', 16500);
+  await amount('2026-09-04', 371000);
+  assert.equal(await page.locator('#profit').innerText(), money(387500));
+  const recovered = await report(base, selected.since, selected.until);
+  assert.deepEqual(recovered.days.map(day => day.cafe24.revenue), [100000, 200000]);
+  assert.ok(recovered.days.every(day => day.complete));
+  assert.ok((await page.locator('#cafe-revenue-recovery-reason').innerText()).includes(recovered.revenueDiagnostics.cafe24.reason));
+  const saved = read('cafe24-orders/orders.json').orders;
+  for (const [id, previous] of Object.entries(before.outsideOrders)) assert.deepEqual(saved[id], previous, 'Recovery preserves orders outside its selected period');
+  for (const date of dates(selected.since, selected.until)) {
+    assert.equal(saved['qa-cafe-recovered-' + date].items[0].name, knownName);
+    assert.equal(saved['qa-cafe-recovered-' + date].items[0].quantity, 1);
+    assert.equal(read('cafe24-orders/sync.json').days[date].count, 1);
+  }
+  assert.deepEqual(protectedFiles(), untouched, 'Cafe recovery leaves all saved ads, Smartstore orders, costs and fees unchanged');
+  assert.deepEqual(read('browser-cafe-recovery-calls.json').dates, ['2026-09-03', '2026-09-04'], 'Previously completed sync dates are actually fetched again');
+  onlyRecoveryPosts(requestStart, 1);
+  await page.locator('.summary-settings').evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+  await metricCardScreenshot('cards-cafe-recovery-complete-1440');
+  check('Cafe recovery: completed-sync dates regain missing order headers and items, automatically show 300,000 store revenue and 387,500 profit, and preserve unrelated channels and dates');
+
+  cafeRevenueRecoveryFixture({ gated: true });
+  await range(selected.since, selected.until);
+  const reconnectStart = requests.length;
+  await start('#cafe-revenue-recover', selected);
+  await range('2026-10-01');
+  assert.equal(await cafeCard().locator('strong').innerText(), money(400000));
+  assert.match(await page.locator('#cafe-revenue-recovery-summary').innerText(), /2026-09-03 ~ 2026-09-04/);
+  const reloadStart = requests.length;
+  await page.reload();
+  await idle();
+  await page.mouse.move(1000, 80);
+  await page.waitForFunction(() => document.getElementById('cafe-revenue-recover').disabled);
+  assert.ok(requests.slice(reloadStart).some(request => new URL(request.url).pathname === '/api/cafe24/orders/recovery/status' && request.method === 'GET'), 'Reload reconnects to the running job by GET');
+  onlyRecoveryPosts(reloadStart, 0);
+  // The application initializes its ordinary date range on page load; explicitly
+  // choose October again to test the completion refresh against the current view.
+  await range('2026-10-01');
+  const completionStart = requests.length;
+  release(selected);
+  job = await finished();
+  assert.equal(job.status, '완료');
+  assert.equal(await page.locator('#since').inputValue(), '2026-10-01');
+  assert.equal(await page.locator('#until').inputValue(), '2026-10-01');
+  assert.equal(await cafeCard().locator('strong').innerText(), money(400000), 'Finishing a September recovery does not replace the selected October view');
+  assert.match(await page.locator('#cafe-revenue-recovery-reason').innerText(), /복구 기간은 2026-09-03 ~ 2026-09-04.*화면은 현재 선택한 2026-10-01 ~ 2026-10-01/);
+  const completionReads = requests.slice(completionStart).filter(request => new URL(request.url).pathname === '/api/profit/daily');
+  assert.ok(completionReads.length > 0, 'Completion performs a fresh financial read');
+  assert.ok(completionReads.every(request => new URL(request.url).searchParams.get('since') === '2026-10-01' && new URL(request.url).searchParams.get('until') === '2026-10-01'));
+  assert.deepEqual(read('browser-cafe-recovery-calls.json').body, selected);
+  assert.deepEqual(read('browser-cafe-recovery-calls.json').dates, ['2026-09-03', '2026-09-04']);
+  onlyRecoveryPosts(reconnectStart, 1);
+  assert.deepEqual((await report(base, selected.since, selected.until)).days.map(day => day.cafe24.revenue), [100000, 200000]);
+  check('Cafe recovery: changing to October and reloading reconnects with GET only, retains the September job, and refreshes the current October view when recovery finishes');
+
+  for (const scenario of [
+    { config: { authMissing: true }, expected: '인증 필요', reason: /OAuth/, completed: 0 },
+    { config: { failedDates: ['2026-09-03', '2026-09-04'] }, expected: '실패', reason: /HTTP 503/, completed: 0 },
+    { config: { failedDates: ['2026-09-04'] }, expected: '부분 완료', reason: /HTTP 503/, completed: 1 },
+    { config: { missingItemDates: ['2026-09-04'] }, expected: '부분 완료', reason: /상품명·옵션·수량/, completed: 1 },
+    { config: { name: scopeNames.excluded }, expected: '완료', reason: /제외/, completed: 2 }
+  ]) {
+    cafeRevenueRecoveryFixture(scenario.config);
+    const previous = { ...order('cafe24', '2026-09-04', 70000), id: 'qa-cafe-preserved-failed-day' };
+    if (scenario.config.failedDates) {
+      const cache = read('cafe24-orders/orders.json');
+      cache.orders[previous.id] = previous;
+      write('.roas-data/cafe24-orders/orders.json', cache);
+    }
+    await range(selected.since, selected.until);
+    const attemptStart = requests.length;
+    await start('#cafe-revenue-recover', selected);
+    job = await finished();
+    assert.equal(job.status, scenario.expected);
+    assert.equal(job.completedDays, scenario.completed);
+    assert.match(await page.locator('#cafe-revenue-recovery-reason').innerText(), scenario.reason);
+    assert.equal(await page.locator('#cafe-revenue-recovery-connect').isVisible(), !!scenario.config.authMissing);
+    const api = await report(base, selected.since, selected.until);
+    if (scenario.config.authMissing) {
+      assert.deepEqual(read('browser-cafe-recovery-calls.json').dates, []);
+      assert.equal(job.ordersFetched, 0);
+      assert.equal(job.backupCreated, false);
+    } else if (scenario.config.failedDates) {
+      assert.deepEqual(read('cafe24-orders/orders.json').orders[previous.id], previous, 'A failed date preserves its previously saved order');
+      assert.equal(job.failedDays, scenario.config.failedDates.length);
+      assert.ok(api.days.filter(day => scenario.config.failedDates.includes(day.date)).every(day => day.complete === false && day.profit === null), 'Failed dates remain unconfirmed rather than completed zero profit');
+    } else if (scenario.config.missingItemDates) {
+      assert.equal(job.itemsMissing, 1);
+      assert.equal(api.revenueDiagnostics.cafe24.missingItemOrders, 1);
+      assert.equal(api.revenueDiagnostics.cafe24.complete, false);
+      assert.equal(api.days[1].profit, null);
+      assert.equal(read('cafe24-orders/orders.json').orders['qa-cafe-recovered-2026-09-04'].net, 200000, 'A missing item detail does not erase the known payment');
+      await page.locator('#cafe-revenue-recovery-progress').evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      await metricCardScreenshot('cafe-recovery-partial-reason-1440');
+    } else {
+      assert.equal(api.revenueDiagnostics.cafe24.confirmedRevenue, 0);
+      assert.equal(api.revenueDiagnostics.cafe24.zeroReason, 'excluded');
+      assert.equal(await cafeCard().locator('strong').innerText(), money(0));
+      assert.ok((await page.locator('#cafe-revenue-recovery-reason').innerText()).includes(api.revenueDiagnostics.cafe24.reason), 'A valid zero after recovery explains the exclusion instead of promising revenue');
+    }
+    onlyRecoveryPosts(attemptStart, 1);
+  }
+  check('Cafe recovery: authentication, failed dates and missing items stay explicit and unconfirmed; preserved orders survive failures and a legitimate excluded zero displays its actual reason');
+  fixture();
+  await range('2026-09-04');
+}
+
 async function hoverVisibleProfitPoints(label) {
   await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
   const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
@@ -1292,6 +1538,7 @@ async function verifyResponsiveHover(requests) {
     await verifySplitRoas(requests);
     await verifySplitSpend(requests);
     await verifyCafeRevenueDiagnostic(base, requests);
+    await verifyCafeRevenueRecovery(base, requests);
     await verifyResponsiveHover(requests);
   }
 

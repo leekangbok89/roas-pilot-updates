@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css'];
-const appVersion='2.8.87';
+const appVersion='2.8.88';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -378,6 +378,7 @@ async function naverDetails(ids,token){
 }
 async function naverRun(mode){
  if(naverJobs.running)throw Object.assign(Error('네이버 주문 동기화가 이미 실행 중입니다.'),{status:409});
+ if(cafeRecoveryJob.running)throw Object.assign(Error('카페24 선택 기간 매출 복구가 진행 중입니다.'),{status:409});
  if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  if(!readNaverCredentials())throw Object.assign(Error('네이버 인증정보를 먼저 저장하세요.'),{status:400});
  naverJobs.running=true;naverJobs.startedAt=new Date().toISOString();naverJobs.finishedAt=null;naverJobs.mode=mode;naverJobs.progress='네이버 인증 중';naverJobs.error=null;naverJobs.daysCompleted=0;naverJobs.changedOrders=0;
@@ -418,7 +419,7 @@ async function naverOrderTest(){
  return {ok:true,message:'네이버 주문 조회 API 응답 성공',changedOrdersToday:ids.length,checkedDate:todaySeoul(),note:'최근 변경 주문 API 권한만 검증했습니다. 결제/취소 상세 수집은 동기화 시 검증됩니다.'};
 }
 function naverAutomaticStart(){
- if(naverJobs.running||catalogJob.running||!fs.existsSync(naverSecretsPath)||Date.now()<naverNextAutomaticAt)return;
+ if(naverJobs.running||catalogJob.running||cafeRecoveryJob.running||!fs.existsSync(naverSecretsPath)||Date.now()<naverNextAutomaticAt)return;
  naverNextAutomaticAt=Date.now()+6*3600000;
  naverRun('recent').catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
 }
@@ -527,9 +528,10 @@ function cafeWrite(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});
 function cafeDate(v){const m=String(v||'').match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:null;}
 function cafeMoney(v){if(v==null||v==='')return null;const n=Number(String(v).replace(/,/g,''));return Number.isFinite(n)&&n>=0?n:null;}
 function cafeParseOrder(o){
+ if(!o||typeof o!=='object'||Array.isArray(o))return null;
  const id=String(o.order_id||'');
  const date=cafeDate(o.payment_date||o.pay_date||o.payment_datetime);
- if(!id||!date)return null;
+ if(!id||id.length>100||!date||cafeCachedOrderDate(date)!==date)return null;
  const paid=String(o.paid||o.payment_status||'');
  const orderStatus=String(o.order_status||'');
  // Cafe24 order amount fields are nested objects. payment_amount within each is a string.
@@ -537,13 +539,16 @@ function cafeParseOrder(o){
  const initial=paymentFrom(o.initial_order_amount);
  const actual=paymentFrom(o.actual_order_amount);
  const paidAmount=cafeMoney(o.payment_amount);
- const gross=initial??paidAmount??actual;
  const remainder=actual??paidAmount;
- if(gross==null||remainder==null||paid==='F')return {id,date,unverified:true,orderStatus};
+ const original=initial??paidAmount??actual;
+ if(original==null||remainder==null||paid==='F')return {id,date,unverified:true,orderStatus};
  // Partial cancellations must retain the confirmed remaining payment.
+ // actual_order_amount is the final amount after changes, including additional
+ // payments. The initial payment is not a cap on that confirmed final amount.
  const fullyCanceled=o.canceled==='T'&&remainder===0;
- const net=fullyCanceled?0:Math.min(gross,remainder);
- return {id,date,gross,net,refund:Math.max(0,gross-net),orderStatus,paid,unverified:false,items:itemsFromCafeOrder(o),updatedAt:new Date().toISOString()};
+ const net=fullyCanceled?0:remainder,gross=Math.max(original,net);
+ const rawItems=cafeRawItems(o),items=itemsFromCafeOrder(o);
+ return {id,date,gross,net,refund:Math.max(0,gross-net),orderStatus,paid,unverified:false,items,rawItemCount:rawItems.length,itemsComplete:rawItems.length>0&&rawItems.length===items.length,updatedAt:new Date().toISOString()};
 }
 async function cafeAuthorizedGet(endpoint){
  let x=cafeRead();
@@ -584,23 +589,190 @@ async function cafeOrderItems(order,getter=cafeAuthorizedGet,diagnose=()=>{}){
    const code=String(e.message||'').match(/HTTP\s*(\d{3})/)?.[1]||'오류';
    diagnose({stage,result:'API '+code,detail:code==='401'||code==='403'?'카페24 주문 읽기 권한 또는 토큰 확인':'요청 실패'});
    failures.push('API '+code);
+   if(['401','403','429'].includes(code))throw Object.assign(Error('카페24 품목 조회 HTTP '+code),{httpStatus:Number(code)});
   }
  }
  if(failures.every(v=>v.startsWith('API')))throw Error('카페24 품목 조회 두 경로 모두 실패: '+failures.join(', '));
  return [];
 }
-async function cafeFetchDate(date){
- const q=new URLSearchParams({shop_no:'1',date_type:'pay_date',start_date:date+' 00:00:00',end_date:date+' 23:59:59',limit:'100',offset:'0'});
+async function cafeFetchDate(date,getter=cafeAuthorizedGet,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
+ const q=new URLSearchParams({shop_no:'1',date_type:'pay_date',start_date:date+' 00:00:00',end_date:date+' 23:59:59'});
+ const countResponse=await getter('orders/count?'+q),rawCount=countResponse?.count;
+ const expected=['number','string'].includes(typeof rawCount)&&String(rawCount).trim()!==''?Number(rawCount):NaN;
+ if(!Number.isInteger(expected)||expected<0)throw Object.assign(Error('카페24 주문 건수 응답을 확인할 수 없습니다.'),{code:'CAFE_RESPONSE'});
+ if(expected>10000)throw Object.assign(Error('일별 주문 조회 한도를 초과했습니다.'),{code:'CAFE_LIMIT'});
+ q.set('limit','100');q.set('offset','0');
  const all=[];
  for(let offset=0;offset<10000;offset+=100){
   q.set('offset',String(offset));
-  const data=await cafeAuthorizedGet('orders?'+q);
-  if(!Array.isArray(data.orders))throw Error('orders 응답 형식이 다릅니다.');
+  const data=await getter('orders?'+q);
+  if(!Array.isArray(data?.orders)||data.orders.length>100)throw Object.assign(Error('카페24 주문 목록 응답 형식을 확인할 수 없습니다.'),{code:'CAFE_RESPONSE'});
   all.push(...data.orders);
-  if(data.orders.length<100)return all;
-  await new Promise(r=>setTimeout(r,700));
+  if(data.orders.length<100||all.length>=expected){
+   if(all.length!==expected)throw Object.assign(Error('카페24 주문 건수와 조회 목록이 일치하지 않습니다.'),{code:'CAFE_COUNT'});
+   return all;
+  }
+  await wait(700);
  }
- throw Error('일별 주문 10,000건 조회 한도 초과');
+ throw Object.assign(Error('일별 주문 조회 한도를 초과했습니다.'),{code:'CAFE_LIMIT'});
+}
+const cafeRecoveryJob={running:false,status:'대기',since:null,until:null,startedAt:null,finishedAt:null,progress:'대기',done:0,total:0,checkedDays:0,completedDays:0,failedDays:0,ordersFetched:0,ordersRestored:0,ordersUpdated:0,itemsChecked:0,itemsRestored:0,itemsMissing:0,invalidOrders:0,backupCreated:false,error:null,results:[]};
+function cafeRecoveryStatus(){return {version:appVersion,job:{...cafeRecoveryJob,results:cafeRecoveryJob.results.map(row=>({...row}))}};}
+function cafeRecoveryRange(input={}){
+ const since=input?.since,until=input?.until;
+ if(typeof since!=='string'||typeof until!=='string'||cafeCachedOrderDate(since)!==since||cafeCachedOrderDate(until)!==until||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('카페24 매출을 다시 가져올 기간을 확인하세요(최대 732일).'),{status:400});
+ return {since,until};
+}
+function cafeRecoveryError(error){
+ const messages={CAFE_RESPONSE:'카페24 주문 응답 형식을 확인할 수 없어 미완료로 남겼습니다.',CAFE_COUNT:'카페24 주문 건수와 조회 목록이 달라 미완료로 남겼습니다. 다시 가져오기를 실행해 주세요.',CAFE_LIMIT:'일별 카페24 주문 조회 한도를 초과하여 미완료로 남겼습니다.',CAFE_BACKUP:'카페24 원본 저장 자료를 백업하지 못해 복구를 중단했습니다.',CAFE_SAVE:'카페24 주문을 안전하게 저장하지 못해 복구를 중단했습니다.',CAFE_READ:'카페24 저장 자료를 읽을 수 없어 복구를 중단했습니다.'};
+ if(messages[error?.code])return messages[error.code];
+ const code=cafeRecoveryHttpCode(error);
+ if(code==='401'||code==='403')return '카페24 주문 읽기 인증 또는 권한을 확인해 주세요. (HTTP '+code+')';
+ if(code==='429')return '카페24 요청 한도에 도달했습니다. 잠시 후 다시 가져오기를 실행해 주세요. (HTTP 429)';
+ return code?'카페24 주문 조회가 실패하여 미완료로 남겼습니다. (HTTP '+code+')':'카페24 주문 조회를 완료하지 못했습니다. 연결 상태를 확인한 뒤 다시 가져오기를 실행해 주세요.';
+}
+function cafeRecoveryHttpCode(error){const value=Number(error?.httpStatus);return Number.isInteger(value)&&value>=100&&value<=599?String(value):String(error?.message||'').match(/HTTP\s*(\d{3})/)?.[1]||null;}
+function cafeRecoveryStop(error){return ['401','403','429'].includes(cafeRecoveryHttpCode(error));}
+function cafeRecoveryDocument(file,key){
+ const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+ let raw;
+ try{raw=fs.readFileSync(file);}catch(error){if(error.code==='ENOENT')return {state:'missing',raw:null,data:{[key]:{}}};throw Object.assign(Error('저장 자료 읽기 실패'),{code:'CAFE_READ'});}
+ let value;
+ try{value=JSON.parse(raw.toString('utf8'));}catch{return {state:'invalid_json',raw,data:{[key]:{}}};}
+ const valid=object(value)&&object(value[key])&&(key!=='orders'||Object.values(value[key]).every(object));
+ // Salvage only recognisable records. Unreadable bytes and rejected shapes are
+ // preserved in the private backup before any cache or sync marker is changed.
+ const entries=object(value?.[key])?Object.entries(value[key]).filter(([,record])=>key!=='orders'||object(record)):[];
+ return {state:valid?'ok':'invalid_schema',raw,data:{...(object(value)?value:{}),[key]:Object.fromEntries(entries)}};
+}
+function cafeRecoveryBackup(context,orders,sync){
+ if(context.backedUp)return;
+ if(!context.backupAlways&&orders.state==='ok'&&sync.state==='ok')return;
+ try{
+  if(orders.raw!==null||sync.raw!==null){
+   const directory=path.join(path.dirname(cafeOrdersFile),'recovery-backups',new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomBytes(4).toString('hex'));
+   fs.mkdirSync(directory,{recursive:true,mode:0o700});
+   for(const [name,document] of [['orders.json',orders],['sync.json',sync]])if(document.raw!==null)fs.writeFileSync(path.join(directory,name),document.raw,{mode:0o600,flag:'wx'});
+   context.backupCreated=true;
+  }
+  context.backedUp=true;
+ }catch{throw Object.assign(Error('원본 백업 실패'),{code:'CAFE_BACKUP'});}
+}
+function cafeSyncComplete(entry){return !!entry&&entry.complete!==false;}
+function cafeCanSkipBackfill(date,orders,sync){
+ if(orders.state!=='ok'||!cafeSyncComplete(sync.data.days[date]))return false;
+ const count=sync.data.days[date]?.count,stored=Object.values(orders.data.orders).filter(order=>cafeCachedOrderDate(order.date)===date);
+ return (typeof count==='number'||typeof count==='string')&&String(count).trim()!==''&&Number.isInteger(Number(count))&&Number(count)===stored.length&&stored.every(order=>!order.unverified&&Number.isFinite(order.net)&&order.net>=0&&(order.net===0||completeOrderItems(order)));
+}
+function cafePersistRecoveryDate(context,date,orders,baseline,reason=null){
+ const saved=cafeRecoveryDocument(cafeOrdersFile,'orders'),sync=cafeRecoveryDocument(cafeSyncFile,'days');
+ cafeRecoveryBackup(context,saved,sync);
+ const latest=saved.data,markers=sync.data,now=new Date().toISOString();
+ if(saved.state!=='ok'){
+  // A rebuilt partial cache cannot validate historical sync records whose
+  // underlying orders were lost. Preserve those records but suspend completion.
+  for(const [key,entry] of Object.entries(markers.days))markers.days[key]={...(entry&&typeof entry==='object'?entry:{}),complete:false,recoveryReason:'주문 저장 자료를 다시 확인해야 합니다.'};
+ }
+ let restored=0,updated=0,itemsRestored=0,conflicts=0,unmatched=0;
+ if(orders!==null){
+  const received=new Set(orders.map(order=>order.id));
+  for(const order of orders){
+   const current=latest.orders[order.id],before=baseline?.data?.orders?.[order.id];
+   if(JSON.stringify(current)!==JSON.stringify(before)){conflicts++;continue;}
+   Object.defineProperty(latest.orders,order.id,{value:{...(current||{}),...order},writable:true,enumerable:true,configurable:true});
+   if(order.net>0&&completeOrderItems(order)&&(!completeOrderItems(current)||JSON.stringify(current.items)!==JSON.stringify(order.items)))itemsRestored++;
+   if(current)updated++;else restored++;
+  }
+  unmatched=Object.values(latest.orders).filter(order=>cafeCachedOrderDate(order.date)===date&&!received.has(String(order.id||''))).length;
+ }
+ const complete=orders!==null&&conflicts===0&&unmatched===0;
+ const explanation=reason||(conflicts?'조회 중 저장 주문이 변경되어 최신 저장 자료를 보존했습니다. 다시 가져오기를 실행해 주세요.':unmatched?'새 조회 목록에 없는 기존 주문을 보존했습니다. 결제일·취소 상태를 다시 확인해 주세요.':null);
+ const previous=markers.days[date],entry={...(previous&&typeof previous==='object'?previous:{}),attemptedAt:now,complete:false,recoveryReason:explanation};
+ if(orders!==null)entry.count=orders.length;
+ markers.days[date]=entry;
+ try{
+  // Persist an incomplete marker first. A crash between the two atomic files
+  // cannot expose a newly rebuilt empty cache as a previously completed period.
+  cafeWrite(cafeSyncFile,markers);
+  if(orders!==null)cafeWrite(cafeOrdersFile,latest);
+  if(complete){markers.days[date]={...entry,complete:true,checkedAt:now,recoveryReason:null};markers.lastSync=now;cafeWrite(cafeSyncFile,markers);}
+ }catch{throw Object.assign(Error('저장 실패'),{code:'CAFE_SAVE'});}
+ return {complete,restored,updated,itemsRestored,conflicts,unmatched,reason:explanation};
+}
+async function cafeRecoverOrders(input={},dependencies={}){
+ const range=cafeRecoveryRange(input);
+ if(cafeJob.running||catalogJob.running||naverJobs.running||recent3Job.running)throw Object.assign(Error('다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'),{status:409});
+ const io={credentials:cafeRead,fetchDate:cafeFetchDate,orderItems:cafeOrderItems,orderDetails:async order=>cafeAuthorizedGet('orders/'+encodeURIComponent(order.id)+'?shop_no='+encodeURIComponent(Number(order.shop_no)||1)+'&embed=items'),delay:ms=>new Promise(resolve=>setTimeout(resolve,ms)),...dependencies};
+ const dates=[];for(let time=dayUTC(range.since);time<=dayUTC(range.until);time+=86400000)dates.push(dayString(time));
+ Object.assign(cafeRecoveryJob,{running:true,status:'진행 중',...range,startedAt:new Date().toISOString(),finishedAt:null,progress:'카페24 주문 목록과 상품 상세 확인 준비',done:0,total:dates.length,checkedDays:0,completedDays:0,failedDays:0,ordersFetched:0,ordersRestored:0,ordersUpdated:0,itemsChecked:0,itemsRestored:0,itemsMissing:0,invalidOrders:0,backupCreated:false,error:null,results:[]});
+ Object.assign(cafeJob,{running:true,done:0,total:dates.length,error:null,progress:'카페24 선택 기간 매출 복구',startedAt:cafeRecoveryJob.startedAt,finishedAt:null,itemsRestored:0,itemsMissing:0});
+ const context={backedUp:false,backupCreated:false,backupAlways:true};let stopped=null;
+ const update=()=>{cafeRecoveryJob.backupCreated=context.backupCreated;cafeJob.done=cafeRecoveryJob.done;cafeJob.itemsRestored=cafeRecoveryJob.itemsRestored;cafeJob.itemsMissing=cafeRecoveryJob.itemsMissing;cafeJob.progress=cafeRecoveryJob.progress;};
+ try{
+  if(!io.credentials()?.tokens?.access_token)throw Object.assign(Error('카페24 인증 필요'),{code:'CAFE_AUTH'});
+  for(const date of dates){
+   const result={date,status:'진행 중',ordersFetched:0,ordersRestored:0,ordersUpdated:0,itemsMissing:0,invalidOrders:0,reason:null};
+   cafeRecoveryJob.progress=date+' 카페24 주문 확인 ('+(cafeRecoveryJob.done+1)+'/'+dates.length+')';update();
+   let fatal=false;
+   try{
+    const baseline=cafeRecoveryDocument(cafeOrdersFile,'orders'),rawOrders=await io.fetchDate(date);
+    if(!Array.isArray(rawOrders))throw Object.assign(Error('주문 목록 형식 미확인'),{code:'CAFE_RESPONSE'});
+    result.ordersFetched=rawOrders.length;cafeRecoveryJob.ordersFetched+=rawOrders.length;cafeRecoveryJob.checkedDays++;
+    const orders=[],ids=new Set();
+    for(const raw of rawOrders){
+     let order=cafeParseOrder(raw);
+     const id=String(raw?.order_id||''),shop=Number(raw?.shop_no)||1;
+     if((!order||order.unverified||order.date!==date)&&id&&id.length<=100){
+      try{const detail=await io.orderDetails({id,shop_no:shop});const candidate=cafeParseOrder(detail?.order||detail);order=candidate?.id===id?candidate:null;}catch(error){if(cafeRecoveryStop(error))throw error;order=null;}
+     }
+     if(!order||order.unverified||order.date!==date||ids.has(order.id)){result.invalidOrders++;continue;}
+     ids.add(order.id);
+     if(order.net>0){
+      cafeRecoveryJob.itemsChecked++;
+      const previous=baseline.data.orders[order.id],inlineComplete=completeOrderItems(order);
+      let fresh=[];
+      try{fresh=await io.orderItems({...order,shop_no:shop});}catch(error){if(cafeRecoveryStop(error))throw error;}
+      if(completeOrderItems({items:fresh})){
+       order={...order,items:fresh,rawItemCount:fresh.length,itemsComplete:true};
+      }else if(!inlineComplete){
+       order={...order,items:order.items.length?order.items:(previous?.items||[]),rawItemCount:Math.max(order.rawItemCount||0,Number(previous?.rawItemCount)||0),itemsComplete:false};
+       result.itemsMissing++;
+      }
+      await io.delay(700);
+     }
+     orders.push(order);
+    }
+    cafeRecoveryJob.invalidOrders+=result.invalidOrders;cafeRecoveryJob.itemsMissing+=result.itemsMissing;
+    const reason=result.invalidOrders?'결제일·결제금액·주문 상태를 확인하지 못한 주문이 '+result.invalidOrders+'건 있어 기존 자료를 보존했습니다.':null;
+    const saved=cafePersistRecoveryDate(context,date,result.invalidOrders?null:orders,baseline,reason);
+    result.ordersRestored=saved.restored;result.ordersUpdated=saved.updated;
+    cafeRecoveryJob.ordersRestored+=saved.restored;cafeRecoveryJob.ordersUpdated+=saved.updated;cafeRecoveryJob.itemsRestored+=saved.itemsRestored;
+    result.reason=saved.reason||(result.itemsMissing?'상품명·옵션·수량을 확인하지 못한 주문이 '+result.itemsMissing+'건 남아 있습니다.':null);
+    result.status=saved.complete&&!result.itemsMissing?'완료':'부분 완료';
+   }catch(error){
+    result.status='실패';result.reason=cafeRecoveryError(error);
+    if(cafeRecoveryStop(error)){stopped={auth:['401','403'].includes(cafeRecoveryHttpCode(error)),reason:result.reason};if(stopped.auth)result.status='인증 필요';}
+    fatal=!!stopped||['CAFE_READ','CAFE_BACKUP','CAFE_SAVE'].includes(error?.code);
+    if(!fatal)try{cafePersistRecoveryDate(context,date,null,null,result.reason);}catch(saveError){result.reason=cafeRecoveryError(saveError);fatal=true;}
+   }
+   cafeRecoveryJob.results.push(result);cafeRecoveryJob.done++;
+   if(result.status==='완료')cafeRecoveryJob.completedDays++;else cafeRecoveryJob.failedDays++;
+   update();
+   if(fatal)break;
+   await io.delay(700);
+  }
+  const remaining=cafeOrderCacheForReport();
+  const unresolved=remaining.cacheState!=='ok'||remaining.undatedOrders>0;
+  cafeRecoveryJob.status=cafeRecoveryJob.failedDays||cafeRecoveryJob.done<cafeRecoveryJob.total||unresolved?(cafeRecoveryJob.completedDays||cafeRecoveryJob.results.some(row=>row.status==='부분 완료')?'부분 완료':'실패'):'완료';
+  cafeRecoveryJob.error=cafeRecoveryJob.status==='완료'?null:remaining.undatedOrders>0?'결제일을 확인할 수 없는 기존 저장 주문 '+remaining.undatedOrders+'건이 남아 있습니다.':cafeRecoveryJob.results.find(row=>row.reason)?.reason||'카페24 주문을 모두 확인하지 못했습니다. 날짜별 결과를 확인해 주세요.';
+  if(stopped){if(stopped.auth)cafeRecoveryJob.status='인증 필요';cafeRecoveryJob.error=stopped.reason;}
+ }catch(error){cafeRecoveryJob.status=error?.code==='CAFE_AUTH'?'인증 필요':'실패';cafeRecoveryJob.error=error?.code==='CAFE_AUTH'?'카페24 OAuth 연결을 완료한 뒤 매출을 다시 가져오세요.':cafeRecoveryError(error);}
+ finally{
+  cafeRecoveryJob.running=false;cafeRecoveryJob.finishedAt=new Date().toISOString();
+  cafeRecoveryJob.progress='카페24 매출 다시 가져오기 '+cafeRecoveryJob.status+' · 확인 '+cafeRecoveryJob.done+'/'+cafeRecoveryJob.total+'일 · 새 주문 '+cafeRecoveryJob.ordersRestored+'건 · 품목 미확인 '+cafeRecoveryJob.itemsMissing+'건';update();
+  cafeJob.running=false;cafeJob.finishedAt=cafeRecoveryJob.finishedAt;cafeJob.error=cafeRecoveryJob.error;
+ }
+ return cafeRecoveryStatus();
 }
 function cafeSalesState(){
  const store=cafeCache(cafeOrdersFile,{orders:{}}),sync=cafeCache(cafeSyncFile,{days:{}});
@@ -612,40 +784,42 @@ function cafeSalesState(){
  return {job:{...cafeJob},daysChecked:Object.keys(sync.days||{}).length,lastSync:sync.lastSync||null,totalOrders:Object.keys(store.orders||{}).length,unverified,days:Object.values(daily).sort((a,b)=>a.date.localeCompare(b.date))};
 }
 async function cafeCollect(mode){
- if(cafeJob.running)throw Error('카페24 수집 진행 중');
+ if(cafeJob.running)throw Object.assign(Error('카페24 수집 진행 중'),{status:409});
  if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  cafeJob.running=true;cafeJob.error=null;cafeJob.progress='수집 시작';cafeJob.startedAt=new Date().toISOString();cafeJob.finishedAt=null;cafeJob.done=0;
  const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-14*86400000);
  const dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
  cafeJob.total=dates.length;cafeJob.itemsRestored=0;cafeJob.itemsMissing=0;
  try{
-  const saved=cafeCache(cafeOrdersFile,{orders:{}}),sync=cafeCache(cafeSyncFile,{days:{}});
-  saved.orders=saved.orders||{};sync.days=sync.days||{};
+  const context={backedUp:false,backupCreated:false};
   for(const date of dates){
-   if(mode==='backfill'&&sync.days[date]){cafeJob.done++;continue;}
+   const baseline=cafeRecoveryDocument(cafeOrdersFile,'orders'),sync=cafeRecoveryDocument(cafeSyncFile,'days');
+   if(mode==='backfill'&&cafeCanSkipBackfill(date,baseline,sync)){cafeJob.done++;continue;}
    cafeJob.progress=date+' 조회 ('+(cafeJob.done+1)+'/'+cafeJob.total+')';
    try{
     const rows=await cafeFetchDate(date);
     const parsed=rows.map(cafeParseOrder);
-    if(parsed.some(v=>!v||v.unverified))throw Error('주문 상태 또는 결제금액 필드를 확인할 수 없어 미완료 처리');
+    if(parsed.some(v=>!v||v.unverified||v.date!==date)||new Set(parsed.map(v=>v?.id)).size!==parsed.length)throw Object.assign(Error('주문 상태 또는 결제금액 필드를 확인할 수 없어 미완료 처리'),{code:'CAFE_RESPONSE'});
     for(const order of parsed){
-     const previous=saved.orders[order.id];
-     let items=order.items?.length?order.items:(previous?.items||[]);
-     if(order.net>0&&!items.length){
-      try{items=await cafeOrderItems(order.id);if(items.length)cafeJob.itemsRestored++;else cafeJob.itemsMissing++;}
-      catch(err){cafeJob.itemsMissing++;cafeJob.progress=date+' 주문 상품 상세 일부 미확인: '+err.message.slice(0,100);}
+     const previous=baseline.data.orders[order.id];
+     if(order.net>0&&!completeOrderItems(order)){
+      let items=[];try{items=await cafeOrderItems(order.id);}catch(error){if(cafeRecoveryStop(error))throw error;}
+      if(completeOrderItems({items})){order.items=items;order.itemsComplete=true;order.rawItemCount=items.length;cafeJob.itemsRestored++;}
+      else{order.items=order.items.length?order.items:(previous?.items||[]);order.itemsComplete=false;order.rawItemCount=Math.max(order.rawItemCount||0,Number(previous?.rawItemCount)||0);cafeJob.itemsMissing++;}
      }
-     saved.orders[order.id]={...order,items};
     }
-    cafeWrite(cafeOrdersFile,saved);
-    sync.days[date]={checkedAt:new Date().toISOString(),count:parsed.length};
-    sync.lastSync=new Date().toISOString();cafeWrite(cafeSyncFile,sync);
+    const saved=cafePersistRecoveryDate(context,date,parsed,baseline);
+    if(!saved.complete)throw Object.assign(Error('저장 주문 대조 필요'),{code:'CAFE_COUNT'});
     cafeJob.done++;
-   }catch(e){cafeJob.error=date+' '+e.message;break;}
+   }catch(e){
+    cafeJob.error=date+' '+cafeRecoveryError(e);
+    if(!cafeRecoveryStop(e)&&!['CAFE_READ','CAFE_BACKUP','CAFE_SAVE'].includes(e?.code))try{cafePersistRecoveryDate(context,date,null,null,cafeRecoveryError(e));}catch(saveError){cafeJob.error=cafeRecoveryError(saveError);}
+    break;
+   }
    await new Promise(r=>setTimeout(r,700));
   }
   cafeJob.progress=cafeJob.error?'수집 중단: '+cafeJob.error:'수집 완료 · 상품상세 복구 '+cafeJob.itemsRestored+'건'+(cafeJob.itemsMissing?' · 상세 미확인 '+cafeJob.itemsMissing+'건 (원가관리에서 다시 확인)':'');
- }catch(e){cafeJob.error=e.message;cafeJob.progress='실패: '+e.message;}
+ }catch(e){cafeJob.error=cafeRecoveryError(e);cafeJob.progress='실패: '+cafeJob.error;}
  finally{cafeJob.running=false;cafeJob.finishedAt=new Date().toISOString();}
 }
 function cafeAutoCollect(){
@@ -704,7 +878,7 @@ async function recent3Refresh(accounts){
 }
 
 const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,since:null,until:null,sources:{},cafeRestored:0,cafeRemaining:0,cafeChecked:0,lastAttemptAt:null,failures:{},examples:[]};
-function completeOrderItems(order){return Array.isArray(order?.items)&&order.items.length>0&&order.items.every(item=>item&&cleanCostText(item.name)&&Number.isFinite(Number(item.quantity))&&Number(item.quantity)>0);}
+function completeOrderItems(order){return order?.itemsComplete!==false&&Array.isArray(order?.items)&&order.items.length>0&&(!Number.isFinite(order.rawItemCount)||order.rawItemCount===order.items.length)&&order.items.every(item=>item&&cleanCostText(item.name)&&Number.isFinite(Number(item.quantity))&&Number(item.quantity)>0);}
 function catalogRepairRange(input={}){
  const since=input.since||null,until=input.until||null;
  if(since===null&&until===null)return {since:null,until:null};
@@ -842,7 +1016,7 @@ async function enrichCostCatalog(options={},dependencies={}){
   // Read just before the atomic write; never write the initial full snapshot
   // over orders or payment changes saved while an API request was pending.
   const latest=naverRead(file,{orders:{}});latest.orders=latest.orders||{};let restored=0;
-  for(const [id,items] of changes){const current=latest.orders[id];if(!current||completeOrderItems(current))continue;latest.orders[id]={...current,items};restored++;}
+  for(const [id,items] of changes){const current=latest.orders[id];if(!current||completeOrderItems(current))continue;latest.orders[id]={...current,items,...(file===cafeOrdersFile?{itemsComplete:true,rawItemCount:items.length}:{})};restored++;}
   if(restored)naverAtomic(file,latest);
   return restored;
  };
@@ -987,7 +1161,7 @@ function profitDaily(since,until,options={}){
   countCafe(channel,'positiveOrders');
   // Whole-order payment is stored, not each item's settled payment amount.
   // Revenue is safe to attribute only when all items belong to one chosen brand.
-  if(!Array.isArray(o.items)||!o.items.length){countCafe(channel,'missingItemOrders');rec.missingOrders++;rec.missingItemOrders++;summaries.set(key,rec);return;}
+  if(!Array.isArray(o.items)||!o.items.length||channel==='cafe24'&&(o.itemsComplete===false||Number.isFinite(o.rawItemCount)&&o.rawItemCount!==o.items.length)){countCafe(channel,'missingItemOrders');rec.missingOrders++;rec.missingItemOrders++;summaries.set(key,rec);return;}
   const classified=o.items.map(item=>({...item,brand:brandForProduct(item?.name,brandChoices)}));
   const unknown=classified.filter(x=>x.brand.scope==='unclassified');
   if(unknown.length){
@@ -1026,7 +1200,7 @@ function profitDaily(since,until,options={}){
 
  Object.values(nv).forEach(x=>add('naver',x));cafeCacheState.orders.forEach(x=>add('cafe24',x));
  let days=[];for(let t=dayUTC(since);t<=dayUTC(until);t+=86400000){const date=dayString(t),n=summaries.get(date+':naver'),c=summaries.get(date+':cafe24');let row={date};
-  for(const [channel,rec,collected] of [['naver',n,!!ns[date]],['cafe24',c,cafeCacheValid&&!!cs[date]]]){
+  for(const [channel,rec,collected] of [['naver',n,!!ns[date]],['cafe24',c,cafeCacheValid&&cafeSyncComplete(cs[date])]]){
    const unknownDate=channel==='cafe24'&&cafeCacheState.undatedOrders>0;
    const sum=rec||emptySummary(),revenueKnown=collected&&!unknownDate&&sum.invalidOrders===0&&sum.mixedOrders===0&&sum.unclassifiedOrders===0&&sum.missingItemOrders===0,costKnown=revenueKnown&&sum.missingOrders===0,reasons=[];
    if(channel==='cafe24'&&!cafeCacheValid)reasons.push(cafeCacheState.cacheIssue);
@@ -1662,6 +1836,16 @@ const server=http.createServer(async (req,res)=> {
       if(catalogJob.running||naverJobs.running||cafeJob.running||recent3Job.running)return json(res,409,{error:'다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
       enrichCostCatalog(range).catch(e=>{if(!catalogJob.running)catalogJob.error=e.message;});return json(res,202,{started:true,...range});
     }
+    if(u.pathname==='/api/cafe24/orders/recovery/status'&&req.method==='GET')return json(res,200,cafeRecoveryStatus());
+    if(u.pathname==='/api/cafe24/orders/recover'&&req.method==='POST'){
+      if(!localPost(req))return json(res,403,{error:'로컬 ROAS Pilot에서만 매출을 다시 가져올 수 있습니다.'});
+      if(cafeJob.running||catalogJob.running||naverJobs.running||recent3Job.running)return json(res,409,{error:'다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
+      let body;try{body=JSON.parse((await payload(req)).toString('utf8'));}catch{return json(res,400,{error:'카페24 복구 기간의 요청 형식을 확인하세요.'});}
+      const range=cafeRecoveryRange(body);
+      if(cafeJob.running||catalogJob.running||naverJobs.running||recent3Job.running)return json(res,409,{error:'다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
+      cafeRecoverOrders(range).catch(()=>{});
+      return json(res,202,{started:true,job:cafeRecoveryStatus().job});
+    }
     if(u.pathname==='/api/cafe24/orders/status'&&req.method==='GET')return json(res,200,cafeSalesState());
     if(u.pathname==='/api/cafe24/orders/sync'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});
@@ -1685,7 +1869,7 @@ const server=http.createServer(async (req,res)=> {
       if(!localPost(req))return json(res,403,{error:'로컬에서만 주문을 동기화할 수 있습니다.'});
       const body=JSON.parse((await payload(req)).toString('utf8'));
       const mode=body.mode==='backfill'?'backfill':'recent';
-      if(naverJobs.running||catalogJob.running)return json(res,409,{error:'기존 주문 동기화 또는 상품 상세 복구가 진행 중입니다.'});
+      if(naverJobs.running||catalogJob.running||cafeRecoveryJob.running)return json(res,409,{error:'기존 주문 동기화 또는 상품 상세 복구가 진행 중입니다.'});
       naverRun(mode).catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
       return json(res,202,{ok:true,message:'주문 데이터 수집 시작',mode});
     }
@@ -1761,6 +1945,6 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,combinedAnalysis,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow,enrichCostCatalog,dataCoverage,catalogRepairRange,ga4WithMetaNames};
+module.exports={server,isDate,profitDaily,combinedAnalysis,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow,enrichCostCatalog,dataCoverage,catalogRepairRange,ga4WithMetaNames,cafeRecoverOrders,cafeRecoveryStatus,cafeRecoveryRange,cafeFetchDate,cafeParseOrder};
 
 
