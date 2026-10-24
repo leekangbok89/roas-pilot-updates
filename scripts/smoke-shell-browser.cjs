@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','전체 매출 분석','원가관리','GA4 유입 분석','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','전체 매출 분석','원가관리','GA4 유입 분석','메타 광고 실험실','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
@@ -63,6 +63,8 @@ function prepareInstallation(){
   // All older runtime assets survive; the historical copier decides what the
   // new package can replace, exactly as the still-running updater did.
   for(const relative of shellAssets)fs.rmSync(path.join(temp,relative),{force:true});
+   // Legacy copiers do not include this new page; it must be served by server.js fallback.
+   fs.rmSync(path.join(temp,'public/meta-experiments.html'),{force:true});
   const previousVersion=scenario==='legacy-v72-upgrade'?'2.8.72':'2.8.73';
   const pkg=JSON.parse(fs.readFileSync(path.join(temp,'package.json'),'utf8'));
   fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({...pkg,version:previousVersion}));
@@ -284,12 +286,14 @@ async function verifyBrowserScenario(){
  await page.keyboard.press('Escape');await shellState(false);
  pass('keyboard focus, Enter and Escape open/close navigation without shifting content');
 
- for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['전체 매출 분석','/#sales-impact','#sales-impact'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['한눈에 보기','/visual-overview.html',null]]){
+ for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['전체 매출 분석','/#sales-impact','#sales-impact'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['메타 광고 실험실','/meta-experiments.html',null],['한눈에 보기','/visual-overview.html',null]]){
   await nav(label);
   const target=new URL(page.url());assert.equal(target.pathname+target.hash,url,'Actual navigation destination for '+label);
   if(section){assert.equal(await page.locator(section).isVisible(),true,'Selected workspace section must be visible');for(const other of ['#ads-section','#daily-compare','#sales-impact'])if(other!==section)assert.equal(await page.locator(other).isVisible(),false,'Inactive workspace section must be hidden');}
  }
  pass('actual navigation clicks switch all routes/index sections and keep one correct active item');
+ await page.goto(base+'/meta-experiments.html');
+ assert.equal(await page.locator('#dimension').count(),1,'Experiment comparison page is available even after legacy update');
  await nav('광고별 진단');await nav('날짜별 비교');await nav('전체 매출 분석');
  await page.goBack();await page.waitForFunction(()=>document.body.dataset.appView==='daily-compare');assert.deepEqual(await activeLabel(),['날짜별 비교']);assert.equal(await page.locator('#daily-compare').isVisible(),true);
  await page.goForward();await page.waitForFunction(()=>document.body.dataset.appView==='sales-impact');assert.deepEqual(await activeLabel(),['전체 매출 분석']);assert.equal(await page.locator('#sales-impact').isVisible(),true);assert.equal(await page.locator('#funnel').isVisible(),false);
