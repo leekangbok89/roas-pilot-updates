@@ -111,6 +111,17 @@
     });
     applyTheme(root.dataset.theme, false);
 
+    var nav = document.getElementById('app-nav');
+    if (nav && !nav.querySelector('[data-app-route="experiments"]')) {
+      var experimentalLink = document.createElement('a');
+      experimentalLink.className = 'app-nav-link';
+      experimentalLink.dataset.appRoute = 'experiments';
+      experimentalLink.href = '/meta-experiments.html';
+      experimentalLink.textContent = '메타 광고 실험실';
+      var settingsLink = nav.querySelector('[data-app-route="data-source"]');
+      if (settingsLink) nav.insertBefore(experimentalLink, settingsLink);
+      else nav.appendChild(experimentalLink);
+    }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
     function markActive(key) {
       links.forEach(function (link) {
@@ -183,7 +194,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(page === 'cost' ? 'cost' : page === 'ga4' ? 'ga4' : 'overview');
+      markActive(page === 'cost' ? 'cost' : page === 'ga4' ? 'ga4' : page === 'experiments' ? 'experiments' : 'overview');
       body.classList.add('app-route-ready');
     }
   }
