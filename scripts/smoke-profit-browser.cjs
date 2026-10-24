@@ -943,6 +943,24 @@ async function verifyResponsiveHover(requests) {
   page.on('request', request => requests.push({ url: request.url(), method: request.method() }));
   await page.goto(base + '/visual-overview.html');
   await idle();
+  // Verify the shipped UI is collapsed by default, then expand for legacy
+  // metric assertions that read rendered innerText inside these panels.
+  const folded = page.locator('details.fold-panel');
+  assert.equal(await folded.count(), 4, 'Four overview panels support collapse / expand');
+  assert.deepEqual(await folded.evaluateAll(nodes => nodes.map(node => node.open)),
+    [false, false, false, false], 'All overview panels are collapsed on first load');
+  assert.equal(await page.locator('#ai-strategy').count(), 0, 'AI strategy room is removed');
+  await folded.first().locator('summary').click();
+  assert.equal(await folded.first().evaluate(node => node.open), true, 'Click expands a panel');
+  await folded.first().locator('summary').click();
+  assert.equal(await folded.first().evaluate(node => node.open), false, 'Second click collapses a panel');
+  // Preserve expanded test visibility across page.reload() calls in this
+  // existing browser suite without changing production default behavior.
+  await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('details.fold-panel').forEach(node => { node.open = true; });
+  }, { once: true }));
+  await folded.evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+  check('browser: four overview panels are collapsed by default and toggle on click; AI strategy room is removed');
   // Playwright starts at (0,0), the intentional hover target for the drawer.
   // Move into the workspace before interacting with content beneath that overlay.
   await page.mouse.move(1000, 80);
