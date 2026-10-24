@@ -3,8 +3,8 @@
   'use strict';
   var themeKey = 'roas-pilot-theme';
   var root = document.documentElement;
-  var savedTheme = 'light';
-  try { savedTheme = localStorage.getItem(themeKey) === 'dark' ? 'dark' : 'light'; } catch (_) {}
+  var savedTheme = 'dark';
+  try { savedTheme = localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'; } catch (_) {}
   root.dataset.theme = savedTheme;
   root.style.colorScheme = savedTheme;
 
@@ -84,7 +84,7 @@
     setOpen(false);
 
     function applyTheme(theme, persist) {
-      var dark = theme === 'dark';
+      var dark = theme !== 'light';
       root.dataset.theme = dark ? 'dark' : 'light';
       root.style.colorScheme = dark ? 'dark' : 'light';
       var label = dark ? '라이트 모드로 전환' : '다크 모드로 전환';
@@ -107,7 +107,7 @@
     if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
     if (drawerThemeToggle) drawerThemeToggle.addEventListener('click', toggleTheme);
     window.addEventListener('storage', function (event) {
-      if (event.key === themeKey) applyTheme(event.newValue, false);
+      if (event.key === themeKey || event.key === null) applyTheme(event.newValue, false);
     });
     applyTheme(root.dataset.theme, false);
 
