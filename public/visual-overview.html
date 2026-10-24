@@ -450,7 +450,7 @@ function renderBrandReview(){
   }
   table.append(body);return table;
  };
- if(products.length){const title=document.createElement('h4');title.textContent='확인이 필요한 상품';title.style.margin='12px 0 6px';root.append(title,tableFor(products,'pending'));}
+ if(products.length){root.append(tableFor(products,'pending'));}
  if(saved.length){
   const title=document.createElement('h4');title.textContent='기존 수동 분류 다시 확인';title.style.margin='16px 0 6px';
   const note=document.createElement('p');note.className='small';note.textContent='이전에 저장한 분류가 잘못되어 매출이 0원으로 잡히는 경우 여기서 즉시 변경하세요. “분류 초기화”를 누르면 상품명이 위마망/트루버로 자동 판별되지 않는 상품은 다시 확인 목록으로 돌아갑니다.';
