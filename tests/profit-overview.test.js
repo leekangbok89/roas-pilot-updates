@@ -138,3 +138,21 @@ test('when no profits are calculated, diagnostic explains failure and shows miss
  assert.equal(h.node('graph').innerHTML.includes('<circle data-metric="profit"'),false);
  assert.ok(h.node('profit-chart-diagnostic').children.length>=3);
 });
+
+test('zero Meta-attributed purchase revenue does not suppress combined store profit',async()=>{
+ const h=harness({fetch:async url=>{
+  const u=new URL(url,'http://localhost');
+  const body=u.pathname==='/api/insights'?
+   {currency:'KRW',rows:[{date_start:'2026-09-01',account_currency:'KRW',spend:'10000',actions:[],action_values:[]}],cache:{missingDays:[],warnings:[]}}:
+   u.pathname==='/api/profit/daily'?
+   {fees:{naver:7,cafe24:3.5},days:[profit('2026-09-01',33000,{adSpend:20000})]}:
+   {days:[{date:'2026-09-01',naver:100000,cafe24:0,total:100000,complete:true}]};
+  return {ok:true,json:async()=>body};
+ }});
+ await h.run('run()');
+ assert.equal(h.node('revenue').textContent,'—','Meta purchase revenue remains missing');
+ assert.equal(h.node('profit-total').textContent,'33,000원','store profit derives from order revenue, not attribution');
+ assert.match(h.node('graph').innerHTML,/통합 예상 이익: 33,000원/);
+ assert.match(h.node('profit-reconciliation').textContent,/33,000원/);
+ assert.match(h.node('profit-troubleshooting-body').children.map(x=>x.textContent||'').join(' '),/Meta 구매 전환매출과 무관/);
+});
