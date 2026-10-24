@@ -16,28 +16,109 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px
 <aside class="app-drawer" id="app-drawer" aria-hidden="true" inert><div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div><nav class="app-nav" id="app-nav"><a class="app-nav-link" data-app-route="overview" href="/visual-overview.html">한눈에 보기</a><a class="app-nav-link" data-app-route="ads-section" href="/#ads-section">광고별 진단</a><a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare">날짜별 비교</a><a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact">전체 매출 분석</a><a class="app-nav-link" data-app-route="cost" href="/cost-management.html">원가관리</a><a class="app-nav-link" data-app-route="ga4" href="/ga4.html">GA4 유입 분석</a><a class="app-nav-link active" data-app-route="experiments" href="/meta-experiments.html">메타 광고 실험실</a><a class="app-nav-link" data-app-route="data-source" href="/#data-source">설정 관리</a></nav><div class="app-nav-footer"><button type="button" id="app-theme-drawer-toggle" class="app-theme-drawer-toggle"><span data-theme-icon>☾</span><span id="app-theme-label">테마 전환</span></button></div></aside>
 <main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">메타 광고 실험실</h1><p class="app-page-subtitle">ASC · 타겟 · 랜딩 · 예산 조건별 성과를 저장 데이터에서 비교합니다.</p></div></header>
 <section class="experiment-grid"><div class="experiment-panel"><h2>① ASC ON / OFF</h2><p>일반 판매와 어드밴티지+ 캠페인을 분류해 비교</p></div><div class="experiment-panel"><h2>② 타겟 설정</h2><p>광범위·관심사·구매자 제외 설정 비교</p></div><div class="experiment-panel"><h2>③ 랜딩 페이지</h2><p>네이버 스마트스토어와 카페24 비교</p></div><div class="experiment-panel"><h2>④ 일예산</h2><p>설정한 일예산 구간에 따른 성과 비교</p></div></section>
-<section class="experiment-panel"><h2>조회 설정</h2><div class="filters"><label>광고 계정 ID<input id="account" inputmode="numeric" placeholder="숫자 광고계정 ID"></label><label>시작일<input id="since" type="date"></label><label>종료일<input id="until" type="date"></label><label>비교 기준<select id="dimension"><option value="asc">ASC ON / OFF</option><option value="target">타겟</option><option value="landing">랜딩</option><option value="budget">일예산</option></select></label><button id="load" class="primary">저장 데이터 불러오기</button></div><p class="notice" id="status" role="status">광고 계정 ID와 날짜를 선택한 후 불러오세요. 이 화면은 저장된 Meta 성과만 조회하며 광고 설정을 변경하지 않습니다.</p></section>
-<section class="experiment-panel" style="margin-top:14px"><h2>캠페인별 설정 분류</h2><p>현재 성과 API에는 과거 ASC·타겟·예산 설정 이력이 없으므로 캠페인별 설정을 직접 지정합니다. 분류는 이 브라우저에 저장됩니다. 현재 설정을 과거 전체 기간에 소급 적용하지 마세요.</p><div class="scroll"><table><thead><tr><th>캠페인</th><th>ASC</th><th>타겟</th><th>랜딩</th><th>일예산(계정 통화)</th></tr></thead><tbody id="classify"><tr><td colspan="5">광고 데이터를 먼저 불러오세요.</td></tr></tbody></table></div></section>
-<section class="experiment-panel" style="margin-top:14px"><h2>설정별 성과 비교</h2><div class="notice" id="coverage">과거 설정 이력 미수집 · 저장된 분류가 있는 캠페인만 비교합니다. 설정 변경 기간이 겹치면 결과가 부정확할 수 있습니다.</div><div class="scroll"><table><thead><tr><th>설정 그룹</th><th>캠페인</th><th>광고비</th><th>구매</th><th>Meta 구매매출</th><th>ROAS</th><th>구매 CPA</th><th>CTR</th></tr></thead><tbody id="result"><tr><td colspan="8">불러온 데이터가 없습니다.</td></tr></tbody></table></div></section>
-<section class="experiment-panel" style="margin-top:14px"><h2>해석 시 주의</h2><p>그룹별 차이는 인과효과가 아닙니다. 동일한 타겟·예산·소재·기간에서 한 변수만 다르게 실험해야 설정 자체의 효과를 판단할 수 있습니다. 랜딩 성과의 Meta 구매매출은 실제 쇼핑몰 주문 이익과 다릅니다. 통화가 다른 계정은 합산하지 마세요.</p></section>
+<section class="experiment-panel"><h2>조회 설정</h2><div class="filters"><label>광고 계정<select id="account-choice"><option value="all">네이버 + 카페24</option><option value="naver">네이버 광고 계정</option><option value="cafe">카페24 광고 계정</option><option value="manual">직접 입력</option></select></label><label id="manual-label" hidden>직접 입력 광고 계정 ID<input id="account" inputmode="numeric" placeholder="숫자 광고계정 ID"></label><label>시작일<input id="since" type="date"></label><label>종료일<input id="until" type="date"></label><label>비교 기준<select id="dimension"><option value="asc">ASC ON / OFF</option><option value="target">타겟</option><option value="landing">랜딩</option><option value="budget">일예산</option></select></label><button id="load" class="primary">저장 데이터 불러오기</button></div><p class="notice" id="status" role="status">광고 계정 ID와 날짜를 선택한 후 불러오세요. 이 화면은 저장된 Meta 성과만 조회하며 광고 설정을 변경하지 않습니다.</p></section>
+<section class="experiment-panel" style="margin-top:14px"><h2>캠페인별 설정 분류</h2><p>성과 API에는 과거 ASC·타겟·예산 설정 이력이 없습니다. 설정값과 <strong>그 설정을 사용한 시작일</strong>을 직접 지정해야 비교에 포함됩니다. 분류는 이 브라우저에 저장되며, 실제 확인한 기간만 입력하세요.</p><div class="scroll"><table><thead><tr><th>채널 / 광고 계정</th><th>캠페인</th><th>ASC</th><th>타겟</th><th>랜딩</th><th>일예산(계정 통화)</th><th>설정 적용 시작일</th><th>적용 종료일(선택)</th></tr></thead><tbody id="classify"><tr><td colspan="8">광고 데이터를 먼저 불러오세요.</td></tr></tbody></table></div></section>
+<section class="experiment-panel" style="margin-top:14px"><h2>설정별 성과 비교</h2><div class="notice" id="coverage">과거 설정 이력 미수집 · 저장된 분류가 있는 캠페인만 비교합니다. 설정 변경 기간이 겹치면 결과가 부정확할 수 있습니다.</div><div class="scroll"><table><thead><tr><th>설정 그룹</th><th>캠페인</th><th>광고비</th><th>구매</th><th>Meta 구매매출</th><th>ROAS</th><th>구매 CPA</th><th>링크 CTR</th></tr></thead><tbody id="result"><tr><td colspan="8">불러온 데이터가 없습니다.</td></tr></tbody></table></div><div id="compare-bars" style="margin-top:16px"></div></section>
+<section class="experiment-panel" style="margin-top:14px"><h2>해석 시 주의</h2><p>그룹별 차이는 인과효과가 아닙니다. 동일한 타겟·예산·소재·기간에서 한 변수만 다르게 실험해야 설정 자체의 효과를 판단할 수 있습니다. 랜딩은 캠페인 연결 대상 URL을 확인해 수동 분류하고, Meta 귀속 구매매출을 실제 주문매출이나 이익으로 간주하지 마세요. 계정 통화가 다르면 별도로 집계합니다.</p></section>
 </main><script>
 (function(){'use strict';
-const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString('ko-KR',{maximumFractionDigits:2});
-let rows=[],account='',currency='',cacheKey='';
-let labels={}; const opts={asc:['','ON','OFF','확인 불가'],target:['','광범위','관심사','구매자 제외','기타'],landing:['','네이버','카페24','기타']};
+const $=id=>document.getElementById(id);
+const fmt=n=>Number(n||0).toLocaleString('ko-KR',{maximumFractionDigits:2});
+const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const validId=v=>/^\d{5,30}$/.test(String(v||'').replace(/^act_/,''));
+const normalize=v=>String(v||'').trim().replace(/^act_/,'');
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-$('until').value=today;const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-29);$('since').value=d.toISOString().slice(0,10);
-try{$('account').value=localStorage.getItem('roas-exp-account')||localStorage.getItem('metaAdAccountId')||'';}catch{}
-function clean(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function amounts(r){const purchase=['purchase','omni_purchase','offsite_conversion.fb_pixel_purchase'];const action=(a)=>{if(!Array.isArray(a))return 0;for(const type of purchase){const x=a.find(v=>v.action_type===type);if(x)return Number(x.value||0);}return 0;};return {spend:Number(r.spend||0),clicks:Number(r.inline_link_clicks||0),impressions:Number(r.impressions||0),purchases:action(r.actions),revenue:action(r.action_values)};}
-function select(name,current,values){return '<select data-label="'+name+'">'+values.map(v=>'<option value="'+clean(v)+'"'+(v===current?' selected':'')+'>'+(v||'미분류')+'</option>').join('')+'</select>';}
-function table(){const map=new Map();for(const r of rows){const id=String(r.campaign_id||'');if(id&&!map.has(id))map.set(id,r.campaign_name||id);}
-$('classify').innerHTML=[...map].sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=>{const l=labels[id]||{};return '<tr data-id="'+clean(id)+'"><td>'+clean(name)+' <small>('+clean(id)+')</small></td><td>'+select('asc',l.asc||'',opts.asc)+'</td><td>'+select('target',l.target||'',opts.target)+'</td><td>'+select('landing',l.landing||'',opts.landing)+'</td><td><input data-label="budget" type="number" min="0" step="1" value="'+clean(l.budget??'')+'" placeholder="미분류" style="width:110px"></td></tr>';}).join('')||'<tr><td colspan="5">해당 기간 캠페인이 없습니다.</td></tr>';summarize();}
-$('classify').addEventListener('change',e=>{const el=e.target,key=el.dataset.label,tr=el.closest('tr');if(!key||!tr)return;const id=tr.dataset.id;labels[id]||={};labels[id][key]=el.value;try{localStorage.setItem(cacheKey,JSON.stringify(labels));}catch{}summarize();});
-function summarize(){const dimension=$('dimension').value,groups=new Map();let missing=0;for(const r of rows){const id=String(r.campaign_id||''),l=labels[id]||{};let key=l[dimension];if(dimension==='budget'&&key!==undefined&&key!==''){const n=Number(key);key=n<30000?'3만 미만':n<50000?'3만~5만 미만':'5만 이상';}if(!key||key==='확인 불가'){missing++;continue;}if(!groups.has(key))groups.set(key,{ids:new Set(),spend:0,purchases:0,revenue:0,clicks:0,impressions:0});const g=groups.get(key),m=amounts(r);g.ids.add(id);for(const v of ['spend','purchases','revenue','clicks','impressions'])g[v]+=m[v];}
-$('coverage').textContent='광고 행 '+fmt(rows.length)+'건 · 미분류/확인불가 '+fmt(missing)+'건 제외 · '+currency+' 계정 · 캐시 누락일은 비교 대상에 포함되지 않습니다.';
-$('result').innerHTML=[...groups].sort((a,b)=>b[1].spend-a[1].spend).map(([k,g])=>'<tr><td>'+clean(k)+'</td><td>'+fmt(g.ids.size)+'</td><td>'+fmt(g.spend)+' '+clean(currency)+'</td><td>'+fmt(g.purchases)+'</td><td>'+fmt(g.revenue)+' '+clean(currency)+'</td><td>'+(g.spend?fmt(100*g.revenue/g.spend)+'%':'—')+'</td><td>'+(g.purchases?fmt(g.spend/g.purchases):'—')+'</td><td>'+(g.impressions?fmt(100*g.clicks/g.impressions)+'%':'—')+'</td></tr>').join('')||'<tr><td colspan="8">분류된 캠페인 데이터가 없습니다. 위 표에서 설정을 지정하세요.</td></tr>';}
+const prior=new Date(today+'T00:00:00Z');prior.setUTCDate(prior.getUTCDate()-29);
+$('until').value=today;$('since').value=prior.toISOString().slice(0,10);
+let savedAccounts={};let labels={};let rows=[];let reports=[];let loaded=false;
+try{savedAccounts=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};labels=JSON.parse(localStorage.getItem('roas-exp-classify-v2')||'{}')||{};$('account').value=normalize(localStorage.getItem('roas-exp-account'));}catch{}
+const ids={naver:normalize(savedAccounts.naver),cafe:normalize(savedAccounts.cafe)};
+if(!validId(ids.naver))$('account-choice').querySelector('[value="naver"]').disabled=true;
+if(!validId(ids.cafe))$('account-choice').querySelector('[value="cafe"]').disabled=true;
+if(!validId(ids.naver)&&!validId(ids.cafe))$('account-choice').querySelector('[value="all"]').disabled=true;
+$('account-choice').value=validId(ids.naver)&&validId(ids.cafe)?'all':validId(ids.naver)?'naver':validId(ids.cafe)?'cafe':'manual';
+function showManual(){$('manual-label').hidden=$('account-choice').value!=='manual';}
+$('account-choice').addEventListener('change',showManual);showManual();
+const opts={asc:['','ON','OFF','확인 불가'],target:['','광범위','관심사','구매자 제외','기타'],landing:['','네이버','카페24','기타']};
+function select(key,value,values){return '<select data-label="'+key+'">'+values.map(v=>'<option value="'+safe(v)+'"'+(v===value?' selected':'')+'>'+(v||'미분류')+'</option>').join('')+'</select>';}
+function chosenAccounts(){
+ const mode=$('account-choice').value;
+ if(mode==='manual'){const id=normalize($('account').value);if(!validId(id))throw Error('숫자로 된 광고 계정 ID를 확인하세요.');return [{id,channel:'직접 입력'}];}
+ const list=mode==='all'?['naver','cafe']:[mode];
+ const found=list.filter(k=>validId(ids[k])).map(k=>({id:ids[k],channel:k==='naver'?'네이버':'카페24'}));
+ if(!found.length)throw Error('설정 관리에서 광고 계정을 등록하거나 직접 입력을 선택하세요.');
+ return found.filter((item,i)=>found.findIndex(other=>other.id===item.id)===i);
+}
+const listLabel=v=>v==='직접 입력'?'직접 입력':v;
+function amounts(r){
+ const purchase=['purchase','omni_purchase','offsite_conversion.fb_pixel_purchase'];
+ const action=a=>{if(!Array.isArray(a))return 0;for(const t of purchase){const x=a.find(v=>v.action_type===t);if(x)return Number(x.value||0);}return 0;};
+ return {spend:Number(r.spend||0),clicks:Number(r.inline_link_clicks||0),impressions:Number(r.impressions||0),purchases:action(r.actions),revenue:action(r.action_values)};
+}
+function renderClassification(){
+ const map=new Map();
+ for(const r of rows){const id=String(r.campaign_id||'');if(!id)continue;const key=r._account+':'+id;if(!map.has(key))map.set(key,{account:r._account,channel:r._channel,name:r.campaign_name||id,id});}
+ $('classify').innerHTML=[...map].sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([key,v])=>{
+ const l=labels[key]||{};
+ return '<tr data-key="'+safe(key)+'"><td>'+safe(listLabel(v.channel))+'<br><small>'+safe(v.account)+'</small></td><td>'+safe(v.name)+'<br><small>'+safe(v.id)+'</small></td>'+
+ '<td>'+select('asc',l.asc||'',opts.asc)+'</td><td>'+select('target',l.target||'',opts.target)+'</td><td>'+select('landing',l.landing||'',opts.landing)+'</td>'+
+ '<td><input data-label="budget" type="number" min="0" step="1" value="'+safe(l.budget??'')+'" placeholder="미분류" style="width:105px"></td>'+
+ '<td><input data-label="from" type="date" value="'+safe(l.from||'')+'" title="설정 사용을 확인한 시작일"></td>'+
+ '<td><input data-label="to" type="date" value="'+safe(l.to||'')+'" title="설정 사용을 확인한 종료일"></td></tr>';
+ }).join('')||'<tr><td colspan="8">해당 기간 캠페인이 없습니다.</td></tr>';
+ summarize();
+}
+$('classify').addEventListener('change',e=>{
+ const field=e.target.dataset.label,tr=e.target.closest('tr');if(!field||!tr)return;
+ const key=tr.dataset.key;labels[key]||={};labels[key][field]=e.target.value;
+ try{localStorage.setItem('roas-exp-classify-v2',JSON.stringify(labels));}catch{}
+ summarize();
+});
+function summarize(){
+ if(!loaded)return;
+ const dimension=$('dimension').value,groups=new Map();let missing=0,invalidDates=0;
+ for(const r of rows){
+ const l=labels[r._account+':'+String(r.campaign_id||'')]||{};
+ let key=l[dimension];
+ if(dimension==='budget'&&key!==''&&key!==undefined&&key!==null&&Number.isFinite(Number(key))&&Number(key)>=0)key=fmt(Number(key))+' /일';
+ if(!key||key==='확인 불가'||!l.from){missing++;continue;}
+ if(l.to&&l.to<l.from){invalidDates++;continue;}
+ if(!r.date_start||r.date_start<l.from||(l.to&&r.date_start>l.to)){missing++;continue;}
+ const unit=r.account_currency||r._currency||'통화 미확인',groupKey=String(key)+' / '+unit;
+ if(!groups.has(groupKey))groups.set(groupKey,{label:key,currency:unit,ids:new Set(),spend:0,purchases:0,revenue:0,clicks:0,impressions:0});
+ const g=groups.get(groupKey),m=amounts(r);g.ids.add(r._account+':'+r.campaign_id);
+ for(const f of ['spend','purchases','revenue','clicks','impressions'])g[f]+=m[f];
+ }
+ const gaps=reports.reduce((s,r)=>s+(r.cache.missingDays||[]).length,0);
+ $('coverage').textContent='저장된 광고 일별 행 '+fmt(rows.length)+'개 · 설정 미분류/적용 기간 밖 '+fmt(missing)+'개 제외 · 잘못된 날짜 설정 '+fmt(invalidDates)+'개 · 계정별 누락일 총 '+fmt(gaps)+'일'+(gaps?' (누락일을 포함한 성과 비교 불가)':'')+'. 설정값은 직접 입력한 기간에만 적용됩니다.';
+ const values=[...groups.values()].sort((a,b)=>b.spend-a.spend);
+ $('result').innerHTML=values.map(g=>'<tr><td>'+safe(g.label)+' ('+safe(g.currency)+')</td><td>'+fmt(g.ids.size)+'</td><td>'+fmt(g.spend)+'</td><td>'+fmt(g.purchases)+'</td><td>'+fmt(g.revenue)+'</td><td>'+(g.spend?fmt(100*g.revenue/g.spend)+'%':'—')+'</td><td>'+(g.purchases?fmt(g.spend/g.purchases):'—')+'</td><td>'+(g.impressions?fmt(100*g.clicks/g.impressions)+'%':'—')+'</td></tr>').join('')||'<tr><td colspan="8">비교할 데이터가 없습니다. 캠페인 설정과 적용 시작일을 입력하세요.</td></tr>';
+ const bars=$('compare-bars');bars.replaceChildren();
+ const roas=values.filter(g=>g.spend>0).map(g=>({name:g.label+' ('+g.currency+')',value:100*g.revenue/g.spend}));const max=Math.max(1,...roas.map(x=>x.value));
+ for(const b of roas){const wrap=document.createElement('div');wrap.style.cssText='margin:10px 0;font-size:12px';const name=document.createElement('div');name.textContent=b.name+' · ROAS '+fmt(b.value)+'%';const track=document.createElement('div');track.style.cssText='height:16px;border-radius:6px;background:var(--app-surface-soft,#e9ecf5);overflow:hidden';const bar=document.createElement('div');bar.style.cssText='height:100%;background:var(--app-accent,#6559ee);border-radius:6px;width:'+Math.max(0,Math.min(100,100*b.value/max))+'%';track.appendChild(bar);wrap.append(name,track);bars.appendChild(wrap);}
+}
 $('dimension').addEventListener('change',summarize);
-$('load').addEventListener('click',async()=>{account=$('account').value.trim().replace(/^act_/,'');const since=$('since').value,until=$('until').value;if(!/^\d{5,30}$/.test(account)||!since||!until||since>until){$('status').textContent='광고 계정 ID(숫자)와 날짜 범위를 확인하세요.';return;}$('load').disabled=true;$('status').textContent='저장된 Meta 데이터를 조회 중입니다.';try{const q=new URLSearchParams({account,since,until,cacheOnly:'1'}),r=await fetch('/api/insights?'+q,{credentials:'same-origin'}),v=await r.json();if(!r.ok)throw Error(v.error||'조회 실패');rows=Array.isArray(v.rows)?v.rows:[];currency=v.currency||'통화 미확인';cacheKey='roas-exp-classify-'+account;try{labels=JSON.parse(localStorage.getItem(cacheKey)||'{}');localStorage.setItem('roas-exp-account',account);}catch{labels={};}const c=v.cache||{};$('status').textContent='조회 완료: '+fmt(rows.length)+'개 광고 일별 행 · 저장 '+fmt(c.storedDays)+'/'+fmt(c.totalDays)+'일 · 누락 '+fmt((c.missingDays||[]).length)+'일. 누락일이 있다면 기간 비교를 신뢰하지 마세요.';table();}catch(e){$('status').textContent='불러오기 실패: '+e.message;}finally{$('load').disabled=false;}});
+$('load').addEventListener('click',async()=>{
+ const since=$('since').value,until=$('until').value;
+ if(!since||!until||since>until){$('status').textContent='시작일과 종료일을 확인하세요.';return;}
+ let requested;try{requested=chosenAccounts();}catch(e){$('status').textContent=e.message;return;}
+ if($('account-choice').value==='manual'){try{localStorage.setItem('roas-exp-account',requested[0].id);}catch{}}
+ $('load').disabled=true;$('status').textContent='기존 저장 데이터를 읽는 중입니다. 이 조회는 Meta API를 호출하지 않습니다.';
+ try{
+ const data=await Promise.all(requested.map(async a=>{
+ const q=new URLSearchParams({account:a.id,since,until,cacheOnly:'1'});
+ const resp=await fetch('/api/insights?'+q,{credentials:'same-origin'});
+ let v;try{v=await resp.json();}catch{throw Error(a.channel+' 계정 서버 응답 오류');}
+ if(!resp.ok)throw Error(a.channel+': '+(v.error||'조회 실패'));
+ return {account:a,...v,cache:v.cache||{}};
+ }));
+ reports=data;rows=data.flatMap(r=>(r.rows||[]).map(row=>({...row,_account:r.account.id,_channel:r.account.channel,_currency:r.currency})));
+ loaded=true;
+ const days=data.map(r=>r.account.channel+' '+fmt(r.cache.storedDays)+'/'+fmt(r.cache.totalDays)+'일').join(' · ');
+ $('status').textContent='조회 완료 · '+days+' · 광고 일별 행 '+fmt(rows.length)+'개. 기존 설정의 자동 이력은 수집되지 않았으므로 확인한 적용 기간만 직접 분류하세요.';
+ renderClassification();
+ }catch(e){loaded=false;rows=[];reports=[];$('classify').innerHTML='<tr><td colspan="8">불러오기 실패</td></tr>';$('result').innerHTML='<tr><td colspan="8">데이터 없음</td></tr>';$('compare-bars').replaceChildren();$('status').textContent='조회 실패: '+e.message;}
+ finally{$('load').disabled=false;}
+});
 })();
 </script></body></html>
