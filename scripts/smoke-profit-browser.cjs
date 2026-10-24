@@ -943,6 +943,8 @@ async function verifyResponsiveHover(requests) {
   page.on('request', request => requests.push({ url: request.url(), method: request.method() }));
   await page.goto(base + '/visual-overview.html');
   await idle();
+  // Move away from the navigation rail before clicking accordion summaries.
+  await page.mouse.move(1000, 80);
   // Verify the shipped UI is collapsed by default, then expand for legacy
   // metric assertions that read rendered innerText inside these panels.
   const folded = page.locator('details.fold-panel');
