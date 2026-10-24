@@ -592,6 +592,102 @@ async function verifyMetricCards(requests) {
   assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), defaults, 'A subsequent successful save repairs the malformed preference');
   check('cards: storage errors preserve saved choices and keep drafts editable; invalid JSON recovers to twelve defaults');
 }
+
+async function verifyOptionalCards(requests) {
+  fixture();
+  await range('2026-09-01', '2026-09-07');
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const defaults = ['spend', 'revenue', 'roas', 'cpa', 'purchases', 'ctr', 'impressions', 'clicks', 'smartstoreRevenue', 'mallRevenue', 'totalStoreRevenue', 'profit'];
+  const storageKey = 'roas-overview-summary-cards-v1';
+  const visibleCards = () => page.locator('#summary-cards .summary-card:visible');
+  const visibleKeys = () => visibleCards().evaluateAll(cards => cards.map(card => card.dataset.summaryKey));
+  const savedKeys = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey);
+  const noApiSince = (start, message) => assert.deepEqual(requests.slice(start).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], message);
+  const uniqueValueIds = async () => {
+    const ids = await page.locator('#summary-cards [id]').evaluateAll(nodes => nodes.map(node => node.id));
+    assert.equal(new Set(ids).size, ids.length, 'Configured visible cards never duplicate element IDs');
+  };
+  const five = defaults.map((key, index) => [0, 2, 5, 8, 11].includes(index) ? key : '');
+  let requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  assert.equal(await page.locator('.summary-card-choice').count(), 12, 'Editing keeps all twelve available slots');
+  const firstOptions = await page.locator('.summary-card-choice').evaluateAll(selects => selects.map(select => ({ value: select.options[0].value, label: select.options[0].textContent.trim() })));
+  assert.ok(firstOptions.every(option => option.value === '' && option.label === '선택 안 함'), 'Every slot starts with the explicit no-selection choice');
+  for (let index = 0; index < five.length; index++) if (!five[index]) await page.locator('#summary-choice-' + index).selectOption('');
+  assert.equal(await page.locator('.summary-card-choice').count(), 12, 'Choosing empty slots does not remove their editor controls');
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await savedKeys(), five, 'Persist all twelve positions including intentional empty strings');
+  assert.deepEqual(await visibleKeys(), five.filter(Boolean));
+  assert.equal(await page.locator('#summary-card-count').innerText(), '5개 표시 · 최대 12개');
+  assert.match(await page.locator('#summary-settings-status').innerText(), /5개/);
+  const layout = await visibleCards().evaluateAll(cards => cards.map(card => {
+    const box = card.getBoundingClientRect();
+    return { x: box.x, y: box.y, right: box.right, gap: parseFloat(getComputedStyle(card.parentElement).columnGap) || 0 };
+  }));
+  assert.equal(layout.length, 5);
+  for (let i = 0; i < layout.length; i++) {
+    assert.ok(Math.abs(layout[i].y - layout[0].y) < 1, 'Five selected cards occupy one row');
+    if (i) assert.ok(Math.abs(layout[i].x - layout[i - 1].right - layout[i].gap) < 1, 'Hidden middle slots leave no blank holes between visible cards');
+  }
+  await uniqueValueIds();
+  noApiSince(requestStart, 'Choosing and saving fewer cards never requests data');
+  await metricCardScreenshot('cards-five-visible-1440');
+  check('optional cards: all twelve editors offer no-selection; five sparse choices save as twelve slots and display in one packed row');
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.deepEqual(await savedKeys(), five, 'Reload preserves intentional empty strings instead of replacing them with defaults');
+  assert.deepEqual(await visibleKeys(), five.filter(Boolean));
+  assert.equal(await page.locator('#summary-card-count').innerText(), '5개 표시 · 최대 12개');
+  requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  assert.equal(await page.locator('.summary-card-choice').count(), 12);
+  for (let index = 0; index < five.length; index++) assert.equal(await page.locator('#summary-choice-' + index).inputValue(), five[index]);
+  await page.locator('#summary-choice-0').selectOption('');
+  await page.locator('#summary-choice-1').selectOption('cost');
+  await page.locator('#summary-cancel').click();
+  assert.deepEqual(await visibleKeys(), five.filter(Boolean), 'Cancel discards both a newly hidden card and a newly added card');
+  assert.deepEqual(await savedKeys(), five, 'Cancel keeps the prior sparse configuration unchanged');
+  noApiSince(requestStart, 'Editing and cancelling a sparse layout remains local');
+  check('optional cards: five-card layout and empty slots survive reload; cancelling additions/removals restores the saved choices');
+
+  requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  for (let index = 0; index < 12; index++) await page.locator('#summary-choice-' + index).selectOption('');
+  await page.locator('#summary-save').click();
+  assert.equal(await visibleCards().count(), 0);
+  assert.deepEqual(await savedKeys(), Array(12).fill(''));
+  assert.equal(await page.locator('#summary-card-count').innerText(), '0개 표시 · 최대 12개');
+  assert.match(await page.locator('#summary-settings-status').innerText(), /0개|모든 지표 카드를 숨겼습니다/);
+  assert.equal(await page.getByText('지표 설정에서 표시할 지표를 선택해 주세요.', { exact: true }).isVisible(), true);
+  assert.equal(await page.locator('#summary-edit').isVisible(), true, 'The settings entry stays available when no cards are shown');
+  noApiSince(requestStart, 'Hiding all cards never requests data');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.mouse.move(1000, 80);
+  assert.equal(await visibleCards().count(), 0, 'An all-empty saved layout stays empty after reload');
+  assert.deepEqual(await savedKeys(), Array(12).fill(''));
+  requestStart = requests.length;
+  await page.locator('#summary-edit').click();
+  assert.equal(await page.locator('.summary-card-choice').count(), 12, 'All slots can be added back from an empty layout');
+  for (const [slot, metric] of [[0, 'spend'], [1, 'revenue'], [6, 'spend'], [11, 'profit']]) await page.locator('#summary-choice-' + slot).selectOption(metric);
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await visibleKeys(), ['spend', 'revenue', 'spend', 'profit']);
+  assert.equal(await page.locator('#summary-card-count').innerText(), '4개 표시 · 최대 12개');
+  await uniqueValueIds();
+  assert.equal(await page.locator('[id="spend"]').count(), 1, 'Selecting the same metric twice retains one unique legacy ID');
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-defaults').click();
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await savedKeys(), defaults);
+  assert.deepEqual(await visibleKeys(), defaults);
+  assert.equal(await page.locator('#summary-card-count').innerText(), '12개 표시 · 최대 12개');
+  await uniqueValueIds();
+  noApiSince(requestStart, 'Adding cards back and restoring defaults are local display changes');
+  check('optional cards: all-empty remains recoverable after reload, four cards can be added without duplicate IDs, and defaults restore all twelve');
+}
+
 async function hoverVisibleProfitPoints(label) {
   await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
   const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
@@ -766,6 +862,7 @@ async function verifyResponsiveHover(requests) {
   await verifyHistoryRepair(base, requests);
   if (!scopeOnly) {
     await verifyMetricCards(requests);
+    await verifyOptionalCards(requests);
     await verifyResponsiveHover(requests);
   }
 

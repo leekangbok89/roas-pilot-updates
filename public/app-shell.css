@@ -154,6 +154,9 @@ body .app-main .summary-card.highlight .summary-card-badge { background:#ffffff2
 body .app-main .summary-card.highlight .summary-card-label { color:#fff; }
 body .app-main .summary-card-scope,body .app-main .summary-card-state { display:block; min-width:0; overflow-wrap:anywhere; }
 body .app-main .summary-card-scope { margin-top:auto; }
+body .app-main .summary-card-empty { border-style:dashed; background:var(--app-surface-soft); }
+body .app-main .summary-card-empty .summary-card-state { margin-top:8px; }
+body .app-main .summary-cards-empty { grid-column:1/-1; margin:0; padding:4px 0; }
 @media(max-width:1099px) { body .app-main #summary-cards { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media(max-width:649px) { body .app-main #summary-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } body .app-main #summary-settings-status:empty { flex-basis:0; } }
 

@@ -43,6 +43,9 @@ test('summary card settings recover exactly twelve valid slots and preserve a ch
  const keys=JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(settings))'));
  assert.deepEqual(keys,['profit','cost','fee','cpc','cpm','ctr','impressions','clicks','mallRevenue','smartstoreRevenue','profit','ctr']);
  assert.equal(h.run('normalizeSummaryCardKeys({length:12}).length'),12);
+ h.context.settings=['profit','','spend','','totalStoreRevenue','','ctr','','clicks','','',''];
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(JSON.parse(JSON.stringify(settings))))')),h.context.settings,'Explicit empty slots survive saved-layout normalization without being replaced by defaults');
+ assert.deepEqual(JSON.parse(h.run('JSON.stringify(normalizeSummaryCardKeys(Array(12).fill("")))')),Array(12).fill(''),'All twelve slots may intentionally be empty');
  h.node('since').value='2026-09-29';h.node('until').value='2026-10-02';
  assert.deepEqual(JSON.parse(h.run('JSON.stringify(summarySelectedDates())')),['2026-09-29','2026-09-30','2026-10-01','2026-10-02']);
  h.node('until').value='2026-09-28';assert.equal(h.run('summarySelectedDates().length'),0);
