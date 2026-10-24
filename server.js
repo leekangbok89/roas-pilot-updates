@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css'];
-const appVersion='2.8.89';
+const appVersion='2.8.90';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -1411,22 +1411,41 @@ function buildReportRequests(since, until, scope) {
   };
 }
 function responseRows(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response) || !Array.isArray(response.metricHeaders) || !response.metricHeaders.length || (response.rows != null && !Array.isArray(response.rows))) {
+  if (!response || typeof response !== 'object' || Array.isArray(response) || (response.rows != null && !Array.isArray(response.rows))) {
     throw failure(502, 'Google Analytics 응답 형식을 확인할 수 없습니다. 잠시 후 다시 조회해 주세요.', 'GA4_RESPONSE');
   }
   return response.rows || [];
 }
 function validateReportResponse(response, requestBody) {
   const rows = responseRows(response);
-  const metrics = new Set(response.metricHeaders.map(header => header && header.name));
-  const dimensions = new Set((Array.isArray(response.dimensionHeaders) ? response.dimensionHeaders : []).map(header => header && header.name));
-  if (Object.prototype.hasOwnProperty.call(response, 'error') || requestBody.metrics.some(metric => !metrics.has(metric.name)) ||
-      (requestBody.dimensions || []).some(dimension => !dimensions.has(dimension.name)) ||
-      rows.some(row => !row || !Array.isArray(row.metricValues) || row.metricValues.length < response.metricHeaders.length ||
-        ((requestBody.dimensions || []).length > 0 && (!Array.isArray(row.dimensionValues) || row.dimensionValues.length < response.dimensionHeaders.length)))) {
+  if (Object.prototype.hasOwnProperty.call(response, 'error')) {
     throw failure(502, 'GA4 보고서의 요청 지표와 응답 항목이 일치하지 않습니다. 잠시 후 다시 조회해 주세요.', 'GA4_RESPONSE_SCHEMA');
   }
-  return response;
+  const requestedMetrics = requestBody.metrics.map(metric => metric.name);
+  const requestedDimensions = (requestBody.dimensions || []).map(dimension => dimension.name);
+  let normalized = response;
+  if (!rows.length) {
+    const metricHeadersMissing = response.metricHeaders == null || (Array.isArray(response.metricHeaders) && response.metricHeaders.length === 0);
+    const dimensionHeadersMissing = response.dimensionHeaders == null || (Array.isArray(response.dimensionHeaders) && response.dimensionHeaders.length === 0);
+    if (metricHeadersMissing || (requestedDimensions.length && dimensionHeadersMissing)) {
+      normalized = { ...response, rows: [],
+        metricHeaders: metricHeadersMissing ? requestedMetrics.map(name => ({ name })) : response.metricHeaders,
+        dimensionHeaders: requestedDimensions.length && dimensionHeadersMissing ? requestedDimensions.map(name => ({ name })) : (response.dimensionHeaders || []) };
+    }
+  }
+  if (!Array.isArray(normalized.metricHeaders) || !normalized.metricHeaders.length ||
+      (requestedDimensions.length && !Array.isArray(normalized.dimensionHeaders))) {
+    throw failure(502, 'Google Analytics 응답 형식을 확인할 수 없습니다. 잠시 후 다시 조회해 주세요.', 'GA4_RESPONSE');
+  }
+  const metrics = new Set(normalized.metricHeaders.map(header => header && header.name));
+  const dimensions = new Set((Array.isArray(normalized.dimensionHeaders) ? normalized.dimensionHeaders : []).map(header => header && header.name));
+  if (requestBody.metrics.some(metric => !metrics.has(metric.name)) ||
+      requestedDimensions.some(name => !dimensions.has(name)) ||
+      rows.some(row => !row || !Array.isArray(row.metricValues) || row.metricValues.length < normalized.metricHeaders.length ||
+        (requestedDimensions.length > 0 && (!Array.isArray(row.dimensionValues) || row.dimensionValues.length < normalized.dimensionHeaders.length)))) {
+    throw failure(502, 'GA4 보고서의 요청 지표와 응답 항목이 일치하지 않습니다. 잠시 후 다시 조회해 주세요.', 'GA4_RESPONSE_SCHEMA');
+  }
+  return normalized;
 }
 function unavailableEmpty(response) {
   const metadata = response.metadata || {};

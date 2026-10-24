@@ -338,11 +338,22 @@ test('bounded report cache evicts older queries after twenty distinct keys', asy
   assert.equal(h.tokens(), 1);
 });
 
+test('headerless empty Google responses are accepted as valid zero-row reports', async t => {
+  const h = harness(t); await h.connect();
+  h.setReportHook(() => response(200, {}));
+  const result = await h.service.report(PERIOD);
+  for (const metric of METRICS) assert.equal(result.summary[metric], 0);
+  assert.deepEqual(result.acquisition, []);
+  assert.deepEqual(result.landingPages, []);
+  assert.equal(result.purchaseTracking.state, 'unverified');
+  assert.equal(result.purchaseTracking.eventCount, 0);
+});
+
 test('HTTP, network, timeout and malformed-response errors never echo response bodies or secrets', async t => {
   const h = harness(t); await h.connect();
   h.setReportHook(() => response(500, { error: { message: PEM + 'access-token-sensitive' } }));
   await assert.rejects(h.service.report(PERIOD), error => error.status === 502 && !error.message.includes('PRIVATE KEY') && !error.message.includes('access-token-sensitive'));
-  h.setReportHook(() => response(200, {}));
+  h.setReportHook(() => response(200, { metricHeaders: 'invalid' }));
   await assert.rejects(h.service.report(PERIOD), error => error.code === 'GA4_RESPONSE');
   h.setNetworkHook(() => { throw new Error(PEM + 'JWT-sensitive'); });
   await assert.rejects(h.service.report(PERIOD), error => error.code === 'GA4_NETWORK' && !error.message.includes('PRIVATE KEY') && !error.message.includes('JWT-sensitive'));
