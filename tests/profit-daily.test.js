@@ -41,10 +41,10 @@ function fixture(t) {
 
 test('combined profit uses both channels, their own fees, all ad spend, and sold-unit product costs', t => {
   const f = fixture(t);
-  f.order('naver', 300000, [{ name: '백도씨', option: '화이트', quantity: 2 }]);
-  f.order('cafe24', 200000, [{ name: '백도씨 자사몰', option: '화이트', quantity: 1 }]);
-  f.saveCost('naver', '백도씨', '화이트', 110000, 9000);
-  f.saveCost('cafe24', '백도씨 자사몰', '화이트', 70000, 8000);
+  f.order('naver', 300000, [{ name: '위마망 백도씨', option: '화이트', quantity: 2 }]);
+  f.order('cafe24', 200000, [{ name: '위마망 백도씨 자사몰', option: '화이트', quantity: 1 }]);
+  f.saveCost('naver', '위마망 백도씨', '화이트', 110000, 9000);
+  f.saveCost('cafe24', '위마망 백도씨 자사몰', '화이트', 70000, 8000);
   f.ads('11111', [{ spend: '10', account_currency: 'USD' }], 'USD');
   f.ads('22222', [{ spend: '4500', account_currency: 'KRW' }], 'KRW');
   const r = f.row();
@@ -62,8 +62,8 @@ test('combined profit uses both channels, their own fees, all ad spend, and sold
 
 test('a collected zero-sales channel and a verified empty Meta day are valid zeros', t => {
   const f = fixture(t);
-  f.order('naver', 100000, [{ name: '상품', option: '', quantity: 1 }]);
-  f.saveCost('naver', '상품', '', 40000);
+  f.order('naver', 100000, [{ name: '위마망 상품', option: '', quantity: 1 }]);
+  f.saveCost('naver', '위마망 상품', '', 40000);
   const r = f.row();
   assert.equal(r.cafe24.revenue, 0);
   assert.equal(r.cafe24.cost, 0);
@@ -82,8 +82,8 @@ test('no orders with actual ad expense yields a negative profit rather than a mi
 test('explicit zero unit cost and exactly zero profit remain valid values', t => {
   const f = fixture(t);
   f.write('profit-fees.json', { naver: 0, cafe24: 0 });
-  f.order('naver', 10000, [{ name: '증정상품', option: '', quantity: 1 }]);
-  f.saveCost('naver', '증정상품', '', 0);
+  f.order('naver', 10000, [{ name: '위마망 증정상품', option: '', quantity: 1 }]);
+  f.saveCost('naver', '위마망 증정상품', '', 0);
   f.ads('11111', [{ spend: 10000 }], 'KRW');
   assert.equal(f.row().cost, 0);
   assert.equal(f.row().profit, 0);
@@ -120,13 +120,13 @@ test('missing channel collection does not infer zero sales', t => {
 
 test('unregistered option cost is null with a recoverable product/option reason', t => {
   const f = fixture(t);
-  f.order('naver', 100000, [{ name: '상품', option: '추가 옵션', quantity: 1 }]);
+  f.order('naver', 100000, [{ name: '위마망 상품', option: '추가 옵션', quantity: 1 }]);
   const r = f.row();
   assert.equal(r.revenue, 100000);
   assert.equal(r.cost, null);
   assert.equal(r.profit, null);
   assert.equal(r.naver.missingOrders, 1);
-  assert.deepEqual(r.naver.missingCostItems, [{ name: '상품', option: '추가 옵션', orders: 1, reason: '원가 미입력' }]);
+  assert.deepEqual(r.naver.missingCostItems, [{ name: '위마망 상품', option: '추가 옵션', orders: 1, reason: '원가 미입력' }]);
 });
 
 test('legacy orders without item metadata surface the catalog recovery action', t => {
@@ -191,8 +191,8 @@ test('Cafe24 item details fallback to order embed and fail closed on missing qua
 });
 test('Cafe24 order parsing accepts order-items response fields and refuses incomplete item counts',t=>{
  const f=fixture(t);
- assert.deepEqual(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙',quantity:2}]}).map(x=>x.quantity),[2]);
- assert.equal(f.itemsFromCafeOrder({items:[{product_name:'상품',option_value:'블랙'}]}).length,0);
+ assert.deepEqual(f.itemsFromCafeOrder({items:[{product_name:'위마망 상품',option_value:'블랙',quantity:2}]}).map(x=>x.quantity),[2]);
+ assert.equal(f.itemsFromCafeOrder({items:[{product_name:'위마망 상품',option_value:'블랙'}]}).length,0);
 });
 
 test('Cafe24 fallback still runs when first item-list endpoint returns HTTP 404',async t=>{
@@ -200,16 +200,16 @@ test('Cafe24 fallback still runs when first item-list endpoint returns HTTP 404'
  const recovered=await f.cafeOrderItems('20261024-100000',async url=>{
   seen.push(url);
   if(url.includes('/items?'))throw Error('카페24 주문 조회 HTTP 404');
-  return {order:{items:[{product_name:'백도씨',option_value:'화이트',quantity:2}]}};
+  return {order:{items:[{product_name:'위마망 백도씨',option_value:'화이트',quantity:2}]}};
  },entry=>seen.push(entry.result));
- assert.deepEqual(recovered.map(x=>({name:x.name,option:x.option,quantity:x.quantity})),[{name:'백도씨',option:'화이트',quantity:2}]);
+ assert.deepEqual(recovered.map(x=>({name:x.name,option:x.option,quantity:x.quantity})),[{name:'위마망 백도씨',option:'화이트',quantity:2}]);
  assert.ok(seen.some(v=>v==='API 404'));
  assert.ok(seen.some(v=>v==='복구 성공'));
 });
 test('Cafe24 failed item schemas expose only field names and never invent missing quantities',async t=>{
  const f=fixture(t),status=[];
  const result=await f.cafeOrderItems('20261024-100001',async url=>{
-  return {items:[{product_name:'상품',option_value:'블랙'}]};
+  return {items:[{product_name:'위마망 상품',option_value:'블랙'}]};
  },entry=>status.push(entry));
  assert.equal(result.length,0);
  assert.ok(status.some(x=>x.result==='상품명·옵션·수량 일부 미확인'));
@@ -226,7 +226,7 @@ test('Cafe24 catalog diagnosis returns order counts and dates without order iden
 });
 
 test('Explicit channel-specific alias restores missing option cost without changing stored source',t=>{
- const f=fixture(t),src='백도씨',target='위마망 백도씨';
+ const f=fixture(t),src='위마망 백도씨',target='위마망 백도씨';
  f.order('cafe24',300000,[{name:target,option:'화이트 신형',quantity:2}]);
  f.saveCost('cafe24',src,'화이트',85000);
  assert.equal(f.row().profit,null);
@@ -243,21 +243,63 @@ test('Explicit channel-specific alias restores missing option cost without chang
 });
 test('Cost alias disallows cross-channel mapping, fabricated target and blank source costs',t=>{
  const f=fixture(t);
- f.order('naver',100000,[{name:'아직 미연결',option:'기본',quantity:1}]);
+ f.order('naver',100000,[{name:'위마망 아직 미연결',option:'기본',quantity:1}]);
  f.saveCost('cafe24','다른 채널','기본',34000);
  f.saveCost('naver','원가 미입력','기본',null);
  const key=(channel,name,variant)=>crypto.createHash('sha256').update(JSON.stringify([channel,name,variant])).digest('hex').slice(0,24);
- assert.throws(()=>f.linkCostAlias({channel:'naver',name:'아직 미연결',option:'기본',sourceKey:key('cafe24','다른 채널','기본')}),/동일한 판매 채널/);
- assert.throws(()=>f.linkCostAlias({channel:'naver',name:'아직 미연결',option:'기본',sourceKey:key('naver','원가 미입력','기본')}),/유효한 원가/);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'위마망 아직 미연결',option:'기본',sourceKey:key('cafe24','다른 채널','기본')}),/동일한 판매 채널/);
+ assert.throws(()=>f.linkCostAlias({channel:'naver',name:'위마망 아직 미연결',option:'기본',sourceKey:key('naver','원가 미입력','기본')}),/유효한 원가/);
  f.saveCost('naver','기존 상품','기본',25000);
  assert.throws(()=>f.linkCostAlias({channel:'naver',name:'주문에 없음',option:'기본',sourceKey:key('naver','기존 상품','기본')}),/실제 판매 주문/);
 });
 test('Directly saved option cost takes precedence over earlier cost alias',t=>{
  const f=fixture(t),sourceKey=crypto.createHash('sha256').update(JSON.stringify(['naver','기존','블랙'])).digest('hex').slice(0,24);
- f.order('naver',100000,[{name:'새 옵션명',option:'블랙',quantity:1}]);
+ f.order('naver',100000,[{name:'위마망 새 옵션명',option:'블랙',quantity:1}]);
  f.saveCost('naver','기존','블랙',10000);
- f.linkCostAlias({channel:'naver',name:'새 옵션명',option:'블랙',sourceKey});
+ f.linkCostAlias({channel:'naver',name:'위마망 새 옵션명',option:'블랙',sourceKey});
  assert.equal(f.row().cost,10000);
- f.saveCost('naver','새 옵션명','블랙',19000);
+ f.saveCost('naver','위마망 새 옵션명','블랙',19000);
  assert.equal(f.row().cost,19000);
+});
+
+test('Wemamang classification includes explicit keyword, excludes Truver, and requires confirmation for neither or both',t=>{
+ const f=fixture(t);
+ assert.equal(f.brandForProduct('위마망 백도씨',{}).scope,'wemamang');
+ assert.equal(f.brandForProduct('트루버 사하라 프로',{}).scope,'excluded');
+ assert.equal(f.brandForProduct('세척기 기타',{}).scope,'unclassified');
+ assert.equal(f.brandForProduct('위마망 트루버 세트',{}).scope,'unclassified');
+});
+test('Only confirmed Wemamang order revenue and cost count; excluded Truver sale is not included',t=>{
+ const f=fixture(t);
+ f.write('naver-orders/orders.json',{orders:{
+  a:{id:'a',paymentDate:day,net:100000,items:[{name:'위마망 백도씨',option:'화이트',quantity:1}]},
+  b:{id:'b',paymentDate:day,net:300000,items:[{name:'트루버 사하라',option:'블랙',quantity:1}]}
+ }});
+ f.saveCost('naver','위마망 백도씨','화이트',40000);
+ const r=f.row();assert.equal(r.naver.revenue,100000);assert.equal(r.naver.cost,40000);assert.equal(r.naver.excludedOrders,1);
+ assert.equal(r.profit,53000);
+});
+test('Unclassified product blocks estimated profit until user chooses a brand',t=>{
+ const f=fixture(t),name='무명 구성품';
+ f.order('cafe24',100000,[{name,option:'하얀색',quantity:2}]);
+ assert.equal(f.row().profit,null);
+ assert.match(f.row().reasons.join(' '),/미분류 주문/);
+ const pick=f.saveBrandScope({name,scope:'wemamang'});
+ assert.equal(pick.classification.scope,'wemamang');
+ f.saveCost('cafe24',name,'하얀색',12000);
+ assert.equal(f.row().cafe24.revenue,100000);
+ assert.equal(f.row().profit,72500);
+});
+test('User can explicitly exclude unclassified product, eliminating its revenue and cost',t=>{
+ const f=fixture(t),name='중립 상품';
+ f.order('cafe24',100000,[{name,option:'기본',quantity:1}]);
+ f.saveBrandScope({name,scope:'excluded'});
+ const r=f.row();assert.equal(r.cafe24.revenue,0);assert.equal(r.cafe24.cost,0);assert.equal(r.cafe24.excludedOrders,1);assert.equal(r.profit,0);
+});
+test('Mixed-brand orders stay unconfirmed rather than using full order value for Wemamang',t=>{
+ const f=fixture(t);
+ f.order('cafe24',200000,[{name:'위마망 부속',option:'',quantity:1},{name:'트루버 링가드',option:'',quantity:1}]);
+ f.saveCost('cafe24','위마망 부속','',10000);
+ const r=f.row();assert.equal(r.cafe24.revenue,null);assert.equal(r.profit,null);
+ assert.match(r.reasons.join(' '),/혼합 주문/);
 });
