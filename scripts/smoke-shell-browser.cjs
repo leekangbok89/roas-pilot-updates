@@ -10,16 +10,20 @@ const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 
 const source=path.resolve(__dirname,'..');
-const temp=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-browser-'));
+const tempRoot=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-browser-'));
+const legacyUpdater=require('./fixtures/copy-managed-v2.8.72.cjs');
+const currentUpdater=require('./fixtures/copy-managed-v2.8.73.cjs');
+const shellAssets=['public/app-shell.css','public/app-shell.js'];
+const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
 const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','전체 매출 분석','원가관리','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
-let child,browser,page,serverLog='',checks=0;
+let child,browser,page,temp,scenario,serverLog='',checks=0;
 const pageErrors=[],externalRequests=[];
 
-function pass(name){checks++;console.log('PASS '+name);}
+function pass(name){checks++;console.log('PASS ['+scenario+'] '+name);}
 function write(relative,value){const file=path.join(temp,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(value));}
 function seed(){
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -36,9 +40,43 @@ function seed(){
  write('.roas-data/product-costs.json',{[key]:{channel:'naver',name,option,cost:150000,delivery:0}});
  write('.roas-data/profit-fees.json',{naver:7,cafe24:3.5});
 }
-async function startServer(){
+function snapshotSavedFiles(){
+ const saved={};
+ function visit(relative){
+  const filename=path.join(temp,relative);
+  if(!fs.existsSync(filename))return;
+  if(fs.statSync(filename).isDirectory()){for(const name of fs.readdirSync(filename).sort())visit(path.join(relative,name));}
+  else saved[relative]=crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
+ }
+ for(const relative of ['.roas-data','.roas-private','.env'])visit(relative);
+ return saved;
+}
+function prepareInstallation(){
+ temp=path.join(tempRoot,scenario);fs.mkdirSync(temp,{recursive:true});
  for(const name of ['server.js','package.json','public','vendor'])if(fs.existsSync(path.join(source,name)))fs.cpSync(path.join(source,name),path.join(temp,name),{recursive:true});
  seed();
+ write('.roas-private/preservation-test.dpapi',{ciphertext:'synthetic-encrypted-byte-preservation-sentinel'});
+ fs.writeFileSync(path.join(temp,'.env'),'SYNTHETIC_PRESERVED_SETTING=example\n');
+ const before=snapshotSavedFiles();
+ if(scenario!=='fresh-install'){
+  // The old install has no shell assets. These two files were introduced in v73.
+  // All older runtime assets survive; the historical copier decides what the
+  // new package can replace, exactly as the still-running updater did.
+  for(const relative of shellAssets)fs.rmSync(path.join(temp,relative),{force:true});
+  const previousVersion=scenario==='legacy-v72-upgrade'?'2.8.72':'2.8.73';
+  const pkg=JSON.parse(fs.readFileSync(path.join(temp,'package.json'),'utf8'));
+  fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({...pkg,version:previousVersion}));
+  const copier=previousVersion==='2.8.72'?legacyUpdater:currentUpdater;
+  copier.copyManaged(source,temp);
+  for(const relative of copier.managedFiles)assert.deepEqual(fs.readFileSync(path.join(temp,relative)),fs.readFileSync(path.join(source,relative)),'Historical updater copies '+relative);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(temp,'package.json'),'utf8')).version,JSON.parse(fs.readFileSync(path.join(source,'package.json'),'utf8')).version,'Updater installs the candidate package version');
+ }
+ for(const relative of shellAssets)assert.equal(fs.existsSync(path.join(temp,relative)),scenario!=='legacy-v72-upgrade','Expected installed shell asset boundary for '+scenario+': '+relative);
+ assert.deepEqual(snapshotSavedFiles(),before,'Updating must preserve saved orders, costs, credentials, and settings byte for byte');
+ pass('installation reproduces historical managed-file copying and preserves local data/credential bytes');
+}
+async function startServer(){
+ serverLog='';
  const bootstrap="global.fetch=async()=>{throw Error('External network disabled in shell verification');};const app=require('./server');app.server.listen(3000,'127.0.0.1',()=>console.log('READY 3000'));";
  child=spawn(process.execPath,['-e',bootstrap],{cwd:temp,env:{...process.env,META_ACCESS_TOKEN:'',META_AD_ACCOUNT_ID:'',OPENAI_API_KEY:'',WEB_PASSWORD:'',HOST:'127.0.0.1'},stdio:['ignore','pipe','pipe']});
  child.stdout.on('data',data=>{serverLog+=data;});child.stderr.on('data',data=>{serverLog+=data;});
@@ -48,6 +86,25 @@ async function startServer(){
   child.once('error',error=>{clearTimeout(timeout);reject(error);});
   child.once('exit',code=>{if(code){clearTimeout(timeout);reject(Error('Synthetic server exited; existing localhost services were not stopped: '+serverLog));}});
  });
+}
+async function stopServer(){
+ if(child&&child.exitCode===null){
+  const running=child;
+  await new Promise(resolve=>{const timer=setTimeout(resolve,3000);running.once('exit',()=>{clearTimeout(timer);resolve();});running.kill('SIGTERM');});
+ }
+ child=null;
+}
+async function verifyAssetDelivery(){
+ for(const [asset,type] of [['app-shell.css','text/css'],['app-shell.js','application/javascript']]){
+  const response=await fetch(base+'/'+asset);
+  assert.equal(response.status,200,'Shell asset responds even if the legacy updater never installed it: '+asset);
+  assert.ok(response.headers.get('content-type').startsWith(type),'Correct MIME type for '+asset);
+  assert.equal(response.headers.get('cache-control'),'no-cache');
+  assert.equal(response.headers.get('x-content-type-options'),'nosniff');
+  assert.equal(await response.text(),fs.readFileSync(path.join(source,'public',asset),'utf8'),'Served shell matches the shipped source');
+ }
+ assert.equal((await fetch(base+'/not-a-shell-file.js')).status,404,'Unrelated missing assets must remain 404');
+ pass('CSS and JavaScript return current source with correct MIME/cache headers; unrelated missing assets stay404');
 }
 async function shellState(expanded){
  await page.waitForFunction(({selector,expanded})=>document.querySelector(selector)?.getAttribute('aria-expanded')===String(expanded),{selector:selectors.toggle,expanded});
@@ -83,7 +140,13 @@ async function hoverOverlay(){
  assert.ok(rail&&rail.width>=20&&rail.width<=64,'Default navigation is a narrow accessible rail');
  await page.mouse.move(rail.x+Math.min(rail.width/2,25),Math.min(rail.y+160,400));
  await shellState(true);
- await page.waitForFunction(({selector,minimum})=>document.querySelector(selector).getBoundingClientRect().width>=minimum,{selector:selectors.sidebar,minimum:180});
+ await page.waitForFunction(selector=>{
+  const drawer=document.querySelector(selector),box=drawer.getBoundingClientRect();
+  return getComputedStyle(drawer).visibility==='visible'&&Math.abs(box.x)<0.5&&box.width>=180;
+ },selectors.sidebar);
+ const icons=await page.locator(selectors.links+' svg').evaluateAll(nodes=>nodes.map(node=>({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));
+ assert.equal(icons.length,expectedLabels.length,'Each navigation item retains its compact icon');
+ for(const icon of icons)assert.ok(Math.abs(icon.width-17)<0.1&&Math.abs(icon.height-17)<0.1,'Navigation icons must be17px, never the hundreds of pixels seen with missing shell CSS: '+JSON.stringify(icon));
  sameBox(initial,await mainBox(),'Hovered navigation overlay');
  await page.mouse.move(900,650);await shellState(false);
  sameBox(initial,await mainBox(),'Closed navigation overlay');
@@ -125,10 +188,17 @@ async function contrastAudit(themeName){
  for(const sample of samples.chartText)assert.ok(sample.ratio>=4.45,themeName+' chart axis labels must remain readable: '+JSON.stringify(sample));
  return samples;
 }
-async function screenshot(name){if(process.env.ROAS_SHELL_SCREENSHOT_DIR){fs.mkdirSync(process.env.ROAS_SHELL_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.ROAS_SHELL_SCREENSHOT_DIR,'qa-shell-'+name+'.png'),fullPage:false});}}
+async function screenshot(name){
+ if(!process.env.ROAS_SHELL_SCREENSHOT_DIR)return;
+ if(await page.locator(selectors.toggle).getAttribute('aria-expanded')==='true')await page.waitForFunction(selector=>Math.abs(document.querySelector(selector).getBoundingClientRect().x)<0.5,selectors.sidebar);
+ fs.mkdirSync(process.env.ROAS_SHELL_SCREENSHOT_DIR,{recursive:true});
+ await page.screenshot({path:path.join(process.env.ROAS_SHELL_SCREENSHOT_DIR,'qa-shell-'+scenario+'-'+name+'.png'),fullPage:false});
+}
 
-(async()=>{
+async function verifyBrowserScenario(){
+ prepareInstallation();
  await startServer();
+ await verifyAssetDelivery();
  const localModule='/tmp/roas-pilot-ui-runtime/node_modules/playwright';
  const {chromium}=require(process.env.ROAS_PLAYWRIGHT_MODULE||(fs.existsSync(localModule)?localModule:'playwright'));
  const localBrowser='/tmp/roas-pilot-browser/chromium_headless_shell-1194/chrome-linux/headless_shell';
@@ -158,7 +228,7 @@ async function screenshot(name){if(process.env.ROAS_SHELL_SCREENSHOT_DIR){fs.mkd
    await go(route.url);await theme(mode);await shellState(false);
    await contrastAudit(mode);
    if(route.active==='한눈에 보기')await screenshot('overview-'+mode);
-   if(mode==='dark'&&route.active==='한눈에 보기'&&process.env.ROAS_SHELL_SCREENSHOT_DIR)await page.locator('#graph').locator('..').screenshot({path:path.join(process.env.ROAS_SHELL_SCREENSHOT_DIR,'qa-shell-chart-dark.png')});
+   if(mode==='dark'&&route.active==='한눈에 보기'&&process.env.ROAS_SHELL_SCREENSHOT_DIR)await page.locator('#graph').locator('..').screenshot({path:path.join(process.env.ROAS_SHELL_SCREENSHOT_DIR,'qa-shell-'+scenario+'-chart-dark.png')});
    if(mode==='dark'&&route.active==='원가관리')await screenshot('cost-dark');
    await page.reload({waitUntil:'domcontentloaded'});await page.locator(selectors.title).first().waitFor({state:'visible'});
    assert.equal(await page.locator('html').getAttribute('data-theme'),mode,'Theme survives reload on '+route.url);
@@ -174,6 +244,8 @@ async function screenshot(name){if(process.env.ROAS_SHELL_SCREENSHOT_DIR){fs.mkd
  pass('dark settings pages retain readable forms and correct active navigation for connection/history/update deep links');
 
  await go('/visual-overview.html');
+ await page.locator(selectors.rail).hover();await shellState(true);await screenshot('menu-open');
+ await page.mouse.move(900,650);await shellState(false);
  const before=await mainBox();
  await page.locator(selectors.toggle).focus();await shellState(true);
  await page.keyboard.press('Escape');await shellState(false);sameBox(before,await mainBox(),'Keyboard Escape');
@@ -208,13 +280,18 @@ async function screenshot(name){if(process.env.ROAS_SHELL_SCREENSHOT_DIR){fs.mkd
 
  assert.deepEqual(pageErrors,[],'No browser JavaScript errors across pages and navigation');
  assert.deepEqual(externalRequests,[],'Shell verification must not require external resources');
- console.log('Shared shell verification passed: '+checks+' checks, no browser JavaScript errors.');
+ await browser.close();browser=null;page=null;
+ await stopServer();
+}
+(async()=>{
+ for(scenario of scenarios)await verifyBrowserScenario();
+ console.log('Shared shell and upgrade verification passed: '+checks+' checks across '+scenarios.length+' installation paths, no browser JavaScript errors.');
 })().catch(async error=>{
  console.error('FAIL '+error.stack);
  if(page)console.error(JSON.stringify(await page.evaluate(()=>({url:location.href,bodyClass:document.body.className,bodyData:document.body.dataset,toggles:Array.from(document.querySelectorAll('[aria-expanded]')).map(node=>({id:node.id,expanded:node.getAttribute('aria-expanded')}))})).catch(()=>({}))));
  process.exitCode=1;
 }).finally(async()=>{
  if(browser)await browser.close();
- if(child&&child.exitCode===null){child.kill('SIGTERM');await new Promise(resolve=>{child.once('exit',resolve);setTimeout(resolve,3000);});}
- fs.rmSync(temp,{recursive:true,force:true});
+ await stopServer();
+ fs.rmSync(tempRoot,{recursive:true,force:true});
 });

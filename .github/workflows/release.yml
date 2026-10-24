@@ -52,6 +52,7 @@ jobs:
 
       - name: Validate Node.js code and bundled bcrypt
         run: |
+          node scripts/bundle-shell.cjs --check
           node --check server.js
           node --check public/app.js
           node --check public/app-shell.js
@@ -66,7 +67,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/roas-ui-tests" --no-audit --no-fund --ignore-scripts --package-lock=false playwright@1.56.1
 
-      - name: Verify profit, recovery, and shared navigation in Chromium
+      - name: Verify profit, recovery, navigation, and legacy upgrades in Chromium
         timeout-minutes: 5
         run: |
           if command -v google-chrome >/dev/null 2>&1; then
