@@ -50,7 +50,7 @@
 <section class="panel" id="funnel"><div class="section-head"><div><h2>구매 퍼널</h2><p>병목 구간을 빠르게 확인합니다. 이벤트 미수집은 0과 구분합니다.</p></div><span class="note">광고 기여 이벤트 기준</span></div><div class="funnel-grid" id="funnel-grid"></div></section>
 <section class="panel" id="ads-section"><div class="section-head"><div><h2>광고별 구매 성과</h2><p>광고를 선택하면 판단 근거와 구체적인 개선 항목을 확인할 수 있습니다.</p></div><div class="table-tools"><input id="search" placeholder="⌕  광고명 검색"><select id="filter"><option value="all">모든 판단</option><option value="scale">확대 검토</option><option value="keep">유지</option><option value="improve">개선 검토</option><option value="review">중단 검토</option><option value="learn">데이터 부족</option></select></div></div><div class="api-form" style="flex-wrap:wrap;gap:10px;margin:15px 0"><label>판매 채널<select id="diag-channel"><option value="all">전체 통합</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label><label>캠페인<select id="diag-campaign"><option value="">전체 캠페인</option></select></label><label>광고 세트<select id="diag-adset"><option value="">전체 광고 세트</option></select></label><label>광고 소재<select id="diag-ad"><option value="">전체 광고 소재</option></select></label></div><div class="table-wrap"><table><thead><tr><th>광고 · 캠페인</th><th>광고비</th><th>구매</th><th>매출</th><th>ROAS</th><th>CPA</th><th>링크 CPC</th><th>CPM</th><th>링크 CTR</th><th>빈도</th><th>판단</th></tr></thead><tbody id="ad-body"></tbody></table></div><div class="table-footer" id="table-footer"></div></section>
 <section class="panel detail" id="detail"><div class="section-head"><div><h2>광고 상세 진단</h2><p id="detail-title">목록에서 광고를 선택하세요.</p></div><span id="detail-status" class="status neutral">선택 대기</span></div><div id="detail-body" class="detail-content muted">성과표의 행을 누르면 진단 근거가 표시됩니다.</div></section>
-<div class="settings-tabs" id="settings-tabs"><b>설정 관리</b><button class="settings-tab active" type="button" data-settings="data-source">계정 연결</button><button class="settings-tab" type="button" data-settings="naver-commerce">네이버 커머스API</button><button class="settings-tab" type="button" data-settings="cafe24-oauth">카페24 API</button><button class="settings-tab" type="button" data-settings="setting-bar">분석 기준</button><button class="settings-tab" type="button" data-settings="fx-bar">환율 설정</button><button class="settings-tab" type="button" data-settings="history-audit">과거 데이터 수집</button><button class="settings-tab" type="button" data-settings="update-manager">프로그램 업데이트</button></div><div id="settings-panel-host"></div><section id="data-source" class="control-panel settings-page"><div class="panel-title"><div><h2>Meta API 계정 설정</h2><p>실제 광고 데이터만 사용합니다. CSV 업로드와 샘플 데이터는 제공하지 않습니다.</p></div></div><div class="source-pane" id="api-pane"><div class="channel-config"><b>판매 채널별 광고 계정 등록</b><p class="helper">Meta 광고 관리자에 표시되는 광고 계정 ID를 입력하세요. 입력한 ID만 이 브라우저에 저장합니다.</p><div class="api-form"><label>네이버 스마트스토어 · 위마망 네이버<input id="naver-account" placeholder="네이버 광고 계정 ID" inputmode="numeric"></label><label>카페24 자사몰 · 위마망<input id="cafe-account" placeholder="카페24 광고 계정 ID" inputmode="numeric"></label><button class="button ghost" id="save-accounts">계정 ID 저장</button></div></div><p class="helper" id="api-state">토큰 상태 확인 중…</p><div class="channel-config"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="auto-enabled" checked> <b>자동 조회 사용 (접속 시 최근 7일 하루 1회 점검)</b></label><p class="helper">저장된 데이터는 즉시 표시하고, 최근 7일은 하루 한 번만 Meta API로 확인합니다. 노트북 서버와 이 웹페이지가 열려 있어야 갱신됩니다. 밤새 저장하는 백그라운드 수집 기능은 아닙니다.</p></div></div>
+<div class="settings-tabs" id="settings-tabs"><b>설정 관리</b><button class="settings-tab active" type="button" data-settings="data-source">계정 연결</button><button class="settings-tab" type="button" data-settings="naver-commerce">네이버 커머스API</button><button class="settings-tab" type="button" data-settings="cafe24-oauth">카페24 API</button><button class="settings-tab" type="button" data-settings="ga4">GA4 유입 분석</button><button class="settings-tab" type="button" data-settings="setting-bar">분석 기준</button><button class="settings-tab" type="button" data-settings="fx-bar">환율 설정</button><button class="settings-tab" type="button" data-settings="history-audit">과거 데이터 수집</button><button class="settings-tab" type="button" data-settings="update-manager">프로그램 업데이트</button></div><div id="settings-panel-host"></div><section id="data-source" class="control-panel settings-page"><div class="panel-title"><div><h2>Meta API 계정 설정</h2><p>실제 광고 데이터만 사용합니다. CSV 업로드와 샘플 데이터는 제공하지 않습니다.</p></div></div><div class="source-pane" id="api-pane"><div class="channel-config"><b>판매 채널별 광고 계정 등록</b><p class="helper">Meta 광고 관리자에 표시되는 광고 계정 ID를 입력하세요. 입력한 ID만 이 브라우저에 저장합니다.</p><div class="api-form"><label>네이버 스마트스토어 · 위마망 네이버<input id="naver-account" placeholder="네이버 광고 계정 ID" inputmode="numeric"></label><label>카페24 자사몰 · 위마망<input id="cafe-account" placeholder="카페24 광고 계정 ID" inputmode="numeric"></label><button class="button ghost" id="save-accounts">계정 ID 저장</button></div></div><p class="helper" id="api-state">토큰 상태 확인 중…</p><div class="channel-config"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="auto-enabled" checked> <b>자동 조회 사용 (접속 시 최근 7일 하루 1회 점검)</b></label><p class="helper">저장된 데이터는 즉시 표시하고, 최근 7일은 하루 한 번만 Meta API로 확인합니다. 노트북 서버와 이 웹페이지가 열려 있어야 갱신됩니다. 밤새 저장하는 백그라운드 수집 기능은 아닙니다.</p></div></div>
 </section>
 <section id="cafe24-oauth" class="panel settings-page" style="margin-top:24px"><div class="section-head"><div><h2>카페24 주문 API 연결</h2><p>카페24 앱의 OAuth 인증을 설정합니다. Meta/네이버와는 독립된 Windows 암호화 저장소를 사용합니다.</p></div><span class="ai-tag">CAFE24</span></div>
 <p class="helper" style="margin:12px 0">먼저 실제 운영하는 HTTPS 앱 도메인이 필요합니다. 카페24 개발자센터의 Redirect URI와 아래 주소가 정확히 같아야 합니다. 아직 HTTPS 도메인을 연결하지 않았다면 설정을 보류하세요.</p>
@@ -67,6 +67,24 @@
 <div class="api-form" style="gap:12px;flex-wrap:wrap"><label>인증 코드(code)<input id="cafe-code" autocomplete="off" placeholder="HTTPS 콜백 화면에서 받은 일회용 code"></label><label>검증 값(state)<input id="cafe-state" autocomplete="off" placeholder="HTTPS 콜백 화면의 state"></label><button class="button ghost" type="button" id="cafe-finish">인증 완료</button></div>
 <p class="helper">카페24 인증 코드는 발급 후 약 1분 내에 만료됩니다. 앱 외부 공개와 무관한 로컬 관리 도구이므로 개발 환경에서만 인증 절차를 진행하세요. Client Secret, 토큰은 브라우저나 채팅에 저장하지 않습니다.</p>
 <div class="channel-config" style="margin:16px 0"><h3>카페24 주문·매출 수집</h3><p class="helper">2026년 6월 1일부터 주문을 수집합니다. 실패한 날짜는 완료로 기록하지 않으며 기존 데이터는 유지합니다.</p><div class="api-form" style="gap:10px;flex-wrap:wrap"><button class="button primary" id="cafe-backfill" type="button">6월 1일부터 전체 수집</button><button class="button ghost" id="cafe-recent" type="button">최근 14일 갱신</button><button class="button ghost" id="cafe-refresh" type="button">수집 상태 확인</button></div><p id="cafe-sync-status" class="helper" aria-live="polite" style="white-space:pre-wrap">상태 확인 중…</p><div class="table-wrap"><table><thead><tr><th>결제일</th><th>주문 수</th><th>최초 결제액</th><th>취소·환불 반영액</th><th>잔여 매출</th></tr></thead><tbody id="cafe-sales-daily"></tbody></table></div></div></section>
+<section id="ga4" class="panel settings-page" style="margin-top:24px">
+ <div class="section-head"><div><h2>위마망 GA4 광고 유입 분석</h2><p>Google Analytics 4의 공식 읽기 전용 Data API로 UTM 광고 ID별 세션 수를 조회합니다. 메타 광고 구매·실제 쇼핑몰 주문과는 다른 지표입니다.</p></div><span class="ai-tag">GA4</span></div>
+ <p class="helper">Google Cloud에서 <b>Google Analytics Data API</b>를 켜고 서비스 계정을 생성한 뒤, 위마망 GA4 속성의 <b>속성 액세스 관리</b>에서 서비스 계정 이메일을 <b>뷰어</b>로 추가하세요. 내려받은 JSON 키는 이 노트북에서만 등록합니다. 키 파일 내용을 채팅이나 GitHub에 올리지 마세요.</p>
+ <div class="api-form" style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
+   <label>GA4 속성 ID (측정 ID G-가 아님)<input id="ga4-property" type="text" inputmode="numeric" value="560644825" autocomplete="off" maxlength="15"></label>
+   <label>Google Cloud 서비스 계정 JSON 키 파일<input id="ga4-key-file" type="file" accept="application/json,.json"></label>
+ </div>
+ <div class="api-form" style="gap:10px;flex-wrap:wrap">
+   <button id="ga4-save" class="button primary" type="button">Windows 암호화 저장</button>
+   <button id="ga4-test" class="button ghost" type="button">GA4 연결 테스트·조회</button>
+   <button id="ga4-remove" class="button ghost" type="button">연결 정보 삭제</button>
+ </div>
+ <p id="ga4-status" class="helper" aria-live="polite" style="white-space:pre-wrap">연결 상태를 확인하는 중입니다…</p>
+ <div class="section-head" style="margin-top:18px"><div><h3>메타 광고 ID별 실제 GA4 유입</h3><p>상단 조회 기간을 사용합니다. 최근 UTM이 적용된 광고는 적용 이후의 GA4 세션만 연결되며, 일반 보고서 반영은 지연될 수 있습니다.</p></div><button id="ga4-load" class="button ghost" type="button">기간별 GA4 데이터 조회</button></div>
+ <p id="ga4-report-summary" class="helper" role="status">GA4 조회 전입니다. 인증을 마친 뒤 데이터 조회를 누르세요.</p>
+ <div class="table-wrap"><table><thead><tr><th>광고 ID (utm_content)</th><th>유입 소스</th><th>캠페인</th><th>세션</th><th>참여 세션</th><th>페이지 조회</th></tr></thead><tbody id="ga4-rows"><tr><td colspan="6">조회 데이터 없음</td></tr></tbody></table></div>
+ <p class="helper">UTM에 광고 ID가 없는 유입은 ‘매칭 불가 세션’으로 따로 표시합니다. 메타 광고의 링크 클릭 수와 GA4 세션 수는 집계 기준이 달라 일치하지 않을 수 있습니다. 구매 이벤트 수집은 아직 포함하지 않습니다.</p>
+</section>
 <section id="naver-commerce" class="panel settings-page" style="margin-top:24px">
 <div class="section-head"><div><h2>네이버 스마트스토어 API 연결</h2><p>위마망 네이버 커머스API 애플리케이션을 연결합니다. Meta 광고 데이터와는 별도로 관리됩니다.</p></div><span class="ai-tag">NAVER API</span></div>
 <div class="channel-config" style="margin:16px 0">
@@ -316,7 +334,7 @@ syncStatus().catch(e=>$('cafe-sync-status').textContent=e.message);
 
 </script><script>
 (function(){
-  const names=['data-source','naver-commerce','cafe24-oauth','setting-bar','fx-bar','history-audit','update-manager'];
+  const names=['data-source','naver-commerce','cafe24-oauth','ga4','setting-bar','fx-bar','history-audit','update-manager'];
   const panels=names.map((name,i)=>name==='setting-bar'?document.querySelector('section.setting-bar.settings-page'):name==='fx-bar'?document.querySelector('section.fx-bar.settings-page'):document.getElementById(name));
   const tabs=[...document.querySelectorAll('[data-settings]')];
   const host=document.getElementById('settings-panel-host');
@@ -329,6 +347,59 @@ syncStatus().catch(e=>$('cafe-sync-status').textContent=e.message);
   tabs.forEach((tab,i)=>tab.addEventListener('click',()=>show(i)));
   show(0,false);
   window.roasShowSettingsPanel=function(name){const index=names.indexOf(name);show(index>=0?index:0,false);};
+})();
+</script><script>
+(function(){
+ const $=id=>document.getElementById(id);
+ const status=$('ga4-status'),summary=$('ga4-report-summary'),file=$('ga4-key-file'),save=$('ga4-save'),test=$('ga4-test'),remove=$('ga4-remove'),load=$('ga4-load'),tbody=$('ga4-rows');
+ if(!status)return;
+ const fmt=n=>new Intl.NumberFormat('ko-KR').format(Number(n)||0);
+ async function request(url,method='GET',body){
+   const options={method,cache:'no-store',headers:method==='GET'?{}:{'Content-Type':'application/json','x-roas-local-action':'yes'}};
+   if(body!==undefined)options.body=JSON.stringify(body);
+   const response=await fetch(url,options),data=await response.json();
+   if(!response.ok)throw Error(data.error||'HTTP '+response.status);
+   return data;
+ }
+ const busy=flag=>{save.disabled=test.disabled=remove.disabled=load.disabled=flag;};
+ async function refresh(){
+   const data=await request('/api/ga4/status');
+   if(data.propertyId)$('ga4-property').value=data.propertyId;
+   status.textContent=data.configured?'연결 정보 저장됨 · 속성 '+data.propertyId+' · 서비스 계정 '+data.serviceAccount+' · Windows 암호화 보관 · 실제 조회로 접근 권한 확인 필요':'GA4 읽기 전용 연결 전 · 위마망 속성 ID와 서비스 계정 JSON 키를 등록하세요.';
+ }
+ save.onclick=async()=>{
+   if(!file.files?.[0]){status.textContent='Google Cloud에서 내려받은 서비스 계정 JSON 키 파일을 선택해 주세요.';return;}
+   if(file.files[0].size>20000){status.textContent='서비스 계정 키 파일 크기를 확인하세요.';return;}
+   busy(true);status.textContent='로컬 Windows 암호화 저장 중…';
+   try{
+     const serviceAccount=await file.files[0].text();
+     await request('/api/ga4/settings','POST',{propertyId:$('ga4-property').value,serviceAccount});
+     await refresh();status.textContent+='\n저장 완료. 이제 ‘GA4 연결 테스트·조회’를 눌러 실제 접근 권한을 확인하세요.';
+   }catch(e){status.textContent='저장 실패: '+e.message;}
+   finally{file.value='';busy(false);}
+ };
+ async function report(){
+   const since=$('since')?.value,until=$('until')?.value;
+   if(!/^\d{4}-\d\d-\d\d$/.test(since||'')||!/^\d{4}-\d\d-\d\d$/.test(until||''))throw Error('상단 조회 기간을 먼저 선택하세요.');
+   const q=new URLSearchParams({since,until});
+   const data=await request('/api/ga4/report?'+q);
+   summary.textContent=since+' ~ '+until+' · GA4 paid_social 세션 '+fmt(data.totalPaidSessions)+' · 광고 ID 매칭 불가 '+fmt(data.unmatchedSessions)+' · 매칭된 광고/소스 '+fmt(data.rows?.length)+'개'+(data.partial?' · 보고서 행 제한으로 일부만 수집됨':'')+' · '+(data.cacheHit?'최근 조회 캐시 사용':'Google에서 새로 조회');
+   tbody.replaceChildren();
+   if(!data.rows?.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.textContent='현재 기간에 UTM 광고 ID가 매칭되는 GA4 유입이 없습니다. UTM 적용일과 GA4 처리 지연을 확인하세요.';tr.append(td);tbody.append(tr);return;}
+   for(const row of data.rows.slice(0,200)){
+     const tr=document.createElement('tr');
+     for(const value of [row.adId,row.source,row.campaignName||row.campaignId||'—',fmt(row.sessions),fmt(row.engagedSessions),fmt(row.pageViews)]){
+       const td=document.createElement('td');td.textContent=value;tr.append(td);
+     }tbody.append(tr);
+   }
+ }
+ const run=async()=>{busy(true);summary.textContent='GA4 유입 보고서를 조회 중입니다…';try{await report();status.textContent='GA4 보고서 읽기 성공 · 광고 ID별 유입 정보 확인 가능';}catch(e){summary.textContent='조회 실패: '+e.message;}finally{busy(false);}};
+ test.onclick=run;load.onclick=run;
+ remove.onclick=async()=>{
+   if(!confirm('이 PC에 암호화 저장된 GA4 서비스 계정 정보만 삭제할까요? GA4 속성과 데이터는 삭제되지 않습니다.'))return;
+   busy(true);try{await request('/api/ga4/settings','DELETE');tbody.replaceChildren();summary.textContent='연결 정보가 삭제되었습니다.';await refresh();}catch(e){status.textContent='삭제 실패: '+e.message;}finally{busy(false);}
+ };
+ refresh().catch(e=>status.textContent='GA4 상태 확인 실패: '+e.message);
 })();
 </script><style>
 .roas-range-mask{position:fixed;inset:0;background:#101d3440;z-index:500;display:flex;align-items:center;justify-content:center;padding:14px}
