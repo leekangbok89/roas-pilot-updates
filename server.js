@@ -675,22 +675,24 @@ function costRowForOrder(channel,key,costs,aliases){
  const alias=aliases[key];
  if(!alias||alias.channel!==channel)return own;
  const source=costs[alias.sourceKey];
- return source?.channel===channel&&source.cost!==null&&source.cost!==undefined&&source.cost!==''?source:own;
+ const recordedSourceChannel=alias.sourceChannel||alias.channel; // Existing same-channel links retain meaning.
+ return source&&['naver','cafe24'].includes(source.channel)&&source.channel===recordedSourceChannel&&source.cost!==null&&source.cost!==undefined&&source.cost!==''?source:own;
 }
 function linkCostAlias(input){
- const channel=String(input.channel||''),name=cleanCostText(input.name),option=cleanCostText(input.option),sourceKey=String(input.sourceKey||'');
+ const channel=String(input.channel||''),name=cleanCostText(input.name),option=cleanCostText(input.option),sourceKey=String(input.sourceKey||''),allowCrossChannel=input.allowCrossChannel===true;
  if(!['naver','cafe24'].includes(channel)||!name||!/^[a-f0-9]{24}$/.test(sourceKey))throw Object.assign(Error('연결할 상품과 원가 항목을 확인하세요.'),{status:400});
  const targetKey=productKey(channel,name,option),costs=costRead(),catalog=costList().items,source=catalog.find(x=>x.key===sourceKey);
  if(!catalog.some(x=>x.key===targetKey&&x.channel===channel&&x.orders>0))throw Object.assign(Error('실제 판매 주문의 옵션만 연결할 수 있습니다.'),{status:400});
- if(!source||source.channel!==channel||sourceKey===targetKey)throw Object.assign(Error('동일한 판매 채널의 다른 원가 항목을 선택해 주세요.'),{status:400});
+ if(!source||!['naver','cafe24'].includes(source.channel)||sourceKey===targetKey)throw Object.assign(Error('연결할 원가 항목을 확인하세요.'),{status:400});
+ if(source.channel!==channel&&!allowCrossChannel)throw Object.assign(Error('서로 다른 판매 채널의 원가를 연결하려면 명시적으로 동의해야 합니다.'),{status:400});
  const amount=Number(costs[sourceKey]?.cost);
  if(costs[sourceKey]?.cost==null||costs[sourceKey]?.cost===''||!Number.isFinite(amount)||amount<0)throw Object.assign(Error('선택한 원가 항목에 유효한 원가가 저장되지 않았습니다.'),{status:400});
  const own=costs[targetKey]?.cost;
  if(own!=null&&own!==''&&Number.isFinite(Number(own)))throw Object.assign(Error('해당 판매 옵션에는 이미 직접 원가가 저장되어 있습니다.'),{status:409});
  const aliases=costAliasesRead();
- aliases[targetKey]={channel,name,option,sourceKey,sourceName:source.name,sourceOption:source.option,updatedAt:new Date().toISOString()};
+ aliases[targetKey]={channel,name,option,sourceKey,sourceChannel:source.channel,sourceName:source.name,sourceOption:source.option,updatedAt:new Date().toISOString()};
  naverAtomic(costAliasFile,aliases);
- return {ok:true,linked:true,name,option,sourceName:source.name,sourceOption:source.option,cost:amount};
+ return {ok:true,linked:true,name,option,sourceChannel:source.channel,sourceName:source.name,sourceOption:source.option,cost:amount};
 }
 function unlinkCostAlias(input){
  const channel=String(input.channel||''),name=cleanCostText(input.name),option=cleanCostText(input.option);
@@ -705,7 +707,7 @@ function costList(){
  feed('naver',naverRead(naverOrderFile,{orders:{}}).orders);
  feed('cafe24',cafeCache(cafeOrdersFile,{orders:{}}).orders);
  const saved=costRead(),aliases=costAliasesRead();for(const [key,v] of Object.entries(saved))if(!merged.has(key)&&v?.name&&v?.channel){const x=orderProduct(v.channel,v.name,v.option,1);if(x)merged.set(x.key,{...x,orders:0,units:0});}
- return {items:[...merged.values()].map(x=>({...x,cost:saved[x.key]?.cost??null,delivery:saved[x.key]?.delivery??null,updatedAt:saved[x.key]?.updatedAt??null,linkedTo:aliases[x.key]?.sourceKey??null,effectiveCost:costRowForOrder(x.channel,x.key,saved,aliases)?.cost??null})).sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name,'ko')),job:{...catalogJob},note:'판매 주문에서 추출한 상품/옵션입니다. 기존 주문에 상품 상세가 저장되지 않았으면 판매품 가져오기를 실행하세요. 원가는 해당 옵션 1개 기준 원화로 입력하세요.'};
+ return {items:[...merged.values()].map(x=>({...x,cost:saved[x.key]?.cost??null,delivery:saved[x.key]?.delivery??null,updatedAt:saved[x.key]?.updatedAt??null,linkedTo:aliases[x.key]?.sourceKey??null,linkedSourceChannel:aliases[x.key]?.sourceChannel??aliases[x.key]?.channel??null,effectiveCost:costRowForOrder(x.channel,x.key,saved,aliases)?.cost??null})).sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name,'ko')),job:{...catalogJob},note:'판매 주문에서 추출한 상품/옵션입니다. 기존 주문에 상품 상세가 저장되지 않았으면 판매품 가져오기를 실행하세요. 원가는 해당 옵션 1개 기준 원화로 입력하세요.'};
 }
 async function enrichCostCatalog(){
  if(catalogJob.running)throw Object.assign(Error('판매품 목록 수집 진행 중'),{status:409});
