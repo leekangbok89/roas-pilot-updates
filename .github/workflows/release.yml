@@ -55,6 +55,7 @@ jobs:
         run: |
           node scripts/bundle-shell.cjs --check
           node scripts/bundle-ga4.cjs --check
+          node scripts/bundle-experiments.cjs --check
           node --check server.js
           node --check public/app.js
           node --check public/app-shell.js

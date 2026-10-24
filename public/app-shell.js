@@ -117,7 +117,7 @@
       experimentalLink.className = 'app-nav-link';
       experimentalLink.dataset.appRoute = 'experiments';
       experimentalLink.href = '/meta-experiments.html';
-      experimentalLink.textContent = '메타 광고 실험실';
+      experimentalLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M4 19h17M7 15l4-5 4 3 5-7"/></svg><span>메타 광고 실험실</span>';
       var settingsLink = nav.querySelector('[data-app-route="data-source"]');
       if (settingsLink) nav.insertBefore(experimentalLink, settingsLink);
       else nav.appendChild(experimentalLink);
