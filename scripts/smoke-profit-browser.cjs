@@ -128,15 +128,95 @@ function scopeFixture(pattern = false) {
   write('.roas-data/product-costs.json', costs);
   write('.roas-data/profit-fees.json', { naver: 7, cafe24: 3.5 });
 }
+function historyFixture() {
+  fs.rmSync(path.join(temp, '.roas-data'), { recursive: true, force: true });
+  const naver = {}, cafe = {}, synced = {};
+  for (const date of dates('2026-09-01', '2026-09-30')) {
+    synced[date] = { checkedAt: '2026-10-24T00:00:00Z' };
+    snapshot(accountIds.naver, date, date === '2026-09-15' ? 20000 : 0);
+    snapshot(accountIds.cafe, date, date === '2026-09-15' ? 10000 : 0);
+  }
+  for (const date of ['2026-08-31', '2026-09-15', '2026-10-01']) {
+    for (const [channel, target, revenue] of [['naver', naver, 300000], ['cafe24', cafe, 200000]]) {
+      const value = { ...order(channel, date, revenue), items: [] };
+      target[value.id] = value;
+    }
+  }
+  write('.roas-data/naver-orders/orders.json', { orders: naver });
+  write('.roas-data/naver-orders/sync.json', { days: synced });
+  write('.roas-data/cafe24-orders/orders.json', { orders: cafe });
+  write('.roas-data/cafe24-orders/sync.json', { days: synced });
+  write('.roas-data/product-costs.json', {
+    [key('naver', knownName, option)]: { channel: 'naver', name: knownName, option, cost: 150000 },
+    [key('cafe24', knownName, option)]: { channel: 'cafe24', name: knownName, option, cost: 50000 }
+  });
+  write('.roas-data/profit-fees.json', { naver: 7, cafe24: 3.5 });
+  // This opt-in marker exists only in the disposable fixture directory.
+  write('.roas-data/browser-repair-fixture.json', { name: knownName, option });
+  return { naver, cafe24: cafe };
+}
+function serverBootstrap() {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  global.fetch = async () => { throw Error('External network disabled during synthetic verification'); };
+  const app = require('./server');
+  const data = path.join(process.cwd(), '.roas-data');
+  const marker = path.join(data, 'browser-repair-fixture.json');
+  const actualRunner = app.enrichCostCatalog;
+  // The setter is appended only to this disposable copy. The real POST route,
+  // range validation, concurrency guards, and localPost checks stay unchanged.
+  app.__setCatalogRunner(range => {
+      if (!fs.existsSync(marker)) return actualRunner(range);
+      const config = JSON.parse(fs.readFileSync(marker, 'utf8'));
+      const calls = { body: range, naverIds: [], cafeIds: [], cafeEndpoints: [] };
+      const record = () => {
+        const dest = path.join(data, 'browser-repair-calls.json');
+        fs.writeFileSync(dest + '.tmp', JSON.stringify(calls));
+        fs.renameSync(dest + '.tmp', dest);
+      };
+      const released = async channel => {
+        const release = path.join(data, 'browser-' + channel + '-release.json');
+        const deadline = Date.now() + 20000;
+        while (!fs.existsSync(release)) {
+          if (Date.now() > deadline) throw Error('Synthetic ' + channel + ' response was not released');
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      };
+      record();
+      return actualRunner(range, {
+        naverCredentials: () => ({ synthetic: true }),
+        naverToken: async () => ({ token: 'synthetic-only' }),
+        naverDetails: async ids => {
+          calls.naverIds.push(...ids);record();
+          await released('naver');
+          throw Error('Synthetic Naver upstream failure');
+        },
+        cafeCredentials: () => ({ tokens: { access_token: 'synthetic-only' } }),
+        cafeItems: async (order, diagnose) => {
+          calls.cafeIds.push(order.id);record();
+          await released('cafe');
+          return app.cafeOrderItems(order, async endpoint => {
+            calls.cafeEndpoints.push(endpoint);record();
+            // Exercise the real fallback and parser used for older cached orders.
+            if (endpoint.includes('/items?')) return { items: [] };
+            return { order: { items: [{ product_name_default: config.name, option_value_default: config.option, quantity: 1 }] } };
+          }, diagnose);
+        },
+        delay: async () => {}
+      }).catch(error => { calls.error = error.message;record();throw error; });
+  });
+  app.server.listen(3000, '127.0.0.1', () => console.log('READY ' + app.server.address().port));
+}
 async function startServer() {
   for (const name of ['server.js', 'package.json', 'public', 'vendor']) {
     if (fs.existsSync(path.join(source, name))) fs.cpSync(path.join(source, name), path.join(temp, name), { recursive: true });
   }
+  fs.appendFileSync(path.join(temp, 'server.js'), '\nmodule.exports.__setCatalogRunner=fn=>{enrichCostCatalog=fn;};\n');
   fixture();
   const env = { ...process.env, META_ACCESS_TOKEN: '', META_AD_ACCOUNT_ID: '', OPENAI_API_KEY: '' };
   // Use the application's actual localhost port so browser mutations exercise
   // localPost unchanged, including Origin/Host checks. Never stop an existing server.
-  child = spawn(process.execPath, ['-e', "global.fetch=async()=>{throw Error('External network disabled during synthetic verification');};const {server}=require('./server');server.listen(3000,'127.0.0.1',()=>console.log('READY '+server.address().port));"], {
+  child = spawn(process.execPath, ['-e', '(' + serverBootstrap.toString() + ')()'], {
     cwd: temp, env, stdio: ['ignore', 'pipe', 'pipe']
   });
   child.stdout.on('data', data => { serverLog += data; });
@@ -279,6 +359,126 @@ async function verifyScope(base, requests) {
   assert.ok(!requests.some(req => req.method === 'POST' && /orders\/sync|catalog\/refresh/.test(new URL(req.url).pathname)));
   check('scope: normal reads remain cache-only; explicit recent-3-day action preserves current range and daily display');
 }
+async function verifyHistoryRepair(base, requests) {
+  const before = historyFixture();
+  const selected = { since: '2026-09-01', until: '2026-09-30' };
+  const requestStart = requests.length;
+  const read = relative => JSON.parse(fs.readFileSync(path.join(temp, '.roas-data', relative), 'utf8'));
+  const diagnostic = async () => (await (await fetch(base + '/api/costs/catalog/diagnostics')).json()).job;
+  const coverage = async () => {
+    const params = new URLSearchParams({ ...selected, accounts: Object.values(accountIds).join(','), fx: '1350' });
+    const response = await fetch(base + '/api/data/coverage?' + params);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  await range(selected.since, selected.until);
+  await page.locator('#chart-window').selectOption('1');
+  await page.locator('#coverage-details > summary').click();
+  assert.equal((await row('2026-09-15'))[5], '미확정', 'Stored payments without items must not become zero sales or a guessed loss');
+  assert.equal(await page.locator('#graph circle[data-metric="profit"][data-point-date="2026-09-15"]').count(), 0);
+  let current = await coverage();
+  for (const channel of ['naver', 'cafe24']) {
+    assert.equal(current.sources[channel].storedDays, 30);
+    assert.equal(current.sources[channel].positiveOrders, 1);
+    assert.equal(current.sources[channel].missingItemOrders, 1);
+    assert.deepEqual(current.sources[channel].missingItemDates, [{ date: '2026-09-15', count: 1 }]);
+    assert.deepEqual(current.sources[channel].missingDays, []);
+  }
+  assert.match(await page.locator('#coverage-table').innerText(), /상품 상세 미연결 1건/);
+  assert.match(await page.locator('#coverage-table').innerText(), /매출이 0원이라는 뜻이 아닙니다/);
+  const statusRead = page.waitForResponse(res => new URL(res.url()).pathname === '/api/costs/catalog/diagnostics');
+  await page.locator('#history-repair-status-check').click();
+  assert.equal((await statusRead).request().method(), 'GET');
+  assert.ok(!requests.slice(requestStart).some(req => req.method === 'POST'), 'Loading coverage and checking progress must not start collection');
+
+  const startedPromise = page.waitForResponse(res => new URL(res.url()).pathname === '/api/costs/catalog/refresh' && res.request().method() === 'POST');
+  await page.locator('#history-repair').click();
+  const started = await startedPromise;
+  assert.equal(started.status(), 202, 'Use the real production POST route and localhost authorization');
+  assert.deepEqual(started.request().postDataJSON(), selected, 'Explicit repair sends exactly the selected September dates');
+  let job = await diagnostic();
+  assert.equal(job.running, true);
+  assert.equal(job.total, 2);
+  for (const channel of ['naver', 'cafe24']) {
+    assert.equal(job.sources[channel].total, 1);
+    assert.equal(job.sources[channel].checked, 0);
+    assert.equal(job.sources[channel].remaining, 1, 'Unattempted work is initialized as remaining work');
+  }
+  await page.waitForFunction(() => ['naver', 'cafe24'].every(channel => {
+    const cells = document.querySelector('[data-repair-source="' + channel + '"]')?.cells;
+    return cells?.[2]?.textContent === '0 / 1건' && cells?.[4]?.textContent === '1건';
+  }));
+  check('history: September coverage distinguishes stored payments from missing items; explicit repair posts the chosen range with truthful initial counts');
+
+  write('.roas-data/browser-cafe-release.json', { release: true });
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('#profit-table tbody tr')).some(row => row.cells[0]?.textContent === '2026-09-15' && row.cells[5]?.textContent.includes('113,000원')), undefined, { timeout: 12000 });
+  await idle();
+  job = await diagnostic();
+  assert.equal(job.running, true, 'Cafe progress and UI redraw occur before Naver finishes');
+  assert.equal(job.sources.naver.status, '진행 중');
+  assert.equal(job.sources.naver.checked, 0);
+  assert.equal(job.sources.cafe24.status, '완료');
+  assert.equal(job.sources.cafe24.checked, 1);
+  assert.equal(job.sources.cafe24.restored, 1);
+  assert.equal(job.sources.cafe24.remaining, 0);
+  await scopeAmount('2026-09-15', 113000, true);
+  const profitPoint = page.locator('#graph circle[data-metric="profit"][data-point-date="2026-09-15"]');
+  assert.equal(await profitPoint.count(), 1);
+  assert.equal(await profitPoint.getAttribute('data-partial'), 'true');
+  assert.match(await profitPoint.locator('title').textContent(), /113,000원/);
+  assert.match(await page.locator('[data-repair-source="naver"]').innerText(), /진행 중/);
+  assert.match(await page.locator('[data-repair-source="cafe24"]').innerText(), /완료/);
+  const api = await report(base, '2026-09-15', '2026-09-15');
+  assert.equal(api.days[0].profit, null);
+  assert.equal(api.days[0].confirmed.revenue, 200000);
+  assert.equal(api.days[0].confirmed.fee, 7000);
+  assert.equal(api.days[0].confirmed.cost, 50000);
+  assert.equal(api.days[0].confirmed.profit, 113000);
+  const cafeAfter = read('cafe24-orders/orders.json').orders;
+  assert.equal(cafeAfter['cafe24-2026-09-15'].items[0].name, knownName);
+  assert.equal(cafeAfter['cafe24-2026-09-15'].items[0].option, option);
+  assert.equal(read('naver-orders/orders.json').orders['naver-2026-09-15'].items.length, 0);
+  check('history: real Cafe item fallback repairs the cache and redraws 113,000 partial profit in table and graph while Naver remains blocked');
+
+  write('.roas-data/browser-naver-release.json', { release: true });
+  await page.waitForFunction(() => document.getElementById('history-repair').disabled === false, undefined, { timeout: 12000 });
+  await idle();
+  job = await diagnostic();
+  assert.equal(job.running, false);
+  assert.equal(job.sources.naver.status, '부분 완료');
+  assert.equal(job.sources.naver.checked, 1);
+  assert.equal(job.sources.naver.restored, 0);
+  assert.equal(job.sources.naver.remaining, 1);
+  assert.match(job.sources.naver.error, /Synthetic Naver upstream failure/);
+  assert.equal(job.sources.cafe24.status, '완료');
+  assert.equal(job.sources.cafe24.remaining, 0);
+  assert.match(await page.locator('#history-repair-summary').innerText(), /일부 미완료/);
+  await scopeAmount('2026-09-15', 113000, true);
+  current = await coverage();
+  assert.equal(current.sources.naver.missingItemOrders, 1);
+  assert.equal(current.sources.cafe24.missingItemOrders, 0);
+  assert.equal(current.profit.partialDays, 1);
+  const calls = read('browser-repair-calls.json');
+  assert.deepEqual(calls.body, selected);
+  assert.deepEqual(calls.naverIds, ['naver-2026-09-15']);
+  assert.deepEqual(calls.cafeIds, ['cafe24-2026-09-15']);
+  assert.deepEqual(calls.cafeEndpoints, ['orders/cafe24-2026-09-15/items?shop_no=1', 'orders/cafe24-2026-09-15?shop_no=1&embed=items']);
+  for (const channel of ['naver', 'cafe24']) {
+    const after = read(channel + '-orders/orders.json').orders;
+    for (const date of ['2026-08-31', '2026-10-01']) {
+      assert.deepEqual(after[channel + '-' + date], before[channel][channel + '-' + date], 'Outside-period orders remain byte-for-byte equivalent');
+    }
+    assert.equal(after[channel + '-2026-09-15'].net, before[channel][channel + '-2026-09-15'].net, 'Repair preserves stored payment amounts');
+    assert.equal(Object.keys(read(channel + '-orders/sync.json').days).length, 30, 'Repair does not manufacture collection days');
+  }
+  assert.equal(await page.locator('#since').inputValue(), selected.since);
+  assert.equal(await page.locator('#until').inputValue(), selected.until);
+  assert.equal(await page.locator('#chart-window').inputValue(), '1');
+  const repairRequests = requests.slice(requestStart);
+  assert.deepEqual(repairRequests.filter(req => req.method === 'POST').map(req => new URL(req.url).pathname), ['/api/costs/catalog/refresh']);
+  assert.ok(repairRequests.filter(req => new URL(req.url).pathname === '/api/insights').every(req => new URL(req.url).searchParams.get('cacheOnly') === '1'));
+  check('history: Naver failure remains explicit, Cafe results survive, August/October orders and sync dates stay unchanged, and redraws remain cache-only');
+}
 
 (async () => {
   const base = await startServer();
@@ -314,6 +514,9 @@ async function verifyScope(base, requests) {
   page.on('request', request => requests.push({ url: request.url(), method: request.method() }));
   await page.goto(base + '/visual-overview.html');
   await idle();
+  // Playwright starts at (0,0), the intentional hover target for the drawer.
+  // Move into the workspace before interacting with content beneath that overlay.
+  await page.mouse.move(1000, 80);
   assert.equal(await page.locator('#chart-window').inputValue(),'1','Page load defaults to daily raw regardless of saved 3-day preset');
   if (!scopeOnly) {
   await page.locator('#custom-preset-buttons button').first().click();
@@ -389,6 +592,7 @@ async function verifyScope(base, requests) {
   }
 
   await verifyScope(base, requests);
+  await verifyHistoryRepair(base, requests);
 
   assert.deepEqual(pageErrors, [], 'Browser JavaScript errors');
   if (process.env.ROAS_PROFIT_SCREENSHOT) {

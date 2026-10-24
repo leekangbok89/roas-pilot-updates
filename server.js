@@ -8,8 +8,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
-const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/visual-overview.html','public/cost-management.html'];
-const appVersion='2.8.72';
+const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html'];
+const appVersion='2.8.73';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -370,6 +370,7 @@ async function naverDetails(ids,token){
 }
 async function naverRun(mode){
  if(naverJobs.running)throw Object.assign(Error('네이버 주문 동기화가 이미 실행 중입니다.'),{status:409});
+ if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  if(!readNaverCredentials())throw Object.assign(Error('네이버 인증정보를 먼저 저장하세요.'),{status:400});
  naverJobs.running=true;naverJobs.startedAt=new Date().toISOString();naverJobs.finishedAt=null;naverJobs.mode=mode;naverJobs.progress='네이버 인증 중';naverJobs.error=null;naverJobs.daysCompleted=0;naverJobs.changedOrders=0;
  const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-7*86400000);
@@ -409,7 +410,7 @@ async function naverOrderTest(){
  return {ok:true,message:'네이버 주문 조회 API 응답 성공',changedOrdersToday:ids.length,checkedDate:todaySeoul(),note:'최근 변경 주문 API 권한만 검증했습니다. 결제/취소 상세 수집은 동기화 시 검증됩니다.'};
 }
 function naverAutomaticStart(){
- if(naverJobs.running||!fs.existsSync(naverSecretsPath)||Date.now()<naverNextAutomaticAt)return;
+ if(naverJobs.running||catalogJob.running||!fs.existsSync(naverSecretsPath)||Date.now()<naverNextAutomaticAt)return;
  naverNextAutomaticAt=Date.now()+6*3600000;
  naverRun('recent').catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
 }
@@ -580,6 +581,7 @@ function cafeSalesState(){
 }
 async function cafeCollect(mode){
  if(cafeJob.running)throw Error('카페24 수집 진행 중');
+ if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  cafeJob.running=true;cafeJob.error=null;cafeJob.progress='수집 시작';cafeJob.startedAt=new Date().toISOString();cafeJob.finishedAt=null;cafeJob.done=0;
  const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-14*86400000);
  const dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
@@ -615,7 +617,7 @@ async function cafeCollect(mode){
  finally{cafeJob.running=false;cafeJob.finishedAt=new Date().toISOString();}
 }
 function cafeAutoCollect(){
- if(cafeJob.running||Date.now()<cafeAutoDue||!fs.existsSync(cafePath))return;
+ if(cafeJob.running||catalogJob.running||Date.now()<cafeAutoDue||!fs.existsSync(cafePath))return;
  cafeAutoDue=Date.now()+6*3600000;
  cafeCollect('recent').catch(e=>{cafeJob.running=false;cafeJob.error=e.message;});
 }
@@ -628,7 +630,7 @@ const recent3Job={running:false,since:null,until:null,startedAt:null,finishedAt:
 function recent3Status(){return {...recent3Job,sources:{...recent3Job.sources}};}
 async function recent3Refresh(accounts){
  const ids=profitAccounts(accounts);
- if(recent3Job.running||naverJobs.running||cafeJob.running)throw Object.assign(Error('다른 주문 수집 또는 최근 3일 업데이트가 진행 중입니다.'),{status:409});
+ if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)throw Object.assign(Error('다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'),{status:409});
  const {since,until}=recent3DateWindow();
  Object.assign(recent3Job,{running:true,since,until,startedAt:new Date().toISOString(),finishedAt:null,progress:'스마트스토어·카페24·Meta 업데이트 중',error:null,sources:{
   naver:{status:'대기'},cafe24:{status:'대기'},meta:Object.fromEntries(ids.map(id=>[id,{status:'대기'}]))
@@ -669,22 +671,30 @@ async function recent3Refresh(accounts){
  return recent3Status();
 }
 
-const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,cafeRestored:0,cafeRemaining:0,cafeChecked:0,lastAttemptAt:null,failures:{},examples:[]};
+const catalogJob={running:false,done:0,total:0,progress:'대기',error:null,since:null,until:null,sources:{},cafeRestored:0,cafeRemaining:0,cafeChecked:0,lastAttemptAt:null,failures:{},examples:[]};
+function completeOrderItems(order){return Array.isArray(order?.items)&&order.items.length>0&&order.items.every(item=>item&&cleanCostText(item.name)&&Number.isFinite(Number(item.quantity))&&Number(item.quantity)>0);}
+function catalogRepairRange(input={}){
+ const since=input.since||null,until=input.until||null;
+ if(since===null&&until===null)return {since:null,until:null};
+ if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('복구할 조회 기간을 확인하세요(최대 732일).'),{status:400});
+ return {since,until};
+}
+function orderInRepairRange(order,channel,range){const date=channel==='naver'?order.paymentDate:order.date;return !range.since||date>=range.since&&date<=range.until;}
 function recoveryMark(date,stage,result,detail=''){
  const label=String(stage)+' / '+String(result);
- catalogJob.failures[label]=(catalogJob.failures[label]||0)+1;
+ if(result!=='복구 성공')catalogJob.failures[label]=(catalogJob.failures[label]||0)+1;
  if(catalogJob.examples.length<18)catalogJob.examples.push({date:String(date||'날짜 미확인').slice(0,10),stage:String(stage).slice(0,24),result:String(result).slice(0,100),detail:String(detail).slice(0,180)});
 }
 function cafeMissingSummary(){
  const orders=Object.values(cafeCache(cafeOrdersFile,{orders:{}}).orders||{});
- const missing=orders.filter(o=>Number(o.net)>0&&!(o.items||[]).length);
+ const missing=orders.filter(o=>Number(o.net)>0&&!completeOrderItems(o));
  const byDate={};for(const o of missing){const date=String(o.date||'날짜 없음').slice(0,10);byDate[date]=(byDate[date]||0)+1;}
  return {total:missing.length,byDate,positiveOrders:orders.filter(o=>Number(o.net)>0).length};
 }
 function catalogDiagnostics(){
  const missing=cafeMissingSummary();
  return {version:appVersion,cafe24:{...missing},lastAttemptAt:catalogJob.lastAttemptAt,
-  job:{running:catalogJob.running,progress:catalogJob.progress,error:catalogJob.error,cafeRestored:catalogJob.cafeRestored,cafeRemaining:catalogJob.cafeRemaining,cafeChecked:catalogJob.cafeChecked,failures:catalogJob.failures,examples:catalogJob.examples},
+  job:{running:catalogJob.running,since:catalogJob.since,until:catalogJob.until,done:catalogJob.done,total:catalogJob.total,sources:Object.fromEntries(Object.entries(catalogJob.sources).map(([key,value])=>[key,{...value}])),progress:catalogJob.progress,error:catalogJob.error,cafeRestored:catalogJob.cafeRestored,cafeRemaining:catalogJob.cafeRemaining,cafeChecked:catalogJob.cafeChecked,failures:catalogJob.failures,examples:catalogJob.examples},
   note:'카페24 주문 아이템 복구 진단. 주문번호, 구매자정보, API 토큰 및 금액은 포함되지 않습니다.'};
 }
 const cleanCostText=v=>String(v??'').trim().replace(/\s+/g,' ').slice(0,180);
@@ -779,51 +789,82 @@ function costList(){
  const saved=costRead(),aliases=costAliasesRead(),brands=brandScopeRead();for(const [key,v] of Object.entries(saved))if(!merged.has(key)&&v?.name&&v?.channel){const x=orderProduct(v.channel,v.name,v.option,1);if(x)merged.set(x.key,{...x,orders:0,units:0});}
  return {items:[...merged.values()].map(x=>({...x,...brandForProduct(x.name,brands),cost:saved[x.key]?.cost??null,delivery:saved[x.key]?.delivery??null,updatedAt:saved[x.key]?.updatedAt??null,linkedTo:aliases[x.key]?.sourceKey??null,linkedSourceChannel:aliases[x.key]?.sourceChannel??aliases[x.key]?.channel??null,effectiveCost:costRowForOrder(x.channel,x.key,saved,aliases)?.cost??null})).sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name,'ko')),job:{...catalogJob},note:'판매 주문에서 추출한 상품/옵션입니다. 기존 주문에 상품 상세가 저장되지 않았으면 판매품 가져오기를 실행하세요. 원가는 해당 옵션 1개 기준 원화로 입력하세요.'};
 }
-async function enrichCostCatalog(){
- if(catalogJob.running)throw Object.assign(Error('판매품 목록 수집 진행 중'),{status:409});
- catalogJob.running=true;catalogJob.done=0;catalogJob.total=0;catalogJob.progress='상품 옵션 확인 중';catalogJob.error=null;catalogJob.cafeRestored=0;catalogJob.cafeRemaining=0;catalogJob.cafeChecked=0;catalogJob.lastAttemptAt=new Date().toISOString();catalogJob.failures={};catalogJob.examples=[];
- try{
-  const n=naverRead(naverOrderFile,{orders:{}}),c=cafeCache(cafeOrdersFile,{orders:{}});
-  const nMissing=Object.values(n.orders||{}).filter(o=>!(o.items||[]).length).slice(0,1000);
-  const cMissing=Object.values(c.orders||{}).filter(o=>Number(o.net)>0&&!(o.items||[]).length).slice(0,1000);
-  catalogJob.total=nMissing.length+cMissing.length;
-  if(nMissing.length&&readNaverCredentials()){
-   const token=(await naverAccessToken()).token;
-   for(let i=0;i<nMissing.length;i+=100){const batch=nMissing.slice(i,i+100);catalogJob.progress='스마트스토어 옵션 확인 '+Math.min(i+100,nMissing.length)+'/'+nMissing.length;
-    const details=await naverDetails(batch.map(x=>x.id),token);
-    for(const raw of details){const d=raw.productOrder||raw.content?.productOrder||raw;const id=String(d.productOrderId||raw.productOrderId||'');if(n.orders[id])n.orders[id].items=itemsFromNaverDetail(raw);}
-    naverAtomic(naverOrderFile,n);catalogJob.done+=batch.length;
-   }
-  }else catalogJob.done+=nMissing.length;
-  if(cMissing.length&&cafeRead()?.tokens?.access_token){
-   for(const [index,o] of cMissing.entries()){
-    catalogJob.progress='카페24 주문 상세 복구 '+(index+1)+'/'+cMissing.length+' · 복구 '+catalogJob.cafeRestored+'건';
+async function enrichCostCatalog(options={},dependencies={}){
+ const range=catalogRepairRange(options);
+ if(catalogJob.running||naverJobs.running||cafeJob.running||recent3Job.running)throw Object.assign(Error('다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'),{status:409});
+ const io={naverCredentials:readNaverCredentials,naverToken:naverAccessToken,naverDetails,cafeCredentials:cafeRead,cafeItems:(order,diagnose)=>cafeOrderItems(order,cafeAuthorizedGet,diagnose),delay:ms=>new Promise(resolve=>setTimeout(resolve,ms)),...dependencies};
+ const missing=(file,channel)=>Object.values(naverRead(file,{orders:{}}).orders||{}).filter(o=>Number(o.net)>0&&!completeOrderItems(o)&&orderInRepairRange(o,channel,range));
+ const candidates={naver:missing(naverOrderFile,'naver'),cafe24:missing(cafeOrdersFile,'cafe24')};
+ const state=orders=>({status:orders.length?'대기':'완료',running:false,total:orders.length,checked:0,restored:0,remaining:orders.length,error:null,failures:0});
+ // Initialize both channels before any credentials/API await. Queued work is
+ // remaining work, never a misleading zero or a failed Cafe24 request.
+ Object.assign(catalogJob,{running:true,done:0,total:candidates.naver.length+candidates.cafe24.length,since:range.since,until:range.until,progress:'상품 상세 복구 준비',error:null,cafeRestored:0,cafeRemaining:candidates.cafe24.length,cafeChecked:0,lastAttemptAt:new Date().toISOString(),failures:{},examples:[],sources:{naver:state(candidates.naver),cafe24:state(candidates.cafe24)}});
+ const update=()=>{
+  const n=catalogJob.sources.naver,c=catalogJob.sources.cafe24;
+  catalogJob.done=n.checked+c.checked;catalogJob.cafeRestored=c.restored;catalogJob.cafeChecked=c.checked;catalogJob.cafeRemaining=c.remaining;
+  catalogJob.error=[['스마트스토어',n],['카페24',c]].filter(([,s])=>s.error).map(([label,s])=>label+': '+s.error).join(' / ')||null;
+  catalogJob.progress=(range.since?range.since+' ~ '+range.until+' · ':'')+'스마트스토어 '+n.status+' '+n.checked+'/'+n.total+'건 · 복구 '+n.restored+'건 · 남음 '+n.remaining+'건 / 카페24 '+c.status+' '+c.checked+'/'+c.total+'건 · 복구 '+c.restored+'건 · 남음 '+c.remaining+'건';
+ };
+ const fail=(source,message)=>{source.failures++;source.error=String(message||'상품 상세 확인 실패').slice(0,220);};
+ const mergeItems=(file,changes)=>{
+  // Read just before the atomic write; never write the initial full snapshot
+  // over orders or payment changes saved while an API request was pending.
+  const latest=naverRead(file,{orders:{}});latest.orders=latest.orders||{};let restored=0;
+  for(const [id,items] of changes){const current=latest.orders[id];if(!current||completeOrderItems(current))continue;latest.orders[id]={...current,items};restored++;}
+  if(restored)naverAtomic(file,latest);
+  return restored;
+ };
+ const refreshRemaining=channel=>{catalogJob.sources[channel].remaining=missing(channel==='naver'?naverOrderFile:cafeOrdersFile,channel).length;};
+ const runNaver=async()=>{
+  const source=catalogJob.sources.naver,orders=candidates.naver;
+  if(!orders.length)return;
+  try{
+   if(!io.naverCredentials()){source.status='인증 필요';source.error='네이버 인증정보를 연결한 뒤 다시 복구하세요.';return;}
+   source.running=true;source.status='진행 중';update();
+   let token=(await io.naverToken()).token;
+   for(let offset=0;offset<orders.length;offset+=100){
+    const batch=orders.slice(offset,offset+100);
     try{
-     const items=await cafeOrderItems(o.id,cafeAuthorizedGet,entry=>recoveryMark(o.date,entry.stage,entry.result,entry.detail));
-     catalogJob.cafeChecked++;
-     if(items.length){c.orders[o.id].items=items;catalogJob.cafeRestored++;}
-     else catalogJob.cafeRemaining++;
-    }catch(e){
-     catalogJob.cafeRemaining++;
-     catalogJob.cafeChecked++;
-     catalogJob.error='카페24 상품 상세 재조회 일부 실패: '+String(e.message).slice(0,170);
-     // A failed request must not stop recovery of other orders; continue and count causes.
-     if(/API (401|403)/.test(e.message))catalogJob.error='카페24 API 주문 읽기 권한·토큰 확인 필요. 조회 기록을 확인하세요.';
-    }
-    catalogJob.done++;
-    if(index%20===19)cafeWrite(cafeOrdersFile,c);
-    await new Promise(resolve=>setTimeout(resolve,90));
+     if(offset>0&&offset%1000===0)token=(await io.naverToken()).token;
+     const details=await io.naverDetails(batch.map(o=>o.id),token);
+     if(!Array.isArray(details))throw Error('네이버 주문 상세 응답 형식 미확인');
+     const requested=new Set(batch.map(o=>String(o.id))),changes=new Map();
+     for(const raw of details){
+      const detail=raw?.productOrder||raw?.content?.productOrder||raw,id=String(detail?.productOrderId||raw?.productOrderId||'');
+      if(!requested.has(id))continue;
+      const quantity=Number(detail?.quantity??detail?.totalQuantity),items=Number.isFinite(quantity)&&quantity>0?itemsFromNaverDetail(raw):[];
+      if(completeOrderItems({items}))changes.set(id,items);
+     }
+     source.restored+=mergeItems(naverOrderFile,changes);
+     if(changes.size<batch.length)fail(source,'조회한 '+batch.length+'건 중 '+(batch.length-changes.size)+'건의 상품명·옵션·수량이 확인되지 않았습니다.');
+    }catch(e){fail(source,e.message);recoveryMark(batch[0]?.paymentDate,'스마트스토어 주문 상세','조회 실패',String(e.message).slice(0,140));}
+    source.checked+=batch.length;refreshRemaining('naver');update();
    }
-   cafeWrite(cafeOrdersFile,c);
-  }else if(cMissing.length){
-   catalogJob.cafeRemaining=cMissing.length;
-   catalogJob.error='카페24 OAuth 인증 연결이 필요합니다. 원가관리에서 주문 상세를 복구하려면 기존 카페24 연결을 확인하세요.';
-   catalogJob.done+=cMissing.length;
-  }
-  catalogJob.cafeRemaining=Object.values(c.orders||{}).filter(o=>Number(o.net)>0&&!(o.items||[]).length).length;
-  catalogJob.progress='재조회 완료 · 복구 '+catalogJob.cafeRestored+'건 · 카페24 미복구 '+catalogJob.cafeRemaining+'건 · 원가 옵션 '+costList().items.length+'개'; 
- }catch(e){catalogJob.error=e.message;catalogJob.progress='부분 완료 · '+e.message;}
- finally{catalogJob.running=false;}
+  }catch(e){fail(source,e.message);}
+  finally{source.running=false;refreshRemaining('naver');if(source.status!=='인증 필요')source.status=source.remaining?'부분 완료':'완료';update();}
+ };
+ const runCafe=async()=>{
+  const source=catalogJob.sources.cafe24,orders=candidates.cafe24;
+  if(!orders.length)return;
+  try{
+   if(!io.cafeCredentials()?.tokens?.access_token){source.status='인증 필요';source.error='카페24 OAuth 인증을 연결한 뒤 다시 복구하세요.';return;}
+   source.running=true;source.status='진행 중';update();
+   for(const order of orders){
+    try{
+     const items=await io.cafeItems(order,entry=>recoveryMark(order.date,entry.stage,entry.result,entry.detail));
+     if(completeOrderItems({items}))source.restored+=mergeItems(cafeOrdersFile,new Map([[String(order.id),items]]));
+     else fail(source,'상품명·옵션·수량을 확인할 수 없는 주문이 남아 있습니다. 조회 기록을 확인하세요.');
+    }catch(e){fail(source,e.message);}
+    source.checked++;refreshRemaining('cafe24');update();
+    await io.delay(90);
+   }
+  }catch(e){fail(source,e.message);}
+  finally{source.running=false;refreshRemaining('cafe24');if(source.status!=='인증 필요')source.status=source.remaining?'부분 완료':'완료';update();}
+ };
+ update();
+ try{await Promise.all([runNaver(),runCafe()]);}
+ finally{catalogJob.running=false;update();}
+ return catalogDiagnostics();
 }
 
 
@@ -946,6 +987,25 @@ function profitDaily(since,until,options={}){
  return {fees,days,pendingProducts:[...pendingProducts.values()].map(x=>({...x,channels:[...x.channels].sort(),options:[...x.options].sort(),dates:[...x.dates].sort()})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko')),...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 확인된 상품만 대상입니다. 상품명에 트루버만 포함은 제외, 위마망만 포함은 포함, 둘 다 있거나 둘 다 없으면 사용자의 확인이 필요합니다. 미분류·혼합 주문이 있으면 전체 확정값과 확인된 위마망 주문 소계를 구분합니다. 상품별 실결제금액이 없는 혼합 주문의 총액은 임의 배분하지 않습니다. 확인된 주문의 원가가 하나라도 없으면 그 소계 이익도 계산하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 부분집계 이익도 전체 연결 Meta 광고비를 한 번 차감하며, 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
 }
 
+function dataCoverage(since,until,accounts=[],fx=1350){
+ const range=catalogRepairRange({since,until});
+ if(!range.since)throw Object.assign(Error('진단할 조회 기간을 선택하세요.'),{status:400});
+ const ids=profitAccounts(accounts),report=profitDaily(since,until,{accounts:ids,fx}),dates=report.days.map(row=>row.date),sources={},missingByChannel={};
+ for(const channel of ['naver','cafe24']){
+  const orderFile=channel==='naver'?naverOrderFile:cafeOrdersFile,syncFile=channel==='naver'?naverSyncFile:cafeSyncFile;
+  const orders=Object.values(naverRead(orderFile,{orders:{}}).orders||{}).filter(o=>Number(o.net)>0&&orderInRepairRange(o,channel,range));
+  const sync=naverRead(syncFile,{days:{}}).days||{},stored=dates.filter(date=>!!sync[date]),missingItems=orders.filter(o=>!completeOrderItems(o)),byDate={};
+  for(const order of missingItems){const date=channel==='naver'?order.paymentDate:order.date;byDate[date]=(byDate[date]||0)+1;}
+  missingByChannel[channel]=byDate;
+  sources[channel]={storedDays:stored.length,missingDays:dates.filter(date=>!sync[date]),firstStoredDate:stored[0]||null,lastStoredDate:stored.at(-1)||null,positiveOrders:orders.length,missingItemOrders:missingItems.length,missingItemDates:Object.entries(byDate).sort(([a],[b])=>a.localeCompare(b)).map(([date,count])=>({date,count})),unclassifiedOrders:report.days.reduce((sum,row)=>sum+row[channel].unclassifiedOrders,0),missingCostOrders:report.days.reduce((sum,row)=>sum+row[channel].missingCostOrders,0)};
+ }
+ sources.meta=Object.fromEntries(ids.map(id=>{const stored=dates.filter(date=>!!loadDay(id,date)),storedSet=new Set(stored);return [id,{storedDays:stored.length,missingDays:dates.filter(date=>!storedSet.has(date)),firstStoredDate:stored[0]||null,lastStoredDate:stored.at(-1)||null}];}));
+ const days=report.days.map(row=>({date:row.date,...Object.fromEntries(['naver','cafe24'].map(channel=>[channel,{collected:row[channel].collected,missingItemOrders:missingByChannel[channel][row.date]||0,unclassifiedOrders:row[channel].unclassifiedOrders,missingCostOrders:row[channel].missingCostOrders}])),adComplete:row.adComplete,profitStatus:row.complete?'complete':row.confirmedAvailable&&Number.isFinite(row.confirmed?.profit)?'partial':'unavailable',reasons:row.reasons}));
+ const available=days.filter(day=>day.profitStatus!=='unavailable');
+ const blockerCounts={missingCollectionDays:days.filter(day=>!day.naver.collected||!day.cafe24.collected).length,missingItemDays:days.filter(day=>day.naver.missingItemOrders||day.cafe24.missingItemOrders).length,unclassifiedDays:days.filter(day=>day.naver.unclassifiedOrders||day.cafe24.unclassifiedOrders).length,mixedDays:report.days.filter(day=>day.pending.mixedOrders>0).length,missingCostDays:days.filter(day=>day.naver.missingCostOrders||day.cafe24.missingCostOrders).length,missingAdDays:days.filter(day=>!day.adComplete).length};
+ return {since,until,totalDays:dates.length,sources,profit:{completeDays:days.filter(day=>day.profitStatus==='complete').length,partialDays:days.filter(day=>day.profitStatus==='partial').length,unavailableDays:days.filter(day=>day.profitStatus==='unavailable').length,firstAvailableDate:available[0]?.date||null,lastAvailableDate:available.at(-1)?.date||null,blockerCounts},days,note:'선택 기간의 저장된 주문·상품 상세·광고 데이터 확인 결과입니다. 주문 상세 복구는 이미 저장된 주문만 대상으로 하며, 미수집 날짜를 새로 수집하거나 누락값을 0원으로 채우지 않습니다.'};
+}
+
 function combinedAnalysis(start,end,pivot){
  if(!isDate(start)||!isDate(end)||!isDate(pivot)||start>end||pivot<start||pivot>end)throw Object.assign(Error('비교 날짜를 확인하세요.'),{status:400});
  // Sales and profit must use the same brand scope. Sales completeness depends
@@ -1006,12 +1066,14 @@ const server=http.createServer(async (req,res)=> {
     if(u.pathname==='/api/strategy/chat'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 채팅할 수 있습니다.'});return json(res,200,await strategyAsk(JSON.parse((await payload(req)).toString('utf8'))));
     }
+    if(u.pathname==='/api/data/coverage'&&req.method==='GET'){const q=u.searchParams;return json(res,200,dataCoverage(q.get('since'),q.get('until'),q.get('accounts')||[],q.get('fx')??1350));}
     if(u.pathname==='/api/data/recent3/status'&&req.method==='GET')return json(res,200,recent3Status());
     if(u.pathname==='/api/data/recent3/refresh'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 최근 3일 데이터를 수집할 수 있습니다.'});
-      if(recent3Job.running||naverJobs.running||cafeJob.running)return json(res,409,{error:'기존 주문 수집 또는 데이터 업데이트가 진행 중입니다.'});
+      if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
       const data=JSON.parse((await payload(req)).toString('utf8')),accounts=profitAccounts(data.accounts||[]);
-      recent3Refresh(accounts).catch(e=>{recent3Job.running=false;recent3Job.error=e.message;recent3Job.progress='수집 오류';});
+      if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
+      recent3Refresh(accounts).catch(e=>{if(!recent3Job.running){recent3Job.error=e.message;recent3Job.progress='수집 오류';}});
       return json(res,202,{ok:true,...recent3DateWindow(),status:'업데이트 시작'});
     }
     if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
@@ -1038,14 +1100,17 @@ const server=http.createServer(async (req,res)=> {
     }
     if(u.pathname==='/api/costs/catalog/refresh'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬에서만 실행할 수 있습니다.'});
-      if(catalogJob.running)return json(res,409,{error:'이미 판매품을 확인 중입니다.'});
-      enrichCostCatalog().catch(e=>{catalogJob.error=e.message;catalogJob.running=false;});return json(res,202,{started:true});
+      if(catalogJob.running||naverJobs.running||cafeJob.running||recent3Job.running)return json(res,409,{error:'다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
+      const raw=await payload(req),range=catalogRepairRange(raw.length?JSON.parse(raw.toString('utf8')):{});
+      if(catalogJob.running||naverJobs.running||cafeJob.running||recent3Job.running)return json(res,409,{error:'다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
+      enrichCostCatalog(range).catch(e=>{if(!catalogJob.running)catalogJob.error=e.message;});return json(res,202,{started:true,...range});
     }
     if(u.pathname==='/api/cafe24/orders/status'&&req.method==='GET')return json(res,200,cafeSalesState());
     if(u.pathname==='/api/cafe24/orders/sync'&&req.method==='POST'){
       if(!localPost(req))return json(res,403,{error:'로컬 요청만 허용'});
-      if(cafeJob.running)return json(res,409,{error:'이미 수집 중'});
+      if(cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
       const body=JSON.parse((await payload(req)).toString('utf8'));
+      if(cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
       cafeCollect(body.mode==='backfill'?'backfill':'recent').catch(e=>{cafeJob.error=e.message;cafeJob.running=false;});
       return json(res,202,{started:true});
     }
@@ -1063,7 +1128,7 @@ const server=http.createServer(async (req,res)=> {
       if(!localPost(req))return json(res,403,{error:'로컬에서만 주문을 동기화할 수 있습니다.'});
       const body=JSON.parse((await payload(req)).toString('utf8'));
       const mode=body.mode==='backfill'?'backfill':'recent';
-      if(naverJobs.running)return json(res,409,{error:'기존 주문 동기화가 진행 중입니다.'});
+      if(naverJobs.running||catalogJob.running)return json(res,409,{error:'기존 주문 동기화 또는 상품 상세 복구가 진행 중입니다.'});
       naverRun(mode).catch(e=>{naverJobs.error=e.message;naverJobs.running=false;});
       return json(res,202,{ok:true,message:'주문 데이터 수집 시작',mode});
     }
@@ -1132,6 +1197,6 @@ const server=http.createServer(async (req,res)=> {
   } catch(err) {json(res,err.status||500,{error:err.message||'서버 오류'});}
 });
 if(require.main===module) server.listen(PORT,HOST,()=>{console.log(`ROAS Analyzer: http://localhost:${PORT}`);setTimeout(watchDownloads,4000);setInterval(watchDownloads,20000);setTimeout(naverAutomaticStart,15000);setInterval(naverAutomaticStart,3600000);setTimeout(cafeAutoCollect,20000);setInterval(cafeAutoCollect,3600000);});
-module.exports={server,isDate,profitDaily,combinedAnalysis,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow};
+module.exports={server,isDate,profitDaily,combinedAnalysis,strategySnapshot,itemsFromCafeOrder,cafeOrderItems,catalogDiagnostics,cafeRawItems,linkCostAlias,unlinkCostAlias,brandForProduct,saveBrandScope,recent3Status,recent3DateWindow,enrichCostCatalog,dataCoverage,catalogRepairRange};
 
 

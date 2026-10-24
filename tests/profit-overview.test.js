@@ -23,10 +23,10 @@ class Element{
  addEventListener(name,handler){this.events[name]=handler;}
  getBoundingClientRect(){return {left:0,top:0,width:1020,height:310};}
 }
-function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unexpected fetch');},confirm=()=>true}={}){
+function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unexpected fetch');},confirm=()=>true,timer=setTimeout}={}){
  const nodes=new Map();
  const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
- const context=vm.createContext({console,Intl,URLSearchParams,AbortSignal,fetch,confirm,localStorage:{getItem:key=>key==='roas-account-ids'?JSON.stringify(ids):null,setItem(){}},document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()}});
+ const context=vm.createContext({console,Intl,URLSearchParams,AbortSignal,fetch,confirm,setTimeout:timer,localStorage:{getItem:key=>key==='roas-account-ids'?JSON.stringify(ids):null,setItem(){}},document:{getElementById:node,querySelectorAll:()=>[],createElement:()=>new Element(),createElementNS:()=>new Element()}});
  node('channel').value='all';node('chart-window').value='1';node('chart-scale').value='relative';node('since').value='2026-09-01';node('until').value='2026-09-03';node('budget-step').value='20000';
  vm.runInContext(source,context);
  vm.runInContext("activeMetricKeys=['profit'];",context);
@@ -271,4 +271,79 @@ test('brand scope is never guessed from saved costs and classification saves onl
  assert.equal(h.node('profit-total').textContent,'152,000원');
  assert.ok(requests.filter(r=>r.url.startsWith('/api/insights')).every(r=>new URL(r.url,'http://local').searchParams.get('cacheOnly')==='1'));
  assert.equal(requests.some(r=>r.url.includes('/recent3/refresh')),false,'Classification must not trigger external data collection');
+});
+
+const coverageFixture=()=>({since:'2026-09-01',until:'2026-09-30',totalDays:30,sources:{
+ naver:{storedDays:30,missingDays:[],positiveOrders:779,missingItemOrders:779,missingItemDates:[{date:'2026-09-01',count:779}],unclassifiedOrders:0,missingCostOrders:0},
+ cafe24:{storedDays:30,missingDays:[],positiveOrders:139,missingItemOrders:118,missingItemDates:[{date:'2026-09-01',count:60},{date:'2026-09-02',count:58}],unclassifiedOrders:0,missingCostOrders:0},
+ meta:{'111':{storedDays:30,missingDays:[]},'222':{storedDays:28,missingDays:['2026-09-05','2026-09-06']}}
+},profit:{completeDays:12,partialDays:0,unavailableDays:18}});
+
+test('coverage distinguishes stored paid orders from missing product metadata and shows actual missing dates',()=>{
+ const h=harness();h.context.report=coverageFixture();h.run('dataCoverage=report;renderDataCoverage();');
+ const text=elementText(h.node('coverage-table'));
+ assert.match(text,/주문·결제자료 139건 저장됨 · 상품 상세 미연결 118건/);
+ assert.match(text,/매출이 0원이라는 뜻이 아닙니다/);
+ assert.match(text,/상품 상세 미연결 날짜: 2026-09-01 ~ 2026-09-02/);
+ assert.match(text,/미수집 2일: 2026-09-05 ~ 2026-09-06/);
+ assert.match(h.node('coverage-summary').textContent,/전체 이익 확인 12\/30일/);
+});
+
+test('queued Cafe24 reports 118 remaining before attempts while Naver progresses, independent of current selected dates',()=>{
+ const h=harness();h.node('since').value='2026-10-01';h.node('until').value='2026-10-02';
+ h.context.job={since:'2026-09-01',until:'2026-09-30',running:true,progress:'복구 진행',sources:{
+ naver:{status:'진행 중',total:779,checked:200,restored:200,remaining:579},
+ cafe24:{status:'대기',total:118,checked:0,restored:0,remaining:118}
+ }};
+ h.run('renderDetailRepairJob(job);');
+ const text=elementText(h.node('history-repair-sources'));
+ assert.match(text,/카페24 대기 0 \/ 118건 0건 118건/);
+ assert.match(text,/스마트스토어 진행 중 200 \/ 779건/);
+ assert.match(h.node('history-repair-summary').textContent,/2026-09-01 ~ 2026-09-30/);
+ assert.equal(h.node('since').value,'2026-10-01');
+});
+
+test('selected-period detail repair posts exact dates, redraws partial progress from cache, and keeps source failures separate',async()=>{
+ const requests=[],seenProgress=[];let stage=0,h;
+ const job=()=>({since:'2026-09-01',until:'2026-09-30',running:stage<2,done:stage<2?2:3,total:3,progress:stage<2?'채널별 상세 복구 중':'상세 복구 일부 완료',error:'스마트스토어 일부 미복구',sources:{
+ naver:{status:'부분 완료',total:1,checked:1,restored:0,remaining:1,error:'스마트스토어 상세 재조회 실패'},
+ cafe24:{status:stage<2?'진행 중':'완료',total:2,checked:stage<2?1:2,restored:stage<2?1:2,remaining:stage<2?1:0,error:null}
+ }});
+ h=harness({timer:resolve=>{seenProgress.push(elementText(h.node('history-repair-sources')));stage=2;h.node('since').value='2026-10-01';h.node('until').value='2026-10-02';resolve();},fetch:async(url,options={})=>{
+  requests.push({url,options});const u=new URL(url,'http://local');
+  if(u.pathname==='/api/costs/catalog/refresh'){stage=1;return {ok:true,json:async()=>({ok:true})};}
+  if(u.pathname==='/api/costs/catalog/diagnostics')return {ok:true,json:async()=>({job:job()})};
+  if(u.pathname==='/api/data/coverage'){const report=coverageFixture();report.since=u.searchParams.get('since');report.until=u.searchParams.get('until');return {ok:true,json:async()=>report};}
+  if(u.pathname==='/api/insights')return {ok:true,json:async()=>({currency:'KRW',rows:[],cache:{missingDays:[]}})};
+  if(u.pathname==='/api/profit/daily')return {ok:true,json:async()=>({fees:{naver:7,cafe24:3.5},days:[profit(u.searchParams.get('since'),stage===1?10000:20000)]})};
+  return {ok:true,json:async()=>({days:[]})};
+ }});
+ h.node('since').value='2026-09-01';h.node('until').value='2026-09-30';
+ await h.run('recoverSelectedOrderDetails()');
+ const posts=requests.filter(r=>r.options.method==='POST');assert.equal(posts.length,1);
+ assert.equal(posts[0].url,'/api/costs/catalog/refresh');assert.deepEqual(JSON.parse(posts[0].options.body),{since:'2026-09-01',until:'2026-09-30'});
+ assert.match(seenProgress[0],/카페24 진행 중 1 \/ 2건 1건 1건/);
+ assert.match(elementText(h.node('history-repair-sources')),/카페24 완료 2 \/ 2건 2건 0건/);
+ assert.match(elementText(h.node('history-repair-sources')),/스마트스토어 상세 재조회 실패/);
+ assert.ok(requests.filter(r=>r.url.startsWith('/api/profit/daily')).length>=2,'Partial progress and completion both redraw');
+ assert.ok(requests.filter(r=>r.url.startsWith('/api/insights')).every(r=>new URL(r.url,'http://local').searchParams.get('cacheOnly')==='1'));
+ assert.equal(requests.some(r=>r.url.includes('/recent3/refresh')),false);
+ assert.equal(h.node('since').value,'2026-10-01');assert.equal(h.node('until').value,'2026-10-02');
+ assert.match(h.node('history-repair-summary').textContent,/2026-09-01 ~ 2026-09-30/);
+});
+
+test('page lookup resumes observing an existing detail repair without starting a second job',async()=>{
+ const requests=[];let running=true;
+ const h=harness({timer:resolve=>{running=false;resolve();},fetch:async(url,options={})=>{
+  requests.push({url,options});const u=new URL(url,'http://local');
+  if(u.pathname==='/api/costs/catalog/diagnostics')return {ok:true,json:async()=>({job:{since:'2026-09-01',until:'2026-09-30',running,done:running?0:1,total:1,sources:{naver:{status:'완료',total:0,checked:0,restored:0,remaining:0},cafe24:{status:running?'진행 중':'완료',total:1,checked:running?0:1,restored:running?0:1,remaining:running?1:0}}}})};
+  if(u.pathname==='/api/data/coverage')return {ok:true,json:async()=>coverageFixture()};
+  if(u.pathname==='/api/insights')return {ok:true,json:async()=>({currency:'KRW',rows:[],cache:{missingDays:[]}})};
+  if(u.pathname==='/api/profit/daily')return {ok:true,json:async()=>({fees:{naver:7,cafe24:3.5},days:[profit('2026-09-01',12000)]})};
+  return {ok:true,json:async()=>({days:[]})};
+ }});
+ await h.run('run()');for(let i=0;i<10&&h.run('detailRepairPolling');i++)await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.some(r=>r.options.method==='POST'),false);
+ assert.match(elementText(h.node('history-repair-sources')),/카페24 완료/);
+ assert.equal(h.run('detailRepairPolling'),false);
 });

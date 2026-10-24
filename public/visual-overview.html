@@ -1,4 +1,4 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROAS Pilot | 한눈에 보기</title>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ROAS Pilot | 한눈에 보기</title><script src="/app-shell.js"></script>
 <style>
 :root{--navy:#131e35;--purple:#6559ee;--ink:#1e2940;--line:#e2e7f0;--mute:#7f8da4}*{box-sizing:border-box}
 body{margin:0;font:14px 'Segoe UI','Noto Sans KR',sans-serif;background:#f5f7fc;color:var(--ink)}
@@ -25,21 +25,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 @media(max-width:950px){aside{width:160px}main{margin-left:160px}.metrics{grid-template-columns:repeat(2,1fr)}.summary{grid-template-columns:1fr}}
 @media(max-width:620px){aside{position:static;width:100%;height:auto}.logo{margin-bottom:10px}nav{display:flex;overflow:auto}nav a{white-space:nowrap}main{margin:0;padding:12px}.metrics{gap:8px}.metric strong{font-size:20px}}
 
-/* Unified typography and side navigation across ROAS Pilot pages */
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif!important;font-size:14px;line-height:1.5;background:#f5f7fb}
-aside{width:236px!important;background:#121c33!important;padding:28px 17px!important}
-main{margin-left:236px!important;padding:35px 40px!important;max-width:1740px}
-aside .logo{font-size:22px!important;margin:0 8px 49px!important}
-nav a{font-size:13px!important;padding:13px 16px!important;border-radius:11px!important;margin-bottom:5px!important}
-button,input,select{font-family:inherit}
-@media(max-width:750px){aside{position:static!important;width:100%!important;height:auto!important}main{margin-left:0!important;padding:15px!important}}
-</style></head><body><aside><div class="logo">ROAS<span>Pilot</span><small>Meta Performance Intelligence</small></div><nav><a class="active" href="/visual-overview.html">◉ 한눈에 보기</a><a href="/#overview">◫ 성과 개요</a><a href="/#ads-section">▤ 광고별 진단</a><a href="/#daily-compare">◷ 날짜별 비교</a><a href="/#funnel">⌁ 구매 퍼널</a><a href="/cost-management.html">▦ 원가관리</a><a href="/#data-source">⛓ 데이터 연결 · 설정</a></nav></aside>
-<main><h1>한눈에 보기 <span class="small" style="font-weight:400">v2.8.71</span></h1><p class="small">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p>
+</style><link rel="stylesheet" href="/app-shell.css"></head><body data-app-page="overview"><div class="app-nav-rail" id="app-nav-rail"><button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button></div>
+<aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert><div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div><nav id="app-nav" class="app-nav" aria-label="워크스페이스"><a class="app-nav-link active" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a><a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a><a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a><a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a><a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a><a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a></nav><div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div></aside>
+<main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">한눈에 보기</h1><p class="app-page-subtitle">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p></div></header>
 <section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
 <button data-period="yesterday">어제</button><button data-period="today">오늘</button><button data-period="7" class="active">최근 7일</button><button data-period="30">최근 30일</button><button data-period="3months">최근 3달</button><button data-period="6months">최근 6개월</button><button data-period="1year">최근 1년</button><button data-period="2years">최근 2년</button>
 <label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
 <button id="reload" class="primary" title="선택한 시작일과 종료일의 저장된 데이터를 조회합니다. 외부 API를 새로 호출하지 않습니다.">기간별 데이터 조회</button><button id="recent3-refresh" type="button" title="오늘 포함 최근 3일간 스마트스토어·카페24 주문과 연결된 전체 Meta 광고계정의 데이터를 업데이트합니다.">최근 3일 데이터 업데이트 (오늘 포함)</button><span class="status small" id="updated">조회 대기</span><span id="recent3-status" role="status" class="small" style="flex-basis:100%;display:none"></span></section>
 <div id="alert" class="alert"></div>
+<section class="panel" id="data-coverage"><div class="panelhead"><div><h2>기간별 수집·주문 상세 현황</h2><span id="coverage-period" class="small">조회 기간의 저장 상태를 확인합니다.</span></div><div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="history-repair" title="위에서 선택한 기간에 이미 저장된 주문 중 상품명·옵션이 없는 주문 상세만 다시 조회합니다.">선택 기간 주문 상세 복구</button><button type="button" id="history-repair-status-check">복구 진행 상태 확인</button></div></div><div id="coverage-summary" role="status" style="margin-bottom:10px">저장된 자료 확인 중…</div><details id="coverage-details"><summary>채널별 저장·누락 상세 보기</summary><div style="padding-top:12px"><p class="small" style="margin:0 0 10px">주문이 저장돼 있어도 상품명·옵션이 없으면 위마망 매출과 원가를 연결할 수 없습니다. 주문 상세 복구는 선택한 시작일~종료일의 저장된 주문만 대상으로 하며, 아직 수집하지 않은 날짜는 별도로 주문 수집이 필요합니다.</p><div id="coverage-table" style="overflow:auto"></div><div id="coverage-blockers" style="font-size:12px;line-height:1.8;margin-top:10px"></div></div></details><div id="history-repair-progress" style="display:none;border-top:1px solid #e2e7f0;margin-top:12px;padding-top:12px"><strong id="history-repair-summary" role="status"></strong><div id="history-repair-sources" style="overflow:auto;margin-top:8px"></div></div></section>
 <section class="metrics"><div class="metric"><small>총 광고비</small><strong id="spend">—</strong><small id="spendSub">—</small></div><div class="metric"><small>구매 전환매출</small><strong id="revenue">—</strong><small id="revenueSub">—</small></div><div class="metric highlight"><small>구매 ROAS</small><strong id="roas">—</strong><small>Meta 귀속 구매 전환값 기준</small></div><div class="metric"><small>구매 CPA</small><strong id="cpa">—</strong><small id="purchaseSub">—</small></div>
 <div class="metric"><small>구매 건수</small><strong id="purchases">—</strong></div><div class="metric"><small>링크 CTR</small><strong id="ctr">—</strong></div><div class="metric"><small>노출수</small><strong id="impressions">—</strong></div><div class="metric"><small>링크 클릭수</small><strong id="clicks">—</strong></div></section>
 <section class="panel"><div class="panelhead"><div><h2>일별 성과 그래프</h2><span class="small">일별·3일·5일·7일 구간평균 전환 · 최대 7개 지표 비교 · 매월 1일부터 겹치지 않는 날짜 구간으로 나눕니다.</span></div><div class="chartpicker"><div class="presetbar"><span id="custom-preset-buttons"></span><button type="button" id="preset-save">＋ 현재 구성 저장</button><button type="button" id="preset-manage">프리셋 관리</button><label>추세 기준 (3·5·7일은 직접 선택)<select id="chart-window"><option value="1" selected>일별 원본</option><option value="3">3일 구간평균</option><option value="5">5일 구간평균</option><option value="7">7일 구간평균</option></select></label><label>표시 방식 <select id="chart-scale"><option value="relative">시작값 100 기준</option><option value="absolute">각 지표별 축</option></select></label></div><div class="metric-choices"><label>선택 1<select class="metric-choice" data-index="0"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 2<select class="metric-choice" data-index="1"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 3<select class="metric-choice" data-index="2"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 4<select class="metric-choice" data-index="3"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 5<select class="metric-choice" data-index="4"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 6<select class="metric-choice" data-index="5"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label><label>선택 7<select class="metric-choice" data-index="6"><option value="">선택 안 함</option><option value="spend">광고비</option><option value="revenue">Meta 귀속 구매매출</option><option value="smartstoreRevenue">스마트스토어 매출</option><option value="mallRevenue">자사몰 매출</option><option value="totalStoreRevenue">통합 매출</option><option value="profit">통합 예상 이익</option><option value="roas">ROAS</option><option value="clicks">클릭수</option><option value="ctr">CTR</option><option value="purchases">구매수</option><option value="cpa">구매 CPA</option></select></label></div></div></div><div id="graph"></div><div id="profit-chart-status" class="small" role="status" style="display:none;margin:8px 0;line-height:1.7"></div><details id="profit-chart-debug" style="display:none;margin:10px 0;border-top:1px solid #e2e7f0;padding-top:10px"><summary>이익 표시 문제 진단 · 누락 항목별 상세</summary><div id="profit-chart-diagnostic" class="small" style="padding:10px 0;line-height:1.9"></div></details><div id="legend" class="legend"></div></section>
@@ -95,7 +89,7 @@ const series=days.map(date=>{
 draw(series);try{renderProfit(series);}catch(e){console.error('이익 표시 오류:',e);$('profit-status').textContent='이익 표시 오류: '+e.message;}
 const channelRows=[['네이버',sum(data.naver)],['카페24',sum(data.cafe)]];
 $('channels').innerHTML='<table><thead><tr><th>채널</th><th>광고비</th><th>매출</th><th>ROAS</th><th>구매</th></tr></thead><tbody>'+channelRows.map(([name,s])=>'<tr><td>'+name+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td><td>'+ (s.hasPurchases?num(s.purchases):'—')+'</td></tr>').join('')+'</tbody></table>';
-renderBudgetAnalysis();
+renderBudgetAnalysis();renderDataCoverage();
 $('daily').innerHTML='<table><thead><tr><th>날짜</th><th>광고비</th><th>매출</th><th>ROAS</th></tr></thead><tbody>'+series.map(s=>'<tr><td>'+s.date.slice(5)+'</td><td>'+won(s.spend)+'</td><td>'+won(s.hasRevenue?s.revenue:null)+'</td><td>'+pct(s.roas)+'</td></tr>').join('')+'</tbody></table>';
 }
 
@@ -468,18 +462,121 @@ function draw(rows){
  legend.innerHTML=activeMetricKeys.map(k=>'<button type="button" data-legend="'+k+'" style="background:transparent;border:0;color:'+(hiddenMetricKeys.has(k)?'#a9b2c0':'#45536c')+';text-decoration:'+(hiddenMetricKeys.has(k)?'line-through':'none')+'"><i style="background:'+chartColors[chartKeys.indexOf(k)]+'"></i>'+metrics[k]+'</button>').join('')+'<span class="small">'+(scale==='relative'?'각 지표의 첫 유효값=100 · 변화율 비교':'지표별 최대값=100 · 상대적 흐름 비교')+'</span>';
  legend.querySelectorAll('[data-legend]').forEach(button=>button.onclick=()=>{const k=button.dataset.legend;hiddenMetricKeys.has(k)?hiddenMetricKeys.delete(k):hiddenMetricKeys.add(k);draw(rows);});
 }
+let dataCoverage=null,coverageError='',detailRepairPolling=false,lastDetailRepairJob=null;
+const coverageNumber=value=>Number.isFinite(value)?String(value):'—';
+function coverageDateRanges(values){
+ const dates=[...new Set((values||[]).map(value=>typeof value==='string'?value:value?.date).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')))].sort(),groups=[];
+ for(const date of dates){const last=groups.at(-1);if(last&&Date.parse(date+'T00:00:00Z')-Date.parse(last[1]+'T00:00:00Z')===86400000)last[1]=date;else groups.push([date,date]);}
+ return groups.map(([start,end])=>start===end?start:start+' ~ '+end).join(', ');
+}
+function renderDataCoverage(){
+ const root=$('coverage-table'),summary=$('coverage-summary'),blockers=$('coverage-blockers');if(!root||!summary)return;
+ root.replaceChildren();blockers?.replaceChildren();
+ const report=dataCoverage;
+ if(!report){summary.textContent=coverageError?'저장 상태 확인 실패: '+coverageError:'저장 상태를 확인 중입니다.';return;}
+ $('coverage-period').textContent='조회 기간 '+report.since+' ~ '+report.until+' · '+report.totalDays+'일';
+ const sources=report.sources||{},orders=[['스마트스토어 주문',sources.naver],['카페24 주문',sources.cafe24]],meta=Object.entries(sources.meta||{}).map(([id,source])=>['Meta 광고 '+id,source]);
+ const missingItems=orders.reduce((sum,[,source])=>sum+(Number(source?.missingItemOrders)||0),0),p=report.profit||{};
+ summary.textContent='전체 이익 확인 '+coverageNumber(p.completeDays)+'/'+report.totalDays+'일 · 확인분 부분 집계 '+coverageNumber(p.partialDays)+'일 · 이익 미확정 '+coverageNumber(p.unavailableDays)+'일'+(missingItems?' · 저장된 주문 중 상품 상세 미연결 '+missingItems+'건':'');
+ const table=document.createElement('table'),thead=document.createElement('thead'),head=document.createElement('tr'),body=document.createElement('tbody');
+ for(const text of ['자료','저장된 날짜','주문·상품 상세 상태','누락 날짜와 확인할 내용']){const th=document.createElement('th');th.textContent=text;head.append(th);}thead.append(head);table.append(thead);
+ for(const [label,source] of [...orders,...meta]){
+  const tr=document.createElement('tr');tr.setAttribute('data-coverage-source',label.startsWith('카페24')?'cafe24':label.startsWith('스마트스토어')?'naver':label);
+  const name=document.createElement('td');name.textContent=label;
+  const stored=document.createElement('td');stored.textContent=coverageNumber(source?.storedDays)+'/'+report.totalDays+'일';
+  const state=document.createElement('td'),detail=document.createElement('td');
+  if(!source){state.textContent='저장 상태 미확인';}
+  else if(label.startsWith('Meta'))state.textContent='광고비 저장 자료';
+  else{
+   state.textContent='주문·결제자료 '+coverageNumber(source.positiveOrders)+'건 저장됨 · 상품 상세 미연결 '+coverageNumber(source.missingItemOrders)+'건';
+   if(source.missingItemOrders){const note=document.createElement('small');note.style.display='block';note.textContent='매출이 0원이라는 뜻이 아닙니다. 상품명·옵션 확인이 필요한 주문입니다.';state.append(note);}
+  }
+  const missingDates=source?.missingDays||[];
+  const missing=document.createElement('div');missing.textContent=missingDates.length?'미수집 '+missingDates.length+'일: '+coverageDateRanges(missingDates):source?'선택 기간의 날짜별 저장 확인됨':'자료 응답을 확인하세요.';detail.append(missing);
+  if(source?.missingItemDates?.length){const itemDates=document.createElement('div');itemDates.textContent='상품 상세 미연결 날짜: '+coverageDateRanges(source.missingItemDates);detail.append(itemDates);const more=document.createElement('details'),title=document.createElement('summary'),text=document.createElement('p');title.textContent='날짜별 미연결 주문 건수';text.textContent=source.missingItemDates.map(row=>row.date+' '+row.count+'건').join(' / ');more.append(title,text);detail.append(more);}
+  if(missingDates.length&&!label.startsWith('Meta')){const link=document.createElement('a');link.href=label.startsWith('카페24')?'/#cafe24-oauth':'/#naver-commerce';link.textContent='설정 관리에서 미수집 주문 날짜 확인';detail.append(link);}
+  tr.append(name,stored,state,detail);body.append(tr);
+ }
+ table.append(body);root.append(table);
+ if(blockers){
+  const unclassified=orders.reduce((sum,[,source])=>sum+(Number(source?.unclassifiedOrders)||0),0),costMissing=orders.reduce((sum,[,source])=>sum+(Number(source?.missingCostOrders)||0),0);
+  const note=document.createElement('p');note.textContent=(missingItems?'상품 상세 '+missingItems+'건은 선택 기간 주문 상세 복구로 확인합니다. ':'')+(unclassified?'브랜드 미분류 '+unclassified+'건은 아래에서 직접 분류해 주세요. ':'')+(costMissing?'원가 미확인 '+costMissing+'건은 원가 연결이 필요합니다. ':'')+'상세 정보가 없는 주문을 0원 매출로 계산하지 않습니다.';blockers.append(note);
+  for(const [show,href,text] of [[unclassified,'#profit-brand-review','미분류 상품 확인'],[costMissing,'#profit-unmatched','미연결 원가 확인']])if(show){const link=document.createElement('a');link.href=href;link.textContent=text;link.style.marginRight='15px';link.onclick=()=>{if(href==='#profit-unmatched')$('profit-unmatched').open=true;};blockers.append(link);}
+ }
+}
+function renderDetailRepairJob(job){
+ if(!job)return;
+ lastDetailRepairJob=job;
+ const pane=$('history-repair-progress'),summary=$('history-repair-summary'),root=$('history-repair-sources');if(!pane||!summary||!root)return;
+ if(!job.running&&!job.lastAttemptAt&&!job.startedAt&&!job.since&&!Object.keys(job.sources||{}).length)return;
+ pane.style.display='block';root.replaceChildren();
+ const period=job.since&&job.until?job.since+' ~ '+job.until:'전체 저장 주문';
+ summary.textContent='복구 대상 '+period+' · '+(job.running?'진행 중':job.error?'일부 미완료':'작업 종료')+' · '+(job.progress||'상태 확인 중');
+ const table=document.createElement('table'),head=document.createElement('thead'),header=document.createElement('tr'),body=document.createElement('tbody');
+ for(const text of ['채널','진행 상태','확인 / 대상','상세 복구','남은 상세 미연결','확인할 내용']){const th=document.createElement('th');th.textContent=text;header.append(th);}head.append(header);table.append(head);
+ const descriptions=[];
+ for(const [key,name] of [['naver','스마트스토어'],['cafe24','카페24']]){
+  const source=job.sources?.[key],remaining=Number.isFinite(source?.remaining)?source.remaining:dataCoverage?.sources?.[key]?.missingItemOrders;
+  const tr=document.createElement('tr');tr.setAttribute('data-repair-source',key);
+  const values=[name,source?.status||'채널별 상태 확인 필요',coverageNumber(source?.checked)+' / '+coverageNumber(source?.total)+'건',coverageNumber(source?.restored)+'건',coverageNumber(remaining)+'건',source?.error||''];
+  for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);
+  descriptions.push(name+' '+values[1]+' · 확인 '+values[2]+' · 남음 '+values[4]);
+ }
+ table.append(body);root.append(table);
+ const lower=$('profit-repair-status');if(lower)lower.textContent=period+' · '+descriptions.join(' / ');
+ for(const id of ['history-repair','profit-repair'])if($(id))$(id).disabled=!!job.running||detailRepairPolling;
+}
+async function fetchDetailRepairJob(){
+ const response=await fetch('/api/costs/catalog/diagnostics',{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();if(!response.ok)throw Error(body.error||'복구 진행 상태 확인 실패');
+ if(!body.job)throw Error('복구 진행 상태 응답을 확인할 수 없습니다.');return body.job;
+}
+async function observeDetailRepair(initial){
+ if(detailRepairPolling)return;
+ detailRepairPolling=true;let job=initial,lastRedraw=0;
+ try{
+  for(let attempt=0;attempt<1200;attempt++){
+   if(!job||attempt)job=await fetchDetailRepairJob();
+   renderDetailRepairJob(job);
+   if(!job.running||(Number(job.done)>0&&Date.now()-lastRedraw>=6000)){await run();lastRedraw=Date.now();}
+   if(!job.running){if(typeof showCafeRepairDiagnosis==='function')await showCafeRepairDiagnosis();return;}
+   await new Promise(resolve=>setTimeout(resolve,1500));
+  }
+  $('history-repair-summary').textContent='복구 대상 '+(job?.since||'')+' ~ '+(job?.until||'')+' · 서버에서 계속 진행 중입니다. “복구 진행 상태 확인”으로 이어서 확인하세요.';
+ }catch(e){$('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 상태 확인 중 오류: '+e.message+' · 서버 작업이 계속 진행 중일 수 있습니다. “복구 진행 상태 확인”을 눌러 주세요.';}
+ finally{detailRepairPolling=false;for(const id of ['history-repair','profit-repair'])if($(id))$(id).disabled=!!lastDetailRepairJob?.running;}
+}
+async function recoverSelectedOrderDetails(){
+ if(detailRepairPolling)return;
+ const since=$('since').value,until=$('until').value;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('coverage-summary').textContent='복구할 시작일과 종료일을 확인해 주세요.';return;}
+ for(const id of ['history-repair','profit-repair'])$(id).disabled=true;
+ $('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 대상 '+since+' ~ '+until+' · 저장된 주문의 상품 상세 확인을 시작합니다…';
+ try{
+  const response=await fetch('/api/costs/catalog/refresh',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({since,until}),cache:'no-store'}),body=await response.json();
+  if(!response.ok)throw Error(body.error||'주문 상세 복구 시작 실패');
+  await observeDetailRepair(await fetchDetailRepairJob());
+ }catch(e){$('history-repair-summary').textContent='주문 상세 복구 시작 오류: '+e.message;for(const id of ['history-repair','profit-repair'])$(id).disabled=false;}
+}
+async function checkDetailRepairStatus(){
+ try{const job=await fetchDetailRepairJob();renderDetailRepairJob(job);if(job.running&&!detailRepairPolling)await observeDetailRepair(job);}
+ catch(e){$('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 상태 확인 실패: '+e.message;}
+}
+
 async function run(){
  const version=++requestVersion,since=$('since').value,until=$('until').value;
  if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('updated').textContent='시작일과 종료일을 확인해 주세요.';return;}
  const warnings=[],nextData={naver:[],cafe:[]},nextCurrency={...currency};
- let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',nextPendingBrands=[],available=0;
+ let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',nextPendingBrands=[],nextCoverage=null,nextCoverageError='',nextRepairJob=null,available=0;
  $('reload').disabled=true;$('updated').textContent=since+' ~ '+until+' 저장 데이터 조회 중…';
  try{
   let savedIds={};try{savedIds=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{warnings.push('저장된 광고 계정 설정을 읽을 수 없습니다.');}
   const ids=Object.fromEntries(['naver','cafe'].map(key=>[key,String(savedIds[key]||'').replace(/\D/g,'')]));
   const accountIds=[...new Set(Object.values(ids).filter(Boolean))];
+  const coverageRequest=(async()=>{try{const q=new URLSearchParams({since,until,accounts:accountIds.join(','),fx:String(rates)});const response=await fetch('/api/data/coverage?'+q,{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();if(!response.ok||!body.sources||!Number.isFinite(body.totalDays))throw Error(body.error||'저장 현황 응답을 확인하세요.');nextCoverage=body;}catch(e){nextCoverageError=e.message;}})();
+  const repairStatusRequest=fetchDetailRepairJob().then(job=>{nextRepairJob=job;}).catch(()=>{});
+
   const salesRequest=(async()=>{
-   try{const q=new URLSearchParams({since,until,pivot:since});const res=await fetch('/api/sales/compare?'+q,{signal:AbortSignal.timeout(20000)});const body=await res.json();if(!res.ok)throw Error(body.error||'매출 조회 실패');nextSales=new Map((body.days||[]).map(d=>[d.date,d]));const missing=(body.days||[]).filter(d=>!d.complete).length;if(missing)warnings.push('주문 매출 미수집 '+missing+'일');}catch(e){warnings.push('주문 매출: '+e.message);}
+   try{const q=new URLSearchParams({since,until,pivot:since});const res=await fetch('/api/sales/compare?'+q,{signal:AbortSignal.timeout(20000)});const body=await res.json();if(!res.ok)throw Error(body.error||'매출 조회 실패');nextSales=new Map((body.days||[]).map(d=>[d.date,d]));const missing=(body.days||[]).filter(d=>!d.complete).length;if(missing)warnings.push('주문 매출 전체 확인 필요 '+missing+'일');}catch(e){warnings.push('주문 매출: '+e.message);}
   })();
   // Total store profit always includes all connected ad accounts, even with a channel filter.
   // Fetch a shared account only once so assigning it to both labels never doubles spend.
@@ -497,16 +594,17 @@ async function run(){
    const q=new URLSearchParams({since,until,accounts:accountIds.join(','),fx:String(rates)});const response=await fetch('/api/profit/daily?'+q,{signal:AbortSignal.timeout(18000)});const p=await response.json();if(!response.ok)throw Error(p.error||'이익 조회 실패');
    nextFees=p.fees||nextFees;nextProfit=new Map((p.days||[]).map(d=>[d.date,d]));nextPendingBrands=Array.isArray(p.pendingProducts)?p.pendingProducts:[];
   }catch(e){nextProfitError='이익 계산: '+e.message;warnings.push(nextProfitError);}
-  await salesRequest;
+  await Promise.all([salesRequest,coverageRequest,repairStatusRequest]);
   if(version!==requestVersion)return;
   data.naver=nextData.naver;data.cafe=nextData.cafe;currency.naver=nextCurrency.naver;currency.cafe=nextCurrency.cafe;connectedAccounts=ids;
-  storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;
+  storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;dataCoverage=nextCoverage;coverageError=nextCoverageError;
   $('profit-naver-fee').value=profitFees.naver;$('profit-cafe-fee').value=profitFees.cafe24;
   if(!available&&!storeSales.size&&!profitDays.size)warnings.push('수집된 데이터가 없습니다.');
   $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();$('updated').textContent='조회 기간 '+since+' ~ '+until+' · 저장 데이터 표시 · '+new Date().toLocaleString('ko-KR');
+  if(nextRepairJob){renderDetailRepairJob(nextRepairJob);if(nextRepairJob.running&&!detailRepairPolling)void observeDetailRepair(nextRepairJob);}
  }catch(e){
   if(version!==requestVersion)return;
-  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];profitLoadError=e.message;render();
+  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];profitLoadError=e.message;dataCoverage=null;coverageError=e.message;render();
   $('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';
  }finally{if(version===requestVersion)$('reload').disabled=false;}
 }
@@ -520,9 +618,10 @@ async function showCafeRepairDiagnosis(){
   const issues=Object.entries(d.job?.failures||{}).sort((a,b)=>b[1]-a[1]);
   const examples=(d.job?.examples||[]).map(x=>x.date+' · '+x.stage+' · '+x.result+(x.detail?' · '+x.detail:''));
   const lines=['ROAS Pilot v'+(d.version||'?')+' · 카페24 상품 상세 복구 진단',
-   '유료 주문: '+(d.cafe24?.positiveOrders??'?')+'건 / 상품 상세 없는 주문: '+(d.cafe24?.total??'?')+'건',
+   '저장된 결제 주문: '+(d.cafe24?.positiveOrders??'?')+'건 / 상품 상세 미연결: '+(d.cafe24?.total??'?')+'건 (매출 0원이라는 뜻이 아님)',
    '최근 복구 실행: '+(d.lastAttemptAt||'아직 실행하지 않음'),
-   '복구: '+(d.job?.cafeRestored??0)+'건 / 시도: '+(d.job?.cafeChecked??0)+'건 / 남음: '+(d.job?.cafeRemaining??0)+'건',
+   '복구 대상: '+(d.job?.since&&d.job?.until?d.job.since+' ~ '+d.job.until:'전체 저장 주문'),
+   ...['naver','cafe24'].map(key=>{const item=d.job?.sources?.[key];return (key==='naver'?'스마트스토어':'카페24')+': '+(item?.status||'채널별 상태 확인 필요')+' · 확인 '+coverageNumber(item?.checked)+'/'+coverageNumber(item?.total)+'건 · 복구 '+coverageNumber(item?.restored)+'건 · 남은 상세 '+coverageNumber(Number.isFinite(item?.remaining)?item.remaining:key==='cafe24'?d.cafe24?.total:undefined)+'건';}),
    '상태: '+(d.job?.progress||'확인 불가'),
    '에러: '+(d.job?.error||'없음'),
    '날짜별 미복구: '+(counts.length?counts.map(([date,count])=>date+' '+count+'건').join(', '):'없음'),
@@ -539,26 +638,8 @@ $('profit-diagnostic-copy').onclick=async()=>{
  try{await navigator.clipboard.writeText(out.value);$('profit-diagnostic-hint').textContent='복사되었습니다. 결과를 채팅에 붙여 넣으세요.';}
  catch{out.focus();out.select();$('profit-diagnostic-hint').textContent='전체 선택됨 · Ctrl+C로 복사해 주세요.';}
 };
-async function repairProfitDetails(){
- const button=$('profit-repair'),notice=$('profit-repair-status');button.disabled=true;notice.textContent='주문에 연결된 판매 상품·옵션 정보를 확인하고 있습니다.';
- try{
-  const response=await fetch('/api/costs/catalog/refresh',{method:'POST',headers:{'x-roas-local-action':'yes'},cache:'no-store'});
-  const initial=await response.json();if(!response.ok)throw Error(initial.error||'판매품 재조회 시작 실패');
-  for(let attempt=0;attempt<160;attempt++){
-   await new Promise(resolve=>setTimeout(resolve,1500));
-   const state=await fetch('/api/costs/products',{cache:'no-store'});const info=await state.json();if(!state.ok)throw Error(info.error||'조회 상태 확인 실패');
-   notice.textContent=info.job?.progress||'옵션 확인 중';
-   if(!info.job?.running){
-    notice.textContent=info.job?.error?'부분 완료: '+info.job.error+' · 조회된 정보로 다시 계산합니다.':'상품·옵션 재조회 완료 · 순이익 재계산 중';
-    await run();await showCafeRepairDiagnosis();if(info.job?.error)notice.textContent+=' · '+info.job.error;
-    return;
-   }
-  }
-  notice.textContent='상품 확인이 아직 진행 중입니다. 원가관리에서 진행 상태를 확인한 뒤 데이터 조회를 눌러주세요.';
- }catch(e){notice.textContent='재조회 오류: '+e.message;}
- finally{button.disabled=false;}
-}
-$('profit-repair').onclick=repairProfitDetails;
+async function repairProfitDetails(){return recoverSelectedOrderDetails();}
+$('profit-repair').onclick=repairProfitDetails;$('history-repair').onclick=recoverSelectedOrderDetails;$('history-repair-status-check').onclick=checkDetailRepairStatus;
 $('profit-save-fees').onclick=async()=>{try{const r=await fetch('/api/profit/fees',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({naver:Number($('profit-naver-fee').value),cafe24:Number($('profit-cafe-fee').value)})});const j=await r.json();if(!r.ok)throw Error(j.error);run();}catch(e){alert(e.message)}};
 async function refreshRecentThreeDays(){
  const button=$('recent3-refresh'),msg=$('recent3-status');
