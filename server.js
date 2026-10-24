@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css'];
-const appVersion='2.8.96';
+const appVersion='2.8.97';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -971,17 +971,18 @@ const brandScopeFile=path.join(__dirname,'.roas-data','brand-product-scopes.json
 function brandScopeRead(){try{const x=JSON.parse(fs.readFileSync(brandScopeFile,'utf8'));return x&&typeof x==='object'&&!Array.isArray(x)?x:{}}catch{return {};}}
 function brandScopeKey(name){return crypto.createHash('sha256').update(cleanCostText(name).toLowerCase()).digest('hex').slice(0,24);}
 function brandForProduct(name,choices){
- const value=cleanCostText(name),lower=value.toLowerCase();
+ const value=cleanCostText(name),lower=value.toLowerCase(),key=brandScopeKey(value);
+ const chosen=choices?.[key]?.scope;
+ // Explicit user confirmation overrides keyword inference. Clearing the saved
+ // choice immediately returns the product to the automatic keyword rule below.
+ if(chosen==='wemamang'||chosen==='excluded')return {scope:chosen,source:'사용자 확인'};
  const wm=lower.includes('위마망'),tr=lower.includes('트루버');
  if(wm!==tr)return {scope:wm?'wemamang':'excluded',source:'상품명 자동분류'};
- const chosen=choices?.[brandScopeKey(value)]?.scope;
- return {scope:chosen==='wemamang'||chosen==='excluded'?chosen:'unclassified',source:chosen?'사용자 확인':wm?'두 브랜드 모두 포함':'브랜드명 미표기'};
+ return {scope:'unclassified',source:wm?'두 브랜드 모두 포함':'브랜드명 미표기'};
 }
 function saveBrandScope(input){
  const name=cleanCostText(input.name),choice=String(input.scope||'');
  if(!name||!['wemamang','excluded','clear'].includes(choice))throw Object.assign(Error('상품명과 브랜드 선택을 확인하세요.'),{status:400});
- const label=brandForProduct(name,{});
- if(label.scope!=='unclassified')throw Object.assign(Error('브랜드명이 분명한 상품은 자동분류됩니다. 수동 선택할 필요가 없습니다.'),{status:400});
  if(!costList().items.some(x=>x.name===name))throw Object.assign(Error('수집된 상품 목록에서 선택해 주세요.'),{status:400});
  const scopes=brandScopeRead(),key=brandScopeKey(name);
  if(choice==='clear')delete scopes[key];else scopes[key]={name,scope:choice,updatedAt:new Date().toISOString()};
@@ -1165,9 +1166,23 @@ function profitAdSpend(accounts,date,fx){
  }
  return {adSpend:reasons.length?null:spend,adComplete:reasons.length===0,reasons};
 }
-function cafeRevenueDiagnostics(since,until,cache,sync,counts,days){
+function cafeRevenueDiagnostics(since,until,cache,sync,counts,days,brandChoices={}){
  const valid=cache.cacheState==='ok',recorded=days.filter(day=>!!sync[day.date]);
  const positive=valid?cache.orders.filter(order=>order.date>=since&&order.date<=until&&Number(order.net)>0):[];
+ const allPaidRevenue=valid?positive.reduce((total,order)=>total+(Number(order.net)||0),0):null;
+ const excludedMap=new Map();
+ if(valid)for(const order of positive){
+  if(!completeOrderItems(order))continue;
+  const seen=new Set();
+  for(const item of order.items||[]){
+   const name=cleanCostText(item?.name),brand=brandForProduct(name,brandChoices);
+   if(!name||brand.scope!=='excluded')continue;
+   const key=brandScopeKey(name);if(seen.has(key))continue;seen.add(key);
+   const row=excludedMap.get(key)||{name,orders:0,source:brand.source};
+   row.orders++;row.source=brand.source;excludedMap.set(key,row);
+  }
+ }
+ const excludedProducts=[...excludedMap.values()].sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko'));
  const missingItems=positive.filter(order=>!completeOrderItems(order)),missingItemCounts=new Map();
  for(const order of missingItems)missingItemCounts.set(order.date,(missingItemCounts.get(order.date)||0)+1);
  const recordedCount=value=>['number','string'].includes(typeof value)&&String(value).trim()!==''&&Number.isInteger(Number(value))&&Number(value)>=0?Number(value):null;
@@ -1198,7 +1213,7 @@ function cafeRevenueDiagnostics(since,until,cache,sync,counts,days){
  try{const value=cafeRead()?.mallId;if(typeof value==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/.test(value))mallId=value;}catch{}
  return {version:appVersion,since,until,cacheState:cache.cacheState,cacheIssue:cache.cacheIssue,
   ...Object.fromEntries(Object.entries(counts).map(([key,value])=>[key,valid?value:null])),undatedOrders:valid?cache.undatedOrders:null,
-  positiveOrders:valid?positive.length:null,missingItemOrders:valid?missingItems.length:null,missingItemDates:[...missingItemCounts].sort(([a],[b])=>a.localeCompare(b)).map(([date,count])=>({date,count})),
+  positiveOrders:valid?positive.length:null,allPaidRevenue,excludedProducts,missingItemOrders:valid?missingItems.length:null,missingItemDates:[...missingItemCounts].sort(([a],[b])=>a.localeCompare(b)).map(([date,count])=>({date,count})),
   recordedDays:recorded.length,recordedOrders:recordedValues.every(value=>value!==null)?recordedValues.reduce((total,value)=>total+value,0):null,
   confirmedRevenue,complete,zeroReason,reason,countMismatches,mallId,shopNo:cafeConfiguredShopNo()};
 }
@@ -1302,8 +1317,8 @@ function profitDaily(since,until,options={}){
   row.partial=!row.complete&&row.confirmedAvailable;
   days.push(row);
  }
- const revenueDiagnostics={cafe24:cafeRevenueDiagnostics(since,until,cafeCacheState,cs,cafeCounts,days)};
- return {fees,days,revenueDiagnostics,pendingProducts:[...pendingProducts.values()].map(x=>({...x,channels:[...x.channels].sort(),options:[...x.options].sort(),dates:[...x.dates].sort()})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko')),...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 확인된 상품만 대상입니다. 상품명에 트루버만 포함은 제외, 위마망만 포함은 포함, 둘 다 있거나 둘 다 없으면 사용자의 확인이 필요합니다. 미분류·혼합 주문이 있으면 전체 확정값과 확인된 위마망 주문 소계를 구분합니다. 상품별 실결제금액이 없는 혼합 주문의 총액은 임의 배분하지 않습니다. 확인된 주문의 원가가 하나라도 없으면 그 소계 이익도 계산하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 부분집계 이익도 전체 연결 Meta 광고비를 한 번 차감하며, 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
+ const revenueDiagnostics={cafe24:cafeRevenueDiagnostics(since,until,cafeCacheState,cs,cafeCounts,days,brandChoices)};
+ return {fees,days,revenueDiagnostics,pendingProducts:[...pendingProducts.values()].map(x=>({...x,channels:[...x.channels].sort(),options:[...x.options].sort(),dates:[...x.dates].sort()})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko')),...(includeAds?{accounts,fxUsed:fx}:{}),note:'위마망으로 확인된 상품만 대상입니다. 저장된 사용자 분류가 있으면 상품명 키워드보다 우선하며, 분류 초기화 시 자동 규칙으로 돌아갑니다. 상품명에 트루버만 포함은 기본 제외, 위마망만 포함은 기본 포함, 둘 다 있거나 둘 다 없으면 사용자의 확인이 필요합니다. 미분류·혼합 주문이 있으면 전체 확정값과 확인된 위마망 주문 소계를 구분합니다. 상품별 실결제금액이 없는 혼합 주문의 총액은 임의 배분하지 않습니다. 확인된 주문의 원가가 하나라도 없으면 그 소계 이익도 계산하지 않습니다. 예상 이익 = 위마망 주문 매출 - 채널별 평균 수수료 - 전체 연결 Meta 광고비 - 위마망 옵션 원가 × 판매 수량. 부분집계 이익도 전체 연결 Meta 광고비를 한 번 차감하며, 메타 광고비 자체의 브랜드별 분리는 별도입니다.'};
 }
 
 function dataCoverage(since,until,accounts=[],fx=1350){
