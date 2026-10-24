@@ -98,6 +98,457 @@ const coords=valid.map((v,i)=>v.value==null?null:[x(i),y(v.value)]);let segments
 const paths=segments.map(s=>`<polyline fill="none" stroke="#6b61ef" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${s.map(p=>p.join(',')).join(' ')}"/>`).join('');const dots=coords.map((p,i)=>p?`<circle cx="${p[0]}" cy="${p[1]}" r="3.8" fill="#6b61ef"><title>${valid[i].date}: ${pct(valid[i].value)}</title></circle>`:'').join('');const goalY=y(settings().roas);
 const labels=valid.map((v,i)=>i===0||i===valid.length-1||i%Math.max(1,Math.ceil(valid.length/5))===0?`<text x="${x(i)}" y="${h-9}" font-size="11" text-anchor="middle" fill="#9ba7b8">${v.date.slice(5)}</text>`:'').join('');
 $('chart').innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="날짜별 ROAS 선 그래프">${grid}<line x1="${l}" y1="${goalY}" x2="${w-r}" y2="${goalY}" stroke="#eba964" stroke-dasharray="4 5"/><text x="${w-r-4}" y="${goalY-5}" text-anchor="end" font-size="10" fill="#b58b49">평균 ${benchmarkRoasText(adBenchmark(aggregate(visibleRows())))}</text>${paths}${dots}${labels}</svg>`;}
+// Selected-period metrics use the same saved inputs and completeness rules as
+// visual-overview.html. Store totals are never attributed to an individual ad.
+const AdsOverviewSummary = (() => {
+  const definitions = {
+    smartstoreSpend: {label:'스마트스토어 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'선택 기간의 스마트스토어 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+    mallSpend: {label:'자사몰 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'선택 기간의 자사몰 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+    spend: {label:'통합 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta · 전체 연결 계정',description:'선택 기간의 스마트스토어·자사몰 광고비 합계입니다. 광고 표의 필터와 관계없이 전체 연결 계정을 포함하고, 동일 광고계정은 한 번만 집계합니다. 미수집 광고비가 있으면 확인분으로 표시합니다.'},
+    revenue: {label:'Meta 귀속 구매매출',format:'won',description:'선택한 광고 채널에서 확인된 Meta 구매 전환매출 합계입니다. 쇼핑몰 전체 주문매출과 다릅니다.'},
+    roas: {label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 광고 표의 필터와 관계없이 전체 연결 계정 기준입니다.'},
+    mallRoas: {label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
+    smartstoreRoas: {label:'스마트스토어 광고 ROAS',format:'pct',adMetric:'roas',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 스마트스토어 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
+    cpa: {label:'구매 CPA',format:'won',description:'선택한 광고 채널의 전체 광고비 ÷ 확인된 구매수입니다. 광고비 미확인 날짜가 있으면 계산을 보류합니다.'},
+    purchases: {label:'구매 건수',format:'num',description:'선택한 광고 채널에서 확인된 Meta 구매 전환 건수입니다.'},
+    ctr: {label:'링크 CTR',format:'pct',description:'선택한 광고 채널의 링크 클릭수 ÷ 노출수 × 100입니다.'},
+    impressions: {label:'노출수',format:'num',description:'선택한 광고 채널의 노출수 합계입니다.'},
+    clicks: {label:'링크 클릭수',format:'num',description:'선택한 광고 채널의 링크 클릭수 합계입니다.'},
+    smartstoreRevenue: {label:'스마트스토어 매출',format:'won',field:'revenue',channel:'naver',description:'스마트스토어에서 위마망으로 확인된 실제 주문매출입니다. 광고 표의 필터와 관계없이 선택 기간의 주문을 집계합니다.'},
+    mallRevenue: {label:'카페24 매출',format:'won',field:'revenue',channel:'cafe24',description:'카페24에서 위마망으로 확인된 실제 주문매출입니다. 광고 표의 필터와 관계없이 선택 기간의 주문을 집계합니다.'},
+    totalStoreRevenue: {label:'통합 매출',format:'won',field:'revenue',description:'스마트스토어와 카페24에서 위마망으로 확인된 실제 주문매출 합계입니다. 광고 한 개의 귀속 매출이 아닙니다.'},
+    profit: {label:'통합 예상 이익',format:'won',field:'profit',description:'확인된 위마망 주문매출에서 채널별 판매 수수료·상품 원가·전체 연결 광고계정의 광고비를 차감합니다. 부분 집계에서도 전체 광고비를 차감하며, 배송비·세금·고정비는 별도입니다.'},
+    cost: {label:'상품 원가',format:'won',field:'cost',description:'위마망으로 확인된 주문의 판매 상품·옵션 원가 합계입니다. 원가가 미확인인 주문이 있으면 미확정으로 표시합니다.'},
+    fee: {label:'판매 수수료',format:'won',field:'fee',description:'위마망으로 확인된 채널별 주문매출에 저장된 평균 수수료율을 적용한 금액입니다.'},
+    cpc: {label:'링크 CPC',format:'won',description:'선택한 광고 채널의 광고비 ÷ 링크 클릭수입니다.'},
+    cpm: {label:'CPM',format:'won',description:'선택한 광고 채널의 광고비 ÷ 노출수 × 1,000입니다.'}
+  };
+  const metrics = Object.freeze(Object.entries(definitions).map(([key,definition]) => Object.freeze({
+    key,label:definition.label,description:definition.description,format:definition.format,
+    scope:definition.scope || (definition.field ? '전체 연결 · 위마망' : 'Meta · 선택 광고 채널')
+  })));
+  const purchaseTypes = ['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase','onsite_web_purchase','onsite_conversion.purchase'];
+  const numberFormat = new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
+  const cache = new Map();
+  let renderVersion = 0;
+
+  function metricNumber(value) {
+    if (!['number','string'].includes(typeof value) || String(value).trim() === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  function numberOrZero(value) { const parsed=Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+  function actionValue(actions) {
+    if (!Array.isArray(actions)) return null;
+    for (const type of purchaseTypes) {
+      const amount = metricNumber(actions.find(item => item.action_type === type)?.value);
+      if (amount !== null) return amount;
+    }
+    return null;
+  }
+  function normalize(row,channel,currency,fx) {
+    const rawSpend=metricNumber(row.spend),code=String(row.account_currency || currency || '').toUpperCase();
+    const factor=code==='USD' ? fx : code==='KRW' ? 1 : null;
+    const spendKnown=rawSpend!==null && rawSpend>=0 && Number.isFinite(factor) && factor>0;
+    const purchases=actionValue(row.actions);
+    let revenue=actionValue(row.action_values);
+    if (revenue===null && spendKnown) {
+      const ratio=actionValue(row.website_purchase_roas) ?? actionValue(row.purchase_roas);
+      if (ratio!==null) revenue=rawSpend*ratio;
+    }
+    return {date:row.date_start,channel,spend:spendKnown ? rawSpend*factor : 0,spendKnown,
+      revenue:revenue===null || !Number.isFinite(factor) || factor<=0 ? null : revenue*factor,
+      purchases,clicks:numberOrZero(row.inline_link_clicks),impressions:numberOrZero(row.impressions)};
+  }
+  function sum(rows) {
+    const total={spend:0,revenue:0,purchases:0,clicks:0,impressions:0,hasRevenue:false,hasPurchases:false,hasUnconfirmedSpend:false};
+    for (const row of rows) {
+      if (Number.isFinite(row.spend) && row.spendKnown!==false) total.spend+=row.spend;
+      else total.hasUnconfirmedSpend=true;
+      total.clicks+=numberOrZero(row.clicks);total.impressions+=numberOrZero(row.impressions);
+      if (Number.isFinite(row.revenue)) {total.revenue+=row.revenue;total.hasRevenue=true;}
+      if (Number.isFinite(row.purchases)) {total.purchases+=row.purchases;total.hasPurchases=true;}
+    }
+    total.roas=!total.hasUnconfirmedSpend && total.hasRevenue && total.spend>0 ? total.revenue/total.spend*100 : null;
+    total.ctr=total.impressions>0 ? total.clicks/total.impressions*100 : null;
+    total.cpa=!total.hasUnconfirmedSpend && total.hasPurchases && total.purchases>0 ? total.spend/total.purchases : null;
+    return total;
+  }
+  function financial(record,key) {
+    const full=record?.[key];
+    if (Number.isFinite(full) && (key!=='profit' || record.complete===true)) return {value:full,partial:false};
+    const confirmed=record?.confirmed?.[key];
+    if (record?.confirmedAvailable===true && Number.isFinite(confirmed)) return {value:confirmed,partial:true};
+    return {value:null,partial:false};
+  }
+  function selectedDates(since,until) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) return [];
+    const first=Date.parse(since+'T00:00:00Z'),last=Date.parse(until+'T00:00:00Z');
+    if (!Number.isFinite(first) || !Number.isFinite(last) || first>last || last-first>731*86400000 ||
+        new Date(first).toISOString().slice(0,10)!==since || new Date(last).toISOString().slice(0,10)!==until) return [];
+    const result=[];
+    for (let time=first;time<=last;time+=86400000) result.push(new Date(time).toISOString().slice(0,10));
+    return result;
+  }
+  function knownSpend(row) { return Number.isFinite(row.spend) && row.spend>=0 && row.spendKnown!==false; }
+  function selectedRows(snapshot,choice) {
+    if (choice!=='all') return snapshot.data[choice] || [];
+    return snapshot.accounts.naver && snapshot.accounts.naver===snapshot.accounts.cafe
+      ? snapshot.data.naver : [...snapshot.data.naver,...snapshot.data.cafe];
+  }
+  function metricContext(snapshot,choice) {
+    const dates=snapshot.dates,dateSet=new Set(dates),selected=selectedRows(snapshot,choice).filter(row => dateSet.has(row.date));
+    const seen=new Set(),channels=(choice==='all' ? ['naver','cafe'] : [choice]).filter(channel => {
+      const account=snapshot.accounts[channel];
+      if (account) {if (seen.has(account)) return false;seen.add(account);return true;}
+      return (snapshot.data[channel] || []).some(row => dateSet.has(row.date));
+    });
+    const coverageMatches=snapshot.coverage?.since===snapshot.since && snapshot.coverage?.until===snapshot.until;
+    const sources=channels.map(channel => {
+      const account=snapshot.accounts[channel],coverage=coverageMatches ? snapshot.coverage.sources?.meta?.[account] : null;
+      const missing=new Set(coverage?.missingDays || []),rowsByDate=new Map();
+      for (const row of snapshot.data[channel] || []) {
+        if (!dateSet.has(row.date)) continue;
+        const rows=rowsByDate.get(row.date) || [];rows.push(row);rowsByDate.set(row.date,rows);
+      }
+      const loaded=date => snapshot.loadedAccounts.has(account) && !!coverage && Array.isArray(coverage.missingDays) && !missing.has(date);
+      return {rowsByDate,emptyKnown:loaded,spendKnown:date => loaded(date) && (rowsByDate.get(date) || []).every(knownSpend)};
+    });
+    const scope=choice==='naver' ? 'Meta · 스마트스토어 선택' : choice==='cafe' ? 'Meta · 카페24 선택' : 'Meta · 전체 연결 계정';
+    return {dates,selected,sources,scope,choice};
+  }
+  function calculate(key,snapshot,choice,contexts) {
+    const definition=definitions[key],resolvedChoice=definition.adScope || choice;
+    if (!contexts.has(resolvedChoice)) contexts.set(resolvedChoice,metricContext(snapshot,resolvedChoice));
+    const context=contexts.get(resolvedChoice),totalDays=context.dates.length;
+    const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend';
+    const scope=definition.scope || (definition.field ? '전체 연결 · 위마망' : context.scope);
+    const unavailable=detail => ({value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail});
+    if (definition.adScope) {
+      const connected=definition.adScope==='all' ? snapshot.accounts.naver || snapshot.accounts.cafe : snapshot.accounts[definition.adScope];
+      if (!connected) return unavailable('광고계정 미연결');
+      if (definition.adScope!=='all' && snapshot.accounts.naver && snapshot.accounts.naver===snapshot.accounts.cafe) return unavailable('동일 광고계정 · 채널 구분 필요');
+    }
+    if (definition.field) {
+      let total=0,knownDays=0,completeDays=0;
+      for (const date of context.dates) {
+        const day=snapshot.profitDays.get(date),field=financial(definition.channel ? day?.[definition.channel] : day,definition.field);
+        if (!Number.isFinite(field.value)) continue;
+        total+=field.value;knownDays++;if (!field.partial) completeDays++;
+      }
+      return {value:knownDays ? total : null,partial:knownDays>0 && completeDays<totalDays,knownDays,completeDays,totalDays,scope,
+        detail:(knownDays ? '' : '미확정 · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays ? ' · 일부 주문 미확인' : '')};
+    }
+    if (isSpend) {
+      let knownDays=0,completeDays=0;
+      for (const date of context.dates) {
+        const states=context.sources.map(source => {
+          const daily=source.rowsByDate.get(date) || [];
+          return {known:daily.some(knownSpend) || !daily.length && source.emptyKnown(date),complete:source.spendKnown(date)};
+        });
+        if (states.some(state => state.known)) knownDays++;
+        if (states.length && states.every(state => state.complete)) completeDays++;
+      }
+      const amount=knownDays ? sum(context.selected.filter(knownSpend)).spend : null,partial=amount!==null && completeDays<totalDays;
+      return {value:amount,partial,knownDays,completeDays,totalDays,scope,
+        detail:(amount===null ? '미수집 · ' : '')+'확인 '+knownDays+'/'+totalDays+'일'+(partial ? ' · 광고비 일부 미확인' : '')};
+    }
+    const required=key==='revenue' || isRoas ? 'revenue' : ['purchases','cpa'].includes(key) ? 'purchases' : null;
+    const isKnown=row => !required || Number.isFinite(row[required]);
+    const rows=context.selected.filter(isKnown);
+    let knownDays=0,completeDays=0;
+    for (const date of context.dates) {
+      const states=context.sources.map(source => {
+        const daily=source.rowsByDate.get(date) || [],emptyKnown=!daily.length && source.emptyKnown(date);
+        return {known:emptyKnown || daily.some(isKnown),complete:emptyKnown || daily.length>0 && daily.every(isKnown)};
+      });
+      if (states.some(state => state.known)) knownDays++;
+      if (states.length && states.every(state => state.complete)) completeDays++;
+    }
+    const totals=sum(rows),allTotals=sum(context.selected),available=knownDays>0;
+    const missingSpendDates=context.dates.filter(date => !context.sources.length || !context.sources.every(source => source.spendKnown(date)));
+    let amount=available ? totals[key] : null;
+    if (key==='cpc') amount=available && totals.clicks>0 ? totals.spend/totals.clicks : null;
+    if (key==='cpm') amount=available && totals.impressions>0 ? totals.spend/totals.impressions*1000 : null;
+    // Purchase reporting does not determine which advertising costs belong to
+    // the period. Missing spend blocks a ratio; missing purchases do not erase spend.
+    if (isRoas || key==='cpa') {
+      const hasNumerator=isRoas ? allTotals.hasRevenue : allTotals.hasPurchases;
+      amount=!missingSpendDates.length && hasNumerator && (isRoas ? allTotals.spend>0 : allTotals.purchases>0)
+        ? (isRoas ? allTotals.revenue/allTotals.spend*100 : allTotals.spend/allTotals.purchases) : null;
+      const partial=Number.isFinite(amount) && completeDays<totalDays;
+      const detail=missingSpendDates.length ? '광고비 미확인 '+missingSpendDates.length+'/'+totalDays+'일 · 계산 보류'
+        : !hasNumerator ? (isRoas ? '구매매출 미확인' : '구매수 미확인')
+        : !Number.isFinite(amount) ? (isRoas ? '광고비 없음' : '구매 없음')
+        : (isRoas ? '구매매출' : '구매수')+' 확인 '+knownDays+'/'+totalDays+'일'+(partial ? ' · 일부 항목 미확인' : '');
+      return {value:Number.isFinite(amount) ? amount : null,partial,knownDays,completeDays,totalDays,scope,detail,
+        audit:isRoas ? {revenue:allTotals.hasRevenue ? allTotals.revenue : null,spend:allTotals.spend,spendComplete:missingSpendDates.length===0,missingSpendDates} : null};
+    }
+    const partial=available && completeDays<totalDays;
+    const reason=available ? key==='cpc' ? '클릭 없음' : ['ctr','cpm'].includes(key) ? '노출 없음' : '미확정' : '미수집';
+    return {value:Number.isFinite(amount) ? amount : null,partial,knownDays,completeDays,totalDays,scope,
+      detail:(Number.isFinite(amount) ? '' : reason+' · ')+'확인 '+knownDays+'/'+totalDays+'일'+(knownDays>completeDays ? ' · 일부 항목 미확인' : '')};
+  }
+  async function getJSON(url) {
+    const controller=typeof AbortController==='function' ? new AbortController() : null;
+    const timeout=controller ? setTimeout(() => controller.abort(),25000) : null;
+    try {
+      const response=await fetch(url,{method:'GET',cache:'no-store',...(controller ? {signal:controller.signal} : {})});
+      const body=await response.json();
+      if (!response.ok) throw Error(body?.error || '저장 데이터 조회 실패');
+      return body;
+    } catch (error) {
+      if (error?.name==='AbortError') throw Error('저장 데이터 응답 시간이 초과되었습니다. 새로고침해 주세요.');
+      throw error;
+    } finally {if (timeout!==null) clearTimeout(timeout);}
+  }
+  async function fetchSnapshot(options) {
+    const snapshot={...options,data:{naver:[],cafe:[]},loadedAccounts:new Set(),coverage:null,profitDays:new Map(),errors:[]};
+    const accounts=[...new Set(Object.values(options.accounts).filter(Boolean))];
+    const query=new URLSearchParams({since:options.since,until:options.until,accounts:accounts.join(','),fx:String(options.fx)});
+    const requests=accounts.map(async account => {
+      const channels=['naver','cafe'].filter(channel => options.accounts[channel]===account);
+      const label=channels.length===2 ? '공유 광고계정' : channels[0]==='naver' ? '스마트스토어 광고' : '자사몰 광고';
+      try {
+        const q=new URLSearchParams({account,since:options.since,until:options.until,cacheOnly:'1'});
+        const body=await getJSON('/api/insights?'+q);
+        if (!Array.isArray(body?.rows)) throw Error('광고 데이터 응답 형식을 확인하세요.');
+        for (const channel of channels) snapshot.data[channel]=body.rows.map(row => normalize(row,channel,body.currency || 'USD',options.fx));
+        snapshot.loadedAccounts.add(account);
+        if (Array.isArray(body.cache?.warnings)) snapshot.errors.push(...body.cache.warnings.filter(Boolean).map(warning => label+': '+String(warning)));
+      } catch (error) {snapshot.errors.push(label+': '+error.message);}
+    });
+    if (accounts.length) requests.push((async () => {
+      try {
+        const body=await getJSON('/api/data/coverage?'+query);
+        if (!body?.sources || !Number.isFinite(body.totalDays) || body.since!==options.since || body.until!==options.until) throw Error('조회 기간의 수집 현황을 확인할 수 없습니다.');
+        snapshot.coverage=body;
+      } catch (error) {snapshot.errors.push('수집 현황: '+error.message);}
+    })());
+    requests.push((async () => {
+      try {
+        const body=await getJSON('/api/profit/daily?'+query);
+        if (!Array.isArray(body?.days)) throw Error('주문매출·이익 응답 형식을 확인하세요.');
+        snapshot.profitDays=new Map(body.days.map(day => [day.date,day]));
+      } catch (error) {snapshot.errors.push('주문매출·이익: '+error.message);}
+    })());
+    await Promise.all(requests);
+    return snapshot;
+  }
+  function formatValue(value,format) {
+    if (!Number.isFinite(value)) return '—';
+    return format==='pct' ? value.toFixed(1)+'%' : numberFormat.format(value)+(format==='won' ? '원' : '');
+  }
+  function renderCards(root,keys,choice,snapshot,detail) {
+    root.replaceChildren();
+    const contexts=new Map(),results=[];
+    for (const key of keys) {
+      const definition=definitions[key];
+      const metric=snapshot ? calculate(key,snapshot,choice,contexts) : {
+        value:null,partial:false,scope:definition.scope || (definition.field ? '전체 연결 · 위마망' : choice==='naver' ? 'Meta · 스마트스토어 선택' : choice==='cafe' ? 'Meta · 카페24 선택' : 'Meta · 전체 연결 계정'),detail
+      };
+      results.push({key,...metric});
+      const card=document.createElement('article');card.className='ads-period-card';card.setAttribute('data-summary-key',key);
+      card.title=definition.description;
+      const label=document.createElement('small');label.className='ads-period-card-label';label.textContent=definition.label;
+      const amount=document.createElement('strong');amount.className='ads-period-card-value';amount.textContent=formatValue(metric.value,definition.format);
+      card.append(label,amount);
+      if (metric.partial && Number.isFinite(metric.value)) {
+        const badge=document.createElement('span');badge.className='ads-metric-partial';badge.textContent='확인분';card.append(badge);
+      }
+      const scope=document.createElement('small');scope.className='ads-period-card-scope';scope.textContent=metric.scope;
+      const status=document.createElement('small');status.className='ads-period-card-state';status.textContent=metric.detail;
+      if (metric.audit) status.title='확인된 Meta 구매매출 '+formatValue(metric.audit.revenue,'won')+' ÷ 전체 광고비 '+formatValue(metric.audit.spend,'won')+' × 100'+(metric.audit.spendComplete ? '' : ' · 광고비 미확인으로 계산 보류');
+      card.append(scope,status);root.append(card);
+    }
+    return results;
+  }
+  function invalidate() {cache.clear();renderVersion++;}
+  async function update(input={}) {
+    const version=++renderVersion;
+    if (typeof document==='undefined') return {status:'unavailable',metrics:[]};
+    const root=document.getElementById('ads-period-summary-cards'),panel=document.getElementById('ads-period-summary'),note=document.getElementById('ads-period-summary-note');
+    if (!root || !panel) return {status:'unavailable',metrics:[]};
+    const keys=[...new Set((Array.isArray(input.keys) ? input.keys : []).filter(key => Object.prototype.hasOwnProperty.call(definitions,key)))];
+    panel.hidden=keys.length===0;
+    if (!keys.length) {root.replaceChildren();root.setAttribute('aria-busy','false');if (note) note.textContent='';return {status:'hidden',metrics:[]};}
+    const since=String(input.since || ''),until=String(input.until || ''),dates=selectedDates(since,until),fx=Number(input.fx);
+    const accounts=Object.fromEntries(['naver','cafe'].map(channel => [channel,String(input.accountIds?.[channel] || '').trim().replace(/^act_/,'')]));
+    const choice=['naver','cafe'].includes(input.channel) ? input.channel : 'all';
+    const error=!dates.length ? '유효한 조회 기간을 선택해 주세요(최대 732일).'
+      : !Number.isFinite(fx) || fx<=0 ? '0보다 큰 환율을 입력해 주세요.'
+      : Object.values(accounts).some(account => account && !/^\d{5,30}$/.test(account)) ? '광고 계정 ID를 확인해 주세요.' : '';
+    if (error) {
+      root.setAttribute('aria-busy','false');const results=renderCards(root,keys,choice,null,error);
+      if (note) note.textContent=error;return {status:'error',metrics:results,errors:[error]};
+    }
+    const cacheKey=JSON.stringify([since,until,fx,accounts.naver,accounts.cafe]);
+    if (input.force===true) cache.delete(cacheKey);
+    let entry=cache.get(cacheKey);
+    if (!entry) {
+      entry={snapshot:null,promise:null};
+      entry.promise=fetchSnapshot({since,until,fx,accounts,dates}).then(snapshot => {entry.snapshot=snapshot;return snapshot;});
+      cache.set(cacheKey,entry);
+      while (cache.size>4) cache.delete(cache.keys().next().value);
+    }
+    if (!entry.snapshot) {
+      root.setAttribute('aria-busy','true');renderCards(root,keys,choice,null,'기간 데이터 조회 중…');
+      if (note) note.textContent=since+' ~ '+until+' · 저장된 기간 데이터를 확인하고 있습니다.';
+    }
+    const snapshot=entry.snapshot || await entry.promise;
+    if (version!==renderVersion) return {status:'superseded',metrics:[]};
+    root.setAttribute('aria-busy','false');
+    const results=renderCards(root,keys,choice,snapshot);
+    if (note) note.textContent=since+' ~ '+until+' · 기간 합계는 캠페인·소재·검색 조건과 별도로 집계합니다.'+
+      (snapshot.errors.length ? ' 일부 데이터 확인 필요: '+snapshot.errors.join(' / ') : ' 확인되지 않은 값은 —, 부분 집계는 확인분으로 표시합니다.');
+    return {status:snapshot.errors.length ? 'partial' : 'ready',metrics:results,errors:snapshot.errors.slice()};
+  }
+  return {metrics,update,invalidate};
+})();
+
+// Per-ad columns and period summary cards have independent, explicitly saved settings.
+const ADS_DISPLAY_STORAGE_KEY='roas-ads-display-v1';
+const adsColumnMetrics=[
+ {key:'spend',label:'광고비',format:'won',description:'이 광고의 선택 기간 광고비 · 원화 / USD 환산'},
+ {key:'purchases',label:'구매',format:'num',description:'Meta가 이 광고에 귀속한 구매 건수'},
+ {key:'revenue',label:'Meta 귀속 구매매출',format:'won',description:'Meta가 이 광고에 귀속한 구매 전환값'},
+ {key:'roas',label:'ROAS',format:'pct',description:'이 광고의 Meta 귀속 구매매출 ÷ 전체 광고비 × 100'},
+ {key:'cpa',label:'CPA',format:'won',description:'광고비 ÷ Meta 귀속 구매 건수'},
+ {key:'cpc',label:'링크 CPC',format:'won',description:'광고비 ÷ 링크 클릭수'},
+ {key:'cpm',label:'CPM',format:'won',description:'광고비 ÷ 노출수 × 1,000'},
+ {key:'ctr',label:'링크 CTR',format:'pct',description:'링크 클릭수 ÷ 노출수 × 100'},
+ {key:'frequency',label:'빈도',format:'frequency',description:'노출수 ÷ 고유 도달 · 여러 날짜의 고유 도달은 합산하지 않습니다.'},
+ {key:'status',label:'판단',format:'status',description:'확대·유지·개선·중단 검토 또는 데이터 부족'},
+ {key:'impressions',label:'노출수',format:'num',description:'광고가 표시된 횟수'},
+ {key:'clicks',label:'링크 클릭수',format:'num',description:'Meta 인라인 링크 클릭수'},
+ {key:'reach',label:'도달',format:'num',description:'고유 도달 수 · 여러 날짜는 중복을 제거할 수 없어 미확인으로 표시합니다.'},
+ {key:'landing',label:'랜딩 페이지 조회',format:'num',description:'Meta가 이 광고에 귀속한 랜딩 페이지 조회'},
+ {key:'cart',label:'장바구니 추가',format:'num',description:'Meta가 이 광고에 귀속한 장바구니 추가'},
+ {key:'checkout',label:'결제 시작',format:'num',description:'Meta가 이 광고에 귀속한 결제 시작'},
+ {key:'conversionRate',label:'구매 전환율',format:'pct',description:'Meta 귀속 구매 건수 ÷ 랜딩 페이지 조회 × 100'}
+];
+const adsDefaultColumns=['spend','purchases','revenue','roas','cpa','cpc','cpm','ctr','frequency','status'];
+let adsDisplaySaved={version:1,columns:adsDefaultColumns.slice(),summary:[]},adsDisplayDraft=null;
+function normalizeAdsDisplaySettings(value){
+ const defaults={version:1,columns:adsDefaultColumns.slice(),summary:[]};
+ if(!value||typeof value!=='object'||Array.isArray(value)||value.version!==1)return defaults;
+ const clean=(keys,catalog,fallback)=>Array.isArray(keys)?[...new Set(keys.filter(key=>typeof key==='string'&&catalog.some(metric=>metric.key===key)))]:fallback.slice();
+ return {version:1,columns:clean(value.columns,adsColumnMetrics,defaults.columns),summary:clean(value.summary,AdsOverviewSummary.metrics,[])};
+}
+function cloneAdsDisplaySettings(value){return {version:1,columns:value.columns.slice(),summary:value.summary.slice()};}
+function adsDisplayMessage(text,error=false){
+ const node=$('ads-display-status');if(!node)return;
+ node.textContent=text;node.classList.toggle('ads-display-error',error);
+}
+function adsMetricValue(metric,ad){
+ if(metric.key==='conversionRate')return ad.landing>0&&Number.isFinite(ad.purchases)?ad.purchases/ad.landing*100:null;
+ return ad[metric.key];
+}
+function adsMetricCell(metric,ad){
+ if(metric.key==='status')return '<td data-metric="status"><span class="stat '+safe(ad.diagnosis.status)+'">'+safe(statusNames[ad.diagnosis.status])+'</span></td>';
+ let value=adsMetricValue(metric,ad),detail=metric.description,partial=false;
+ const missingSpend=ad.spendPartial&&['roas','cpa','cpc','cpm'].includes(metric.key);
+ if(missingSpend){value=null;detail='광고비 일부 미확인 · 계산 보류';}
+ else if(['reach','frequency'].includes(metric.key)&&value==null&&ad.dates?.size>1)detail='기간 전체 미확인 · 여러 날짜의 고유 도달은 중복을 제거할 수 없어 합산하지 않습니다.';
+ else if(value==null)detail='해당 지표가 수집되지 않았거나 계산할 데이터가 부족합니다. '+detail;
+ else if(metric.key==='spend')partial=!!ad.spendPartial;
+ else if(metric.key==='revenue')partial=!!ad.missing?.revenue;
+ else if(metric.key==='purchases'||metric.key==='conversionRate')partial=!!ad.missing?.purchases;
+ else if(metric.key==='roas')partial=!!ad.roasPartial;
+ else if(metric.key==='cpa')partial=!!ad.cpaPartial;
+ if(partial)detail='확인된 값만 반영 · 일부 항목 미확인. '+detail;
+ const formatted=!Number.isFinite(value)?'—':metric.format==='won'?dual(value):metric.format==='pct'?pct(value):metric.format==='frequency'?value.toFixed(1):num(value);
+ return '<td data-metric="'+metric.key+'" title="'+safe(detail)+'">'+(metric.key==='roas'?'<b>'+safe(formatted)+'</b>':safe(formatted))+(partial?'<span class="ads-metric-partial">확인분</span>':'')+'</td>';
+}
+function renderAdsTable(shown){
+ const metrics=adsDisplaySaved.columns.map(key=>adsColumnMetrics.find(metric=>metric.key===key)).filter(Boolean);
+ const head=$('ad-head');
+ if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+metrics.map(metric=>'<th scope="col" data-metric="'+metric.key+'" title="'+safe(metric.description)+'">'+safe(metric.label)+'</th>').join('');
+ $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+metrics.map(metric=>adsMetricCell(metric,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(metrics.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
+ $('table-footer').textContent='광고 '+shown.length+'개 · 선택한 표 항목 '+metrics.length+'개 · 기간 중 중복 도달은 합산하지 않습니다.';
+ updateAdsPeriodSummary();
+}
+function updateAdsPeriodSummary(force=false){
+ const accountIds={naver:String($('naver-account')?.value||'').trim().replace(/^act_/,''),cafe:String($('cafe-account')?.value||'').trim().replace(/^act_/,'')};
+ const channel=state.channel!=='all'?state.channel:($('account-choice')?.value||'all');
+ return AdsOverviewSummary.update({keys:adsDisplaySaved.summary,since:$('since')?.value||'',until:$('until')?.value||'',fx:state.fxRate,accountIds,channel,force});
+}
+function renderAdsDisplayEditor(){
+ const editor=$('ads-display-editor'),toggle=$('ads-display-toggle');if(!editor||!toggle)return;
+ const editing=!!adsDisplayDraft;
+ editor.hidden=!editing;toggle.setAttribute('aria-expanded',String(editing));
+ if(!editing)return;
+ const focused=document.activeElement?.id;
+ for(const [scope,catalog,prefix] of [['columns',adsColumnMetrics,'column'],['summary',AdsOverviewSummary.metrics,'summary']]){
+  const keys=adsDisplayDraft[scope];
+  $('ads-'+prefix+'-count').textContent=keys.length+'개 선택 / 전체 '+catalog.length+'개';
+  $('ads-'+prefix+'-options').innerHTML=catalog.map(metric=>'<label class="ads-metric-option" for="ads-'+prefix+'-'+metric.key+'"><input type="checkbox" id="ads-'+prefix+'-'+metric.key+'" data-ads-kind="'+scope+'" data-ads-key="'+metric.key+'"'+(keys.includes(metric.key)?' checked':'')+'><span><b>'+safe(metric.label)+'</b><small>'+safe(metric.description||metric.scope||'선택 기간 기준')+'</small></span></label>').join('');
+  $('ads-'+prefix+'-order').innerHTML=keys.length?keys.map((key,index)=>{
+   const metric=catalog.find(item=>item.key===key),label=metric.label;
+   return '<li><span>'+(index+1)+'. '+safe(label)+'</span><button type="button" id="ads-'+prefix+'-move-'+key+'-back" data-ads-move="'+scope+'" data-ads-key="'+key+'" data-ads-step="-1" aria-label="'+safe(label)+' 앞으로 이동"'+(index===0?' disabled':'')+'>←</button><button type="button" id="ads-'+prefix+'-move-'+key+'-next" data-ads-move="'+scope+'" data-ads-key="'+key+'" data-ads-step="1" aria-label="'+safe(label)+' 뒤로 이동"'+(index===keys.length-1?' disabled':'')+'>→</button></li>';
+  }).join(''):'<li class="ads-order-empty">'+(scope==='columns'?'광고 이름만 표시합니다.':'전체 지표 요약을 숨깁니다.')+'</li>';
+ }
+ if(focused)$(focused)?.focus({preventScroll:true});
+}
+function closeAdsDisplayEditor(message){
+ adsDisplayDraft=null;renderAdsDisplayEditor();adsDisplayMessage(message);$('ads-display-toggle')?.focus({preventScroll:true});
+}
+function setupAdsDisplaySettings(){
+ if(!$('ads-display-toggle'))return;
+ try{
+  const raw=localStorage.getItem(ADS_DISPLAY_STORAGE_KEY);
+  adsDisplaySaved=normalizeAdsDisplaySettings(raw?JSON.parse(raw):null);
+  adsDisplayMessage(raw?'저장한 표시 구성을 사용 중입니다.':'표시 항목 설정에서 원하는 지표를 선택하고 저장하세요.');
+ }catch{adsDisplaySaved=normalizeAdsDisplaySettings(null);adsDisplayMessage('저장한 표시 설정을 읽지 못해 기본 구성을 사용합니다.',true);}
+ $('ads-display-toggle').addEventListener('click',()=>{
+  if(adsDisplayDraft){closeAdsDisplayEditor('변경 사항을 취소했습니다.');return;}
+  adsDisplayDraft=cloneAdsDisplaySettings(adsDisplaySaved);renderAdsDisplayEditor();
+  adsDisplayMessage('항목과 순서를 선택한 다음 설정 저장을 누르세요.');
+  $('ads-display-editor').querySelector('input')?.focus({preventScroll:true});
+ });
+ $('ads-display-editor').addEventListener('change',event=>{
+  const input=event.target,scope=input.dataset.adsKind,key=input.dataset.adsKey;
+  if(!adsDisplayDraft||!['columns','summary'].includes(scope)||!key)return;
+  if(input.checked){if(!adsDisplayDraft[scope].includes(key))adsDisplayDraft[scope].push(key);}
+  else adsDisplayDraft[scope]=adsDisplayDraft[scope].filter(item=>item!==key);
+  renderAdsDisplayEditor();adsDisplayMessage('변경 사항은 설정 저장을 눌러야 적용됩니다.');
+ });
+ $('ads-display-editor').addEventListener('click',event=>{
+  const button=event.target.closest('button');if(!button||!adsDisplayDraft)return;
+  if(button.dataset.adsSelect){
+   const [scope,mode]=button.dataset.adsSelect.split(':');
+   const catalog=scope==='columns'?adsColumnMetrics:AdsOverviewSummary.metrics;
+   adsDisplayDraft[scope]=mode==='all'?catalog.map(metric=>metric.key):[];
+   renderAdsDisplayEditor();adsDisplayMessage('변경 사항은 설정 저장을 눌러야 적용됩니다.');
+  }
+  if(button.dataset.adsMove){
+   const keys=adsDisplayDraft[button.dataset.adsMove],from=keys.indexOf(button.dataset.adsKey),to=from+Number(button.dataset.adsStep);
+   if(from<0||to<0||to>=keys.length)return;
+   [keys[from],keys[to]]=[keys[to],keys[from]];renderAdsDisplayEditor();
+   adsDisplayMessage('표시 순서를 변경했습니다. 설정 저장을 누르면 적용됩니다.');
+  }
+ });
+ $('ads-display-editor').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeAdsDisplayEditor('변경 사항을 취소했습니다.');}});
+ $('ads-display-cancel').addEventListener('click',()=>closeAdsDisplayEditor('변경 사항을 취소했습니다.'));
+ $('ads-display-reset').addEventListener('click',()=>{
+  adsDisplayDraft=normalizeAdsDisplaySettings(null);renderAdsDisplayEditor();
+  adsDisplayMessage('기본 구성을 선택했습니다. 설정 저장을 눌러 적용하세요.');
+ });
+ $('ads-display-save').addEventListener('click',()=>{
+  if(!adsDisplayDraft)return;
+  const next=normalizeAdsDisplaySettings(adsDisplayDraft);
+  try{localStorage.setItem(ADS_DISPLAY_STORAGE_KEY,JSON.stringify(next));}
+  catch{adsDisplayMessage('설정을 저장하지 못했습니다. 브라우저 저장 공간 또는 사이트 저장 권한을 확인해 주세요. 변경 사항은 아직 적용되지 않았습니다.',true);return;}
+  adsDisplaySaved=cloneAdsDisplaySettings(next);
+  closeAdsDisplayEditor('표 항목 '+next.columns.length+'개 · 전체 지표 '+next.summary.length+'개를 저장했습니다. 이 브라우저에서 다시 열어도 유지됩니다.');
+  render();
+ });
+ for(const id of ['since','until','account-choice'])$(id)?.addEventListener('change',()=>updateAdsPeriodSummary());
+ window.addEventListener('hashchange',()=>{if(location.hash==='#ads-section')updateAdsPeriodSummary(true);});
+ for(const link of document.querySelectorAll('[data-app-route="ads-section"]'))link.addEventListener('click',event=>{if(event.button===0&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey)updateAdsPeriodSummary(true);});
+ renderAdsDisplayEditor();
+}
+
 function render(){const c=settings(),rawAds=aggregate(visibleRows());c.baseline=adBenchmark(rawAds);const ads=rawAds.map(a=>({...a,diagnosis:diagnose(a,c)}));state.ads=ads;updateDiagnosisHierarchy();const t=totals(ads);$('k-spend').textContent=won(t.spend);$('k-revenue').textContent=won(t.revenue);$('k-roas').textContent=pct(t.roas);$('k-cpa').textContent=won(t.cpa);$('k-spend-usd').textContent=state.source==='api'?dollars(t.spend/state.fxRate)+' (USD 환산)':'';$('k-revenue-usd').textContent=state.source==='api'?dollars(t.revenue==null?null:t.revenue/state.fxRate)+' (USD 환산)':'Meta 귀속 구매 전환값';$('k-cpa-usd').textContent=state.source==='api'?dollars(t.cpa==null?null:t.cpa/state.fxRate)+' (USD 환산)':'';$('k-ads').textContent=`광고 ${num(ads.length)}개`;if($('channel-metrics'))$('channel-metrics').textContent=`현재 ${state.channel==='all'?'전체 통합':state.channel==='naver'?'네이버 스마트스토어':'카페24 자사몰'} · 광고 ${num(ads.length)}개`;$('k-goal').textContent=`광고 평균 ROAS ${benchmarkRoasText(c.baseline)}`;$('k-purchases').textContent=t.purchases==null?'구매 데이터 없음':`구매 ${num(t.purchases)}건`;
 const counts={scale:0,keep:0,improve:0,review:0,learn:0};ads.forEach(a=>counts[a.diagnosis.status]++);$('summary').innerHTML=[['↗','확대 검토',`${counts.scale}개 광고 · 평균 대비 우수한 효율의 광고`],['◇','개선 / 중단 검토',`${counts.improve+counts.review}개 광고 · 구매 전환 및 지출 효율 확인 필요`],['◷','데이터 부족',`${counts.learn}개 광고 · 성급한 중단 대신 학습 관찰 필요`]].map(q=>`<div class="summary-item"><span class="s-icon">${q[0]}</span><div><b>${q[1]}</b><p>${q[2]}</p></div></div>`).join('');
 const steps=[['링크 클릭',t.clicks,null],['랜딩 조회',t.landing,t.clicks],['장바구니',t.cart,t.landing],['결제 시작',t.checkout,t.cart],['구매',t.purchases,t.checkout]];
@@ -106,12 +557,11 @@ const q=$('search').value.trim().toLowerCase(),filter=$('filter').value;
 const chosenChannel=$('diag-channel').value,chosenCampaign=$('diag-campaign').value,chosenSet=$('diag-adset').value,chosenAd=$('diag-ad').value;
 const compareKey=(r,level)=>level==='campaign'?JSON.stringify([r.channel||'',r.campaign||'']):level==='adset'?JSON.stringify([r.channel||'',r.campaign||'',r.adset||'']):JSON.stringify([r.channel||'',r.campaign||'',r.adset||'',String(r.id||r.ad||'')]);
 const shown=ads.filter(a=>(chosenChannel==='all'||a.channel===chosenChannel)&&(!chosenCampaign||compareKey(a,'campaign')===chosenCampaign)&&(!chosenSet||compareKey(a,'adset')===chosenSet)&&(!chosenAd||compareKey(a,'ad')===chosenAd)&&(!q||[a.ad,a.adset,a.campaign].join(' ').toLowerCase().includes(q))&&(filter==='all'||a.diagnosis.status===filter)).sort((a,b)=>b.spend-a.spend);
-$('ad-body').innerHTML=shown.length?shown.map(a=>`<tr class="ad-row ${state.selected===a.id?'selected':''}" data-id="${safe(a.id)}"><td><b>${a.channel?`[${a.channel==='naver'?'네이버':'카페24'}] `:''}${safe(a.ad)}</b><small>${safe(a.campaign)} / ${safe(a.adset)}</small></td><td>${dual(a.spend)}</td><td>${a.purchases==null?'—':num(a.purchases)}</td><td>${dual(a.revenue)}</td><td><b>${pct(a.roas)}</b></td><td>${dual(a.cpa)}</td><td>${dual(a.cpc)}</td><td>${dual(a.cpm)}</td><td>${pct(a.ctr)}</td><td>${a.frequency==null?'—':a.frequency.toFixed(1)}</td><td><span class="stat ${a.diagnosis.status}">${statusNames[a.diagnosis.status]}</span></td></tr>`).join(''):'<tr><td colspan="10">조건에 해당하는 광고가 없습니다.</td></tr>';
-$('table-footer').textContent=`광고 ${shown.length}개 표시 · 기간 합계 CSV는 일별 추이가 없으며, 기간 중 중복 도달은 합산하지 않습니다.`;
+renderAdsTable(shown);
 for(const el of document.querySelectorAll('.ad-row'))el.addEventListener('click',()=>{state.selected=el.dataset.id;render();$('detail').scrollIntoView({behavior:'smooth',block:'nearest'});});
 const chosen=ads.find(a=>String(a.id)===String(state.selected));if(chosen){$('detail-title').textContent=`${chosen.ad} · ${chosen.campaign}`;$('detail-status').className=`status ${chosen.diagnosis.status}`;$('detail-status').textContent=statusNames[chosen.diagnosis.status];const chips=[['ROAS',pct(chosen.roas)],['CPA',dual(chosen.cpa)],['링크 CPC',dual(chosen.cpc)],['빈도',chosen.frequency==null?'기간 전체 미확인':chosen.frequency.toFixed(2)+'회'],['랜딩 조회',chosen.landing==null?'미수집':num(chosen.landing)],['구매 전환율',chosen.landing>0&&chosen.purchases!=null?pct(chosen.purchases/chosen.landing*100):'—'],['링크 CTR',pct(chosen.ctr)],['도달',chosen.reach==null?'일별 중복·미수집':num(chosen.reach)]];$('detail-body').classList.remove('muted');$('detail-body').innerHTML=`<div class="detail-metrics">${chips.map(([k,v])=>`<div class="metric-chip">${k}<strong>${v}</strong></div>`).join('')}</div><div class="reasons"><div class="reason-box"><h3>진단 근거</h3><ul>${chosen.diagnosis.reasons.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div><div class="reason-box"><h3>추천 액션</h3><ul>${chosen.diagnosis.actions.map(x=>`<li>${safe(x)}</li>`).join('')}</ul></div></div>`;}else{$('detail-title').textContent='목록에서 광고를 선택하세요.';$('detail-status').textContent='선택 대기';$('detail-status').className='status neutral';$('detail-body').textContent='성과표의 행을 누르면 진단 근거가 표시됩니다.';$('detail-body').classList.add('muted');}
 plot();if(typeof renderComparison==='function')renderComparison();}
-function load(rows,source,currency='KRW'){state.rows=rows.map(r=>source==='api'?{...r,rawSpend:r.spend,rawRevenue:r.revenue,spend:r.spend*(r.currency==='USD'?state.fxRate:1),revenue:r.revenue==null?null:r.revenue*(r.currency==='USD'?state.fxRate:1)}:r);state.channel='all';$('channel-filter').value='all';$('channel-bar').hidden=!(source==='api'&&rows.some(r=>r.channel));state.currency=currency;state.source=source;state.selected=null;$('data-badge').textContent={api:'● Meta API 데이터',csv:'● CSV 업로드 데이터',demo:'● 샘플 데이터'}[source];$('source-status').textContent={api:'Meta API · 조회 완료',csv:'CSV · 분석 준비 완료',demo:'데모 데이터 활성화'}[source];$('message').textContent=rows.length? '': '선택한 기간의 광고 데이터가 없습니다.';if(source==='api')$('message').textContent=`Meta 원본 통화: ${currency} · USD 금액은 1달러 ${num(state.fxRate)}원으로 환산 · ${state.fxMeta} · ROAS는 환율과 무관합니다.`;render();}
+function load(rows,source,currency='KRW'){AdsOverviewSummary.invalidate();state.rows=rows.map(r=>source==='api'?{...r,rawSpend:r.spend,rawRevenue:r.revenue,spend:r.spend*(r.currency==='USD'?state.fxRate:1),revenue:r.revenue==null?null:r.revenue*(r.currency==='USD'?state.fxRate:1)}:r);state.channel='all';$('channel-filter').value='all';$('channel-bar').hidden=!(source==='api'&&rows.some(r=>r.channel));state.currency=currency;state.source=source;state.selected=null;$('data-badge').textContent={api:'● Meta API 데이터',csv:'● CSV 업로드 데이터',demo:'● 샘플 데이터'}[source];$('source-status').textContent={api:'Meta API · 조회 완료',csv:'CSV · 분석 준비 완료',demo:'데모 데이터 활성화'}[source];$('message').textContent=rows.length? '': '선택한 기간의 광고 데이터가 없습니다.';if(source==='api')$('message').textContent=`Meta 원본 통화: ${currency} · USD 금액은 1달러 ${num(state.fxRate)}원으로 환산 · ${state.fxMeta} · ROAS는 환율과 무관합니다.`;render();}
 function csvExport(){const cols=['광고 ID','캠페인','광고 세트','광고명','지출(KRW)','지출(USD 환산)','구매','매출(KRW)','매출(USD 환산)','ROAS (%)','CPA(KRW)','CPA(USD 환산)','링크 CPC(KRW)','링크 CPC(USD 환산)','링크 CTR (%)','빈도(회)','판단','근거','권장 조치'];const quote=s=>'"'+String(s??'').replace(/"/g,'""')+'"';const lines=[cols,...(state.ads||[]).map(a=>[a.id,a.campaign,a.adset,a.ad,a.spend,state.source==='api'?(a.spend/state.fxRate).toFixed(2):'',a.purchases,a.revenue,state.source==='api'&&a.revenue!=null?(a.revenue/state.fxRate).toFixed(2):'',a.roas?.toFixed(2),a.cpa?.toFixed(0),state.source==='api'&&a.cpa!=null?(a.cpa/state.fxRate).toFixed(2):'',a.cpc?.toFixed(0),state.source==='api'&&a.cpc!=null?(a.cpc/state.fxRate).toFixed(2):'',a.ctr?.toFixed(2),a.frequency?.toFixed(2),statusNames[a.diagnosis.status],a.diagnosis.reasons.join(' / '),a.diagnosis.actions.join(' / ')])].map(r=>r.map(quote).join(','));const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`meta_roas_diagnosis_${new Date().toISOString().slice(0,10)}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function readFile(file){const b=await file.arrayBuffer();let s=new TextDecoder('utf-8',{fatal:false}).decode(b);if(s.includes('\uFFFD'))s=new TextDecoder('euc-kr').decode(b);return s;}
 function updateDiagnosisHierarchy(changed){
@@ -127,7 +577,7 @@ function updateDiagnosisHierarchy(changed){
  const filteredSet=filteredCampaign.filter(r=>!adset.value||JSON.stringify([r.channel||'',r.campaign||'',r.adset||''])===adset.value);
  build(ad,filteredSet,'ad','전체 광고 소재');
 }
-async function init(){for(const nav of document.querySelectorAll('.nav'))nav.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n===nav));$(nav.dataset.anchor).scrollIntoView({behavior:'smooth'});});
+async function init(){setupAdsDisplaySettings();for(const nav of document.querySelectorAll('.nav'))nav.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n===nav));$(nav.dataset.anchor).scrollIntoView({behavior:'smooth'});});
 for(const k of ['target-roas','target-cpa','min-purchases'])$(k).addEventListener('input',render);for(const k of ['search','filter'])$(k).addEventListener('input',render);
 for(const id of ['diag-channel','diag-campaign','diag-adset','diag-ad'])$(id).addEventListener('change',()=>{updateDiagnosisHierarchy(id);render();});
 $('export').addEventListener('click',csvExport);
@@ -157,8 +607,8 @@ $('save-accounts').addEventListener('click',()=>{const n=cleanId($('naver-accoun
 $('channel-filter').addEventListener('change',()=>{state.channel=$('channel-filter').value;state.selected=null;render();});
 try{const resp=await fetch('/api/status');const info=await resp.json();$('api-state').textContent=info.configured?`API 토큰 설정됨 · ${info.version} · 읽기 전용 조회 가능`:'서버에 META_ACCESS_TOKEN을 설정해야 API 조회가 가능합니다. 실행 파일에서 토큰을 입력하세요.';if(info.account&&!$('naver-account').value&&!$('cafe-account').value)$('api-state').textContent+=' · 기존 기본 광고 계정: '+info.account;}catch{$('api-state').textContent='API 서버에 연결할 수 없습니다. 서버를 실행하세요.';}
 let refreshing=false; let lastRangeDate=toLocalDate(new Date());
-async function refreshApi(reason='manual'){if(refreshing)return;refreshing=true;const btn=$('connect');btn.disabled=true;btn.textContent='조회 중…';$('auto-status').textContent='API 조회 중…';$('message').textContent='';try{const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};const choice=$('account-choice').value;const targets=choice==='all'?['naver','cafe']:[choice];if(targets.some(t=>!/^\d{5,30}$/.test(ids[t])))throw Error('조회할 채널의 광고 계정 ID를 먼저 입력하세요.');if(targets.length===2&&ids.naver===ids.cafe)throw Error('두 채널의 계정 ID가 동일합니다. 서로 다른 광고 계정인지 확인하세요.');let all=[],currencies=new Set(),failed=[],cacheWarnings=[];for(const channel of targets){try{const q=new URLSearchParams({account:ids[channel],since:$('since').value,until:$('until').value});const response=await fetch('/api/insights?'+q);const data=await response.json();if(!response.ok)throw Error(data.error||'API 조회 실패');currencies.add(data.currency||'KRW');if(data.cache){const c=data.cache;if(c.missingDays.length||c.staleDays.length||c.warnings.length)cacheWarnings.push((channel==='naver'?'네이버':'카페24')+': '+c.storedDays+'/'+c.totalDays+'일 저장 · 미저장 '+c.missingDays.length+'일 · 갱신 지연 '+c.staleDays.length+'일'+(c.warnings.length?' · '+c.warnings.join('; '):''));}all.push(...data.rows.map(r=>({...normalizeApi(r),channel})));}catch(err){failed.push((channel==='naver'?'네이버':'카페24')+': '+err.message);}}if(!all.length)throw Error(failed.join(' / ')||'조회 결과가 없습니다.');if([...currencies].some(c=>!['KRW','USD'].includes(c)))throw Error('USD/KRW 이외의 통화가 포함되어 합산할 수 없습니다.');load(all,'api',[...currencies].join('+')||'KRW');if(failed.length||cacheWarnings.length)$('message').textContent=[failed.length?'일부 계정 조회 실패: '+failed.join(' / '):'',...cacheWarnings].filter(Boolean).join(' / ')+' · 저장된 날짜만 반영될 수 있습니다.';const stamped=new Date().toLocaleString('ko-KR');$('auto-status').textContent=`마지막 갱신: ${stamped}${(failed.length||cacheWarnings.length)?' · 일부 미갱신/누락 (주의)':' · 날짜별 로컬 저장 완료'} · 최근 7일: 하루 1회 검증`; }catch(err){$('message').textContent='Meta API 조회 오류: '+err.message;$('auto-status').textContent='자동 갱신 실패 · '+new Date().toLocaleTimeString('ko-KR')+' · 수동 재시도 가능';}finally{refreshing=false;btn.disabled=false;btn.textContent='지금 새로고침 ↻';}}
-for(const preset of document.querySelectorAll('.preset'))preset.addEventListener('click',()=>{const end=new Date();end.setHours(12,0,0,0);const start=new Date(end);const choice=preset.dataset.days;if(choice==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}else if(choice==='3months'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(choice==='6months'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(choice==='1year'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(choice==='2years'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else if(choice!=='today'){start.setDate(start.getDate()-(Number(choice)-1));}$('since').value=toLocalDate(start);$('until').value=toLocalDate(end);document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('active',b===preset));if($('auto-enabled').checked)refreshApi('preset');});
+async function refreshApi(reason='manual'){if(refreshing)return;refreshing=true;let summaryReloaded=false;const btn=$('connect');btn.disabled=true;btn.textContent='조회 중…';$('auto-status').textContent='API 조회 중…';$('message').textContent='';try{const ids={naver:cleanId($('naver-account').value),cafe:cleanId($('cafe-account').value)};const choice=$('account-choice').value;const targets=choice==='all'?['naver','cafe']:[choice];if(targets.some(t=>!/^\d{5,30}$/.test(ids[t])))throw Error('조회할 채널의 광고 계정 ID를 먼저 입력하세요.');if(targets.length===2&&ids.naver===ids.cafe)throw Error('두 채널의 계정 ID가 동일합니다. 서로 다른 광고 계정인지 확인하세요.');let all=[],currencies=new Set(),failed=[],cacheWarnings=[];for(const channel of targets){try{const q=new URLSearchParams({account:ids[channel],since:$('since').value,until:$('until').value});const response=await fetch('/api/insights?'+q);const data=await response.json();if(!response.ok)throw Error(data.error||'API 조회 실패');currencies.add(data.currency||'KRW');if(data.cache){const c=data.cache;if(c.missingDays.length||c.staleDays.length||c.warnings.length)cacheWarnings.push((channel==='naver'?'네이버':'카페24')+': '+c.storedDays+'/'+c.totalDays+'일 저장 · 미저장 '+c.missingDays.length+'일 · 갱신 지연 '+c.staleDays.length+'일'+(c.warnings.length?' · '+c.warnings.join('; '):''));}all.push(...data.rows.map(r=>({...normalizeApi(r),channel})));}catch(err){failed.push((channel==='naver'?'네이버':'카페24')+': '+err.message);}}if(!all.length)throw Error(failed.join(' / ')||'조회 결과가 없습니다.');if([...currencies].some(c=>!['KRW','USD'].includes(c)))throw Error('USD/KRW 이외의 통화가 포함되어 합산할 수 없습니다.');load(all,'api',[...currencies].join('+')||'KRW');summaryReloaded=true;if(failed.length||cacheWarnings.length)$('message').textContent=[failed.length?'일부 계정 조회 실패: '+failed.join(' / '):'',...cacheWarnings].filter(Boolean).join(' / ')+' · 저장된 날짜만 반영될 수 있습니다.';const stamped=new Date().toLocaleString('ko-KR');$('auto-status').textContent=`마지막 갱신: ${stamped}${(failed.length||cacheWarnings.length)?' · 일부 미갱신/누락 (주의)':' · 날짜별 로컬 저장 완료'} · 최근 7일: 하루 1회 검증`; }catch(err){$('message').textContent='Meta API 조회 오류: '+err.message;$('auto-status').textContent='자동 갱신 실패 · '+new Date().toLocaleTimeString('ko-KR')+' · 수동 재시도 가능';}finally{refreshing=false;btn.disabled=false;btn.textContent='지금 새로고침 ↻';if(!summaryReloaded){AdsOverviewSummary.invalidate();updateAdsPeriodSummary();}}}
+for(const preset of document.querySelectorAll('.preset'))preset.addEventListener('click',()=>{const end=new Date();end.setHours(12,0,0,0);const start=new Date(end);const choice=preset.dataset.days;if(choice==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}else if(choice==='3months'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(choice==='6months'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(choice==='1year'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(choice==='2years'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else if(choice!=='today'){start.setDate(start.getDate()-(Number(choice)-1));}$('since').value=toLocalDate(start);$('until').value=toLocalDate(end);document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('active',b===preset));if($('auto-enabled').checked)refreshApi('preset');else updateAdsPeriodSummary();});
 for(const id of ['since','until'])$(id).addEventListener('change',()=>document.querySelectorAll('.preset').forEach(b=>b.classList.remove('active')));
 $('connect').addEventListener('click',()=>refreshApi('manual'));
 for(const field of ['since','until','account-choice'])$(field).addEventListener('change',()=>{if($('auto-enabled').checked)refreshApi('range');});

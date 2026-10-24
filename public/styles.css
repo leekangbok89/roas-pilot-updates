@@ -31,3 +31,57 @@
 #compare-result table th:nth-child(4),#compare-result table th:nth-child(5),#compare-result table td:nth-child(4),#compare-result table td:nth-child(5){background:#faf7ff}
 @media(max-width:1080px){#daily-compare .compare-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}#daily-compare .compare-date-row{grid-template-columns:repeat(2,minmax(0,1fr))}#daily-compare .compare-date-row #compare-run{grid-column:1/-1}}
 @media(max-width:560px){#daily-compare .compare-filter-row,#daily-compare .compare-date-row{grid-template-columns:1fr}}
+
+/* Saved display settings for ad columns and selected-period overview metrics. */
+#ads-section .table-tools{flex-wrap:wrap;align-items:center;min-width:0}
+#ads-section .ads-display-status{margin:8px 0;font-size:13px;color:var(--app-muted);overflow-wrap:anywhere}
+#ads-section .ads-display-error{color:var(--app-negative)}
+#ads-section .ads-display-editor{margin:12px 0 18px;padding:16px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface-soft)}
+#ads-section .ads-display-editor>p{font-size:14px;margin:4px 0 16px}
+#ads-section .ads-metric-group{min-width:0;margin:16px 0;padding:14px;border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface)}
+#ads-section .ads-metric-group legend{font-weight:700;font-size:15px;padding:0 6px;color:var(--app-text)}
+#ads-section .ads-metric-group legend span{margin-left:8px;font-size:12px;font-weight:400;color:var(--app-muted)}
+#ads-section .ads-metric-group>p{margin:0 0 10px;font-size:13px}
+#ads-section .ads-selection-tools{display:flex;gap:6px;margin:0 0 10px}
+#ads-section .ads-selection-tools button{font-size:12px!important;padding:4px 9px}
+#ads-section .ads-metric-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:7px}
+#ads-section .ads-metric-option{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-surface);cursor:pointer;min-width:0}
+#ads-section .ads-metric-option:has(input:checked){border-color:var(--app-link);background:var(--app-accent-soft)}
+#ads-section .ads-metric-option input{flex:none;width:17px;height:17px;margin:3px 0 0;padding:0}
+#ads-section .ads-metric-option span{display:block;min-width:0}
+#ads-section .ads-metric-option b{display:block;color:var(--app-text);font-size:14px;font-weight:600}
+#ads-section .ads-metric-option small{display:block;margin-top:4px;color:var(--app-muted);font-size:12px;font-weight:400;line-height:1.5;overflow-wrap:anywhere}
+#ads-section .ads-order-label{margin:14px 0 7px;font-size:13px;font-weight:600;color:var(--app-text)}
+#ads-section .ads-order-label small{font-size:12px;font-weight:400;margin-left:5px}
+#ads-section .ads-selected-order{display:flex;flex-wrap:wrap;gap:7px;margin:0;padding:0;list-style:none}
+#ads-section .ads-selected-order li{display:flex;align-items:center;gap:5px;min-width:0;max-width:100%;padding:4px 5px 4px 9px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-surface-soft)}
+#ads-section .ads-selected-order li>span{min-width:0;overflow-wrap:anywhere;font-size:13px}
+#ads-section .ads-selected-order button{padding:2px 6px;min-width:28px;min-height:28px;flex:none}
+#ads-section .ads-selected-order .ads-order-empty{color:var(--app-muted);font-size:13px;border-style:dashed;padding:9px}
+#ads-section .ads-display-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--app-border);padding-top:14px}
+#ads-section .ads-display-actions>span{flex:1;min-width:160px;font-size:12px;color:var(--app-muted)}
+#ads-section .ads-period-summary{margin:16px 0;padding:0 0 16px;border-bottom:1px solid var(--app-border)}
+#ads-section .ads-period-summary-note{font-size:13px;margin:3px 0 10px;overflow-wrap:anywhere}
+#ads-section .ads-period-summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:8px;align-items:stretch}
+#ads-section .ads-period-card{min-width:0;padding:12px;border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface-soft)}
+#ads-section .ads-period-card-label{display:block;font-size:13px;color:var(--app-muted);font-weight:600}
+#ads-section .ads-period-card-value{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;font-size:23px;line-height:1.4;font-weight:700;color:var(--app-text);margin:5px 0;overflow-wrap:anywhere}
+#ads-section .ads-period-card-value strong{font-size:inherit;font-weight:inherit}
+#ads-section .ads-period-card-scope,#ads-section .ads-period-card-state{display:block;font-size:12px;color:var(--app-muted);line-height:1.45;margin-top:3px;overflow-wrap:anywhere}
+#ads-section .ads-metric-partial{display:inline-block;vertical-align:middle;border-radius:4px;padding:2px 5px;margin-left:5px;color:var(--app-warning);background:var(--app-warning-bg);font-size:11px;font-weight:600;line-height:1.4}
+#ads-section #ads-performance-table{min-width:100%;width:100%;table-layout:auto}
+#ads-section #ads-performance-table th,#ads-section #ads-performance-table td{padding:9px 10px}
+#ads-section #ads-performance-table th:first-child,#ads-section #ads-performance-table td:first-child{min-width:230px}
+#ads-section .ads-ad-link{display:block;max-width:100%;padding:0;min-height:0;background:none;border:0;border-radius:0;text-align:left;color:var(--app-text);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ads-section .ads-ad-link:hover{color:var(--app-link);text-decoration:underline;text-underline-offset:3px}
+@media(max-width:620px){
+ #ads-section .table-tools{width:100%}
+ #ads-section .table-tools input{flex:1 1 145px;min-width:0;width:100%}
+ #ads-section .ads-display-editor{padding:10px}
+ #ads-section .ads-metric-group{padding:10px}
+ #ads-section .ads-metric-group legend span{display:block;margin:3px 0 0}
+ #ads-section .ads-display-actions>span{flex-basis:100%;order:4}
+ #ads-section .ads-display-actions #ads-display-reset{margin-right:auto}
+ #ads-section .ads-order-label small{display:block;margin:3px 0 0}
+ #ads-section .ads-period-summary-cards{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
+}
