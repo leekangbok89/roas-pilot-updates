@@ -21,8 +21,10 @@ test('saved overview selections become actual table columns, including scope-spe
  assert.deepEqual(columns.map(column=>column.key),['spend','purchases','revenue','roas','overview-spend','overview-roas','overview-profit']);
  assert.equal(columns.filter(column=>column.key==='purchases').length,1,'A shared ad/overview metric has one column');
  assert.equal(columns.find(column=>column.key==='purchases').overviewKey,'purchases');
- assert.equal(columns.find(column=>column.key==='overview-spend').kind,'period','Total spend is not relabeled as an individual ad');
- assert.equal(columns.find(column=>column.key==='overview-roas').kind,'period');
+ assert.equal(columns.find(column=>column.key==='overview-spend').kind,'adScoped','Total spend keeps the period total and also exposes each ad spend');
+ assert.equal(columns.find(column=>column.key==='overview-spend').sourceKey,'spend');
+ assert.equal(columns.find(column=>column.key==='overview-roas').kind,'adScoped');
+ assert.equal(columns.find(column=>column.key==='overview-roas').sourceKey,'roas');
 });
 
 test('all twenty existing overview selections are retained and visible without resetting browser settings',()=>{
@@ -34,12 +36,23 @@ test('all twenty existing overview selections are retained and visible without r
  assert.deepEqual(result.keys.slice().sort(),result.saved.summary.slice().sort());
 });
 
-test('period-only ad cells point to totals while shared columns retain real per-ad values',()=>{
+test('ad-capable overview cells show real per-ad values while store totals remain period-only',()=>{
  const h=harness();
  const period=h.run("adsTableCell(adsTableColumns({columns:[],summary:['profit']})[0],{profit:999999,diagnosis:{status:'keep'}})");
  assert.match(period,/data-summary-key="profit"/);
- assert.match(period,/합계 행 참조/);
+ assert.match(period,/기간 합계 전용/);
  assert.doesNotMatch(period,/999999|999,999/,'Store totals must not masquerade as per-ad profit');
+
+ const spend=h.run("adsTableCell(adsTableColumns({columns:[],summary:['spend']})[0],{channel:'naver',spend:123456,spendPartial:false,diagnosis:{status:'keep'}})");
+ assert.match(spend,/data-summary-key="spend"/);
+ assert.match(spend,/123,456원/);
+ assert.doesNotMatch(spend,/합계 행 참조|기간 합계 전용/);
+
+ const mallRoas=h.run("adsTableCell(adsTableColumns({columns:[],summary:['mallRoas']})[0],{channel:'cafe',roas:62.5,roasPartial:false,diagnosis:{status:'keep'}})");
+ assert.match(mallRoas,/62\.5%/);
+ const mallRoasOther=h.run("adsTableCell(adsTableColumns({columns:[],summary:['mallRoas']})[0],{channel:'naver',roas:88.8,roasPartial:false,diagnosis:{status:'keep'}})");
+ assert.match(mallRoasOther,/>—<\/td>/);
+
  const common=h.run("adsTableCell(adsTableColumns({columns:[],summary:['purchases']})[0],{purchases:3,missing:{},diagnosis:{status:'keep'}})");
  assert.match(common,/data-summary-key="purchases"/);
  assert.match(common,/>3<\/td>/);

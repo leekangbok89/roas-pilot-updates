@@ -742,6 +742,14 @@ function adsMetricCell(metric,ad){
 // Overview choices are real table columns. Period totals have their own row,
 // because store orders cannot be assigned to individual Meta advertisements.
 const adsSharedOverviewKeys=new Set(['revenue','purchases','cpa','cpc','cpm','ctr','impressions','clicks']);
+const adsScopedOverviewMetrics=new Map([
+ ['spend',{metric:'spend',scope:'all'}],
+ ['smartstoreSpend',{metric:'spend',scope:'naver'}],
+ ['mallSpend',{metric:'spend',scope:'cafe'}],
+ ['roas',{metric:'roas',scope:'all'}],
+ ['smartstoreRoas',{metric:'roas',scope:'naver'}],
+ ['mallRoas',{metric:'roas',scope:'cafe'}]
+]);
 let adsPeriodViewSignature='',adsPeriodViewResult=null,adsPeriodViewPending=null,adsPeriodViewVersion=0;
 function effectiveAdsDisplaySettings(){return adsDisplayDraft||adsDisplaySaved;}
 function adsTableColumns(configuration=effectiveAdsDisplaySettings()){
@@ -755,12 +763,30 @@ function adsTableColumns(configuration=effectiveAdsDisplaySettings()){
     const metric=adsColumnMetrics.find(item=>item.key===key);
     if(metric)columns.push({key,kind:'ad',metric:{...metric,label:overview.label},overviewKey:key});
    }
-  }else columns.push({key:'overview-'+key,kind:'period',metric:overview,overviewKey:key});
+  }else{
+   const scoped=adsScopedOverviewMetrics.get(key);
+   if(scoped){
+    const baseMetric=adsColumnMetrics.find(item=>item.key===scoped.metric);
+    if(baseMetric)columns.push({key:'overview-'+key,kind:'adScoped',metric:{...baseMetric,label:overview.label,description:overview.description},overviewKey:key,sourceKey:scoped.metric,adScope:scoped.scope});
+    else columns.push({key:'overview-'+key,kind:'period',metric:overview,overviewKey:key});
+   }else columns.push({key:'overview-'+key,kind:'period',metric:overview,overviewKey:key});
+  }
  }
  return columns;
 }
+function adsScopedOverviewCell(column,ad){
+ const scope=column.adScope||'all';
+ if(scope!=='all'&&ad.channel!==scope){
+  const scopeLabel=scope==='naver'?'스마트스토어 광고':'자사몰 광고';
+  return '<td data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(scopeLabel+'에 해당하는 광고에서만 표시합니다.')+'">—</td>';
+ }
+ const metric={...column.metric,key:column.sourceKey};
+ const cell=adsMetricCell(metric,ad);
+ return cell.replace('data-metric="'+column.sourceKey+'"','data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'"');
+}
 function adsTableCell(column,ad){
- if(column.kind==='period')return '<td class="ads-period-reference" data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(column.metric.description)+' 선택 기간 합계 행에서 확인하세요."><span>합계 행 참조</span></td>';
+ if(column.kind==='period')return '<td class="ads-period-reference" data-metric="'+column.key+'" data-summary-key="'+column.overviewKey+'" title="'+safe(column.metric.description)+' 광고별로 정확히 나눌 수 없어 선택 기간 합계 행에서만 표시합니다."><span>기간 합계 전용</span></td>';
+ if(column.kind==='adScoped')return adsScopedOverviewCell(column,ad);
  const cell=adsMetricCell(column.metric,ad);
  return column.overviewKey?cell.replace('<td ','<td data-summary-key="'+column.overviewKey+'" '):cell;
 }
@@ -785,10 +811,10 @@ function renderAdsPeriodTotal(){
 }
 function renderAdsTable(shown){
  const columns=adsTableColumns(),head=$('ad-head');
- if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+columns.map(column=>'<th scope="col" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(column.metric.description)+'">'+safe(column.metric.label)+(column.kind==='period'?'<small class="ads-table-scope">기간 합계</small>':'')+'</th>').join('');
+ if(head)head.innerHTML='<th scope="col">광고 · 캠페인</th>'+columns.map(column=>'<th scope="col" data-metric="'+column.key+'"'+(column.overviewKey?' data-summary-key="'+column.overviewKey+'"':'')+' title="'+safe(column.metric.description)+'">'+safe(column.metric.label)+(column.kind==='period'?'<small class="ads-table-scope">기간 합계 전용</small>':column.kind==='adScoped'?'<small class="ads-table-scope">광고별 + 기간 합계</small>':'')+'</th>').join('');
  $('ad-body').innerHTML=shown.length?shown.map(ad=>'<tr class="ad-row '+(String(state.selected)===String(ad.id)?'selected':'')+'" data-id="'+safe(ad.id)+'"><td><button type="button" class="ads-ad-link" aria-label="'+safe(ad.ad)+' 광고 상세 진단 보기">'+(ad.channel?'['+(ad.channel==='naver'?'네이버':'카페24')+'] ':'')+safe(ad.ad)+'</button><small>'+safe(ad.campaign)+' / '+safe(ad.adset)+'</small></td>'+columns.map(column=>adsTableCell(column,ad)).join('')+'</tr>').join(''):'<tr><td colspan="'+(columns.length+1)+'">조건에 해당하는 광고가 없습니다.</td></tr>';
  const active=effectiveAdsDisplaySettings();
- $('table-footer').textContent='광고 '+shown.length+'개 · 표 지표 '+columns.length+'개'+(active.summary.length?' · 한눈에 보기 선택 지표는 합계 행에 표시 · 공통 항목은 같은 열에 표시':'')+' · 기간 중 중복 도달은 합산하지 않습니다.';
+ $('table-footer').textContent='광고 '+shown.length+'개 · 표 지표 '+columns.length+'개'+(active.summary.length?' · 광고비·ROAS 등 광고별 계산 가능 항목은 각 행에도 표시 · 전체 주문매출·이익은 기간 합계 전용':'')+' · 기간 중 중복 도달은 합산하지 않습니다.';
  updateAdsPeriodSummary();
 }
 function invalidateAdsPeriodData(){
