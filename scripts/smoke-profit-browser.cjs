@@ -53,8 +53,8 @@ function snapshot(account, date, spend) {
   write('.roas-data/daily/' + account + '/' + date + '.json', {
     account, date, currency: spend ? 'KRW' : '', savedAt: '2026-10-01T00:00:00Z',
     rows: spend ? [{ date_start: date, date_stop: date, account_currency: 'KRW', spend: String(spend),
-      impressions: '1000', inline_link_clicks: '10', actions: [{ action_type: 'purchase', value: '1' }],
-      action_values: [{ action_type: 'purchase', value: '300000' }] }] : []
+      impressions: '1000', inline_link_clicks: '10', actions: date === '2026-09-01' ? [] : [{ action_type: 'purchase', value: '1' }],
+      action_values: date === '2026-09-01' ? [] : [{ action_type: 'purchase', value: '300000' }] }] : []
   });
 }
 function fixture(isolated = false) {
@@ -184,6 +184,14 @@ async function pointTitles() {
   assert.ok((await pointTitles()).some(text => text.includes('-30,000원')));
   assert.ok((await pointTitles()).some(text => text.endsWith(': 0원')));
   check('browser: actual API values match table, total, positive/negative/zero SVG points');
+  await range('2026-09-01');
+  assert.equal(await page.locator('#revenue').innerText(), '—', 'Meta purchase attribution is absent');
+  await amount('2026-09-01', 99000);
+  assert.equal(await page.locator('#profit-total').innerText(), money(99000));
+  assert.ok((await pointTitles()).some(title => title.includes('99,000원')));
+  assert.ok((await page.locator('#profit-troubleshooting-body').innerText()).includes('Meta 구매 전환매출과 무관'));
+  check('browser: actual store profit graph works with zero Meta purchase conversions');
+  await range('2026-09-01', '2026-09-07');
 
   for (const channel of ['naver', 'cafe', 'all']) {
     await page.locator('#channel').selectOption(channel);
