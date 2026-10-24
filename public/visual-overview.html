@@ -111,7 +111,7 @@ function renderProfit(series){
   if(reasons.size){const head=document.createElement('strong');head.textContent='미확정 이유 (여러 사유가 중복될 수 있음)';detail.append(head);const list=document.createElement('ul');for(const [reason,count] of [...reasons].sort((a,b)=>b[1]-a[1])){const li=document.createElement('li');li.textContent=reason+' — '+count+'일';list.append(li);}detail.append(list);}
   if(items.size){const head=document.createElement('strong');head.textContent='원가 정보와 일치하지 않는 판매 상품·옵션';detail.append(head);const list=document.createElement('ul');for(const [name,count] of [...items].sort((a,b)=>b[1]-a[1]).slice(0,20)){const li=document.createElement('li');li.textContent=name+' — '+count+'건';list.append(li);}detail.append(list);}
   if(profitLoadError){const err=document.createElement('p');err.textContent='이익 데이터 조회 오류: '+profitLoadError;detail.append(err);}
-  if(pane&&!confirmed.length)pane.open=true;
+  if(pane&&!valid.length)pane.open=true;
  }
  $('profit-table').innerHTML='<table><thead><tr><th>날짜</th><th>합산 매출</th><th>판매 수수료</th><th>상품 원가</th><th>전체 광고비</th><th>예상 이익</th><th>상태·사유</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+r.date+'</td><td>'+won(r.revenue)+'</td><td>'+won(r.fee)+'</td><td>'+won(r.cost)+'</td><td>'+won(r.spend)+'</td><td>'+(r.valid?won(r.profit):'미확정')+'</td><td>'+(r.valid?'완료':r.reason.map(x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))).join(' / ')||'필수 데이터 부족')+'</td></tr>').join('')+'</tbody></table>';
 }
