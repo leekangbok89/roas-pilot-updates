@@ -97,7 +97,11 @@ function displayedCombinedRevenue(day){
  const naver=displayedFinancial(day?.naver,'revenue'),cafe=displayedFinancial(day?.cafe24,'revenue');
  const known=[naver,cafe].filter(item=>Number.isFinite(item.value));
  if(!known.length)return {value:null,partial:false,naver,cafe};
- return {value:known.reduce((sum,item)=>sum+item.value,0),partial:known.length<2||naver.partial||cafe.partial,naver,cafe};
+ const total=known.reduce((sum,item)=>sum+item.value,0);
+ // If the other channel is unknown, a lone confirmed zero cannot certify combined zero.
+ // A positive confirmed channel remains a useful partial subtotal and must not be discarded.
+ if(known.length<2&&total===0)return {value:null,partial:false,naver,cafe};
+ return {value:total,partial:known.length<2||naver.partial||cafe.partial,naver,cafe};
 }
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
