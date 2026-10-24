@@ -110,11 +110,11 @@ $('load').addEventListener('click',async()=>{
  const resp=await fetch('/api/insights?'+q,{credentials:'same-origin'});
  let v;try{v=await resp.json();}catch{throw Error(a.channel+' 계정 서버 응답 오류');}
  if(!resp.ok)throw Error(a.channel+': '+(v.error||'조회 실패'));
- return {account:a,...v,cache:v.cache||{}};
+ return {...v,accountDetails:a,cache:v.cache||{}};
  }));
- reports=data;rows=data.flatMap(r=>(r.rows||[]).map(row=>({...row,_account:r.account.id,_channel:r.account.channel,_currency:r.currency})));
+ reports=data;rows=data.flatMap(r=>(r.rows||[]).map(row=>({...row,_account:r.accountDetails.id,_channel:r.accountDetails.channel,_currency:r.currency})));
  loaded=true;
- const days=data.map(r=>r.account.channel+' '+fmt(r.cache.storedDays)+'/'+fmt(r.cache.totalDays)+'일').join(' · ');
+ const days=data.map(r=>r.accountDetails.channel+' '+fmt(r.cache.storedDays)+'/'+fmt(r.cache.totalDays)+'일').join(' · ');
  $('status').textContent='조회 완료 · '+days+' · 광고 일별 행 '+fmt(rows.length)+'개. 기존 설정의 자동 이력은 수집되지 않았으므로 확인한 적용 기간만 직접 분류하세요.';
  renderClassification();
  }catch(e){loaded=false;rows=[];reports=[];$('classify').innerHTML='<tr><td colspan="8">불러오기 실패</td></tr>';$('result').innerHTML='<tr><td colspan="8">데이터 없음</td></tr>';$('compare-bars').replaceChildren();$('status').textContent='조회 실패: '+e.message;}
