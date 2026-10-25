@@ -112,8 +112,7 @@
     applyTheme(root.dataset.theme, false);
 
     var nav = document.getElementById('app-nav');
-    // Keep these legacy views and direct URLs available without promoting
-    // them in the five-item shared navigation on any workspace page.
+    // Keep legacy views and direct URLs available without promoting them.
     if (nav) {
       nav.querySelectorAll('[data-app-route="sales-impact"], [data-app-route="ga4"], [data-app-route="experiments"]').forEach(function (link) {
         link.remove();
@@ -130,7 +129,26 @@
       if (costLink) nav.insertBefore(displayLink, costLink);
       else nav.appendChild(displayLink);
     }
+    if (nav && !nav.querySelector('[data-app-route="detail"]')) {
+      var detailLink = document.createElement('a');
+      detailLink.className = 'app-nav-link';
+      detailLink.dataset.appRoute = 'detail';
+      detailLink.href = '/detail-analysis.html';
+      detailLink.textContent = '상세페이지 분석';
+      var settingsLink = nav.querySelector('[data-app-route="data-source"]');
+      if (settingsLink) nav.insertBefore(detailLink, settingsLink);
+      else nav.appendChild(detailLink);
+    }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
+    links.forEach(function (link) {
+      if (link.querySelector('svg')) return;
+      var icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '1.7'); icon.setAttribute('aria-hidden', 'true');
+      var shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      shape.setAttribute('d', 'M4 4h16v16H4zM8 9h8M8 13h8M8 17h5');
+      icon.appendChild(shape); link.insertBefore(icon, link.firstChild);
+    });
     function markActive(key) {
       links.forEach(function (link) {
         var active = link.dataset.appRoute === key;
@@ -202,7 +220,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(page === 'cost' ? 'cost' : page === 'ga4' ? 'ga4' : page === 'experiments' ? 'experiments' : 'overview');
+      markActive(['cost','ga4','experiments','display','detail'].indexOf(page) >= 0 ? page : 'overview');
       body.classList.add('app-route-ready');
     }
   }

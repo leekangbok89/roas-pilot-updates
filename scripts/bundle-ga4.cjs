@@ -17,7 +17,7 @@ function main(){
   if(start<0||finish<start||source.indexOf(begin,start+begin.length)>=0||source.indexOf(end,finish+end.length)>=0)throw Error('Expected one generated GA4 runtime block in server.js');
   const client=fs.readFileSync(path.join(project,'integrations','ga4','client.cjs'),'utf8').trimEnd();
   const assets={};
-  for(const name of ['ga4.html','ga4.js','ga4.css'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
+  for(const name of ['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
   const block=begin+'\nconst bundledGa4=(()=>{const module={exports:{}};\n'+client+'\nreturn module.exports;})();\nconst bundledGa4Assets=Object.freeze('+JSON.stringify(assets,null,2)+');\n'+end;
   const output=source.slice(0,start)+block+source.slice(finish+end.length);
   if(args[0]==='--check'){

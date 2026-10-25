@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ROAS Pilot | 상세페이지 분석</title>
+  <script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/ga4.css">
+  <script src="/detail-analysis.js" defer></script>
+  <style>
+    .detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.detail-grid label{display:flex;flex-direction:column;gap:6px}
+    .detail-row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.detail-row label{display:flex;flex-direction:column;gap:4px}.detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    #install-code{box-sizing:border-box;width:100%;height:180px;font:12px/1.5 monospace;resize:vertical}.detail-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+    .detail-kpis article{padding:14px;background:var(--app-surface);border:1px solid var(--app-border);border-radius:12px}.detail-kpis strong{display:block;font-size:30px;color:var(--app-text)}
+    .detail-bar{min-width:130px;height:8px;background:var(--app-surface-soft);border-radius:4px;overflow:hidden}.detail-bar span{display:block;height:100%;background:var(--app-accent)}
+    .detail-scroll{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.detail-scroll article{padding:12px;border:1px solid var(--app-border);border-radius:10px}.detail-scroll strong{font-size:24px;display:block}
+    .detail-table{overflow:auto}.detail-table table{width:100%;border-collapse:collapse}.detail-table td,.detail-table th{padding:10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--app-border)}
+    details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
+    .detail-links{display:flex;gap:12px;flex-wrap:wrap}.detail-link-disabled{display:none}#definition-table td:first-child{font-family:monospace}
+    @media(max-width:800px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-kpis{grid-template-columns:1fr}.detail-scroll{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style>
+</head>
+<body data-app-page="detail">
+  <div class="app-nav-rail" id="app-nav-rail">
+    <button id="app-nav-toggle" type="button" class="app-rail-button" aria-label="메뉴 열기" aria-controls="app-drawer" aria-expanded="false">☰</button>
+    <button id="app-theme-toggle" type="button" class="app-rail-button" aria-label="라이트 모드로 전환"><span data-theme-icon>☀</span></button>
+  </div>
+  <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert>
+    <div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div>
+    <nav id="app-nav" class="app-nav" aria-label="워크스페이스">
+      <a class="app-nav-link" data-app-route="overview" href="/visual-overview.html">한눈에 보기</a>
+      <a class="app-nav-link" data-app-route="ads-section" href="/#ads-section">광고별 진단</a>
+      <a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare">날짜별 비교</a>
+      <a class="app-nav-link" data-app-route="cost" href="/cost-management.html">원가관리</a>
+      <a class="app-nav-link" data-app-route="data-source" href="/#data-source">설정 관리</a>
+    </nav>
+    <div class="app-nav-footer"><button id="app-theme-drawer-toggle" type="button" class="app-theme-drawer-toggle"><span data-theme-icon>☀</span><span id="app-theme-label">라이트 모드로 전환</span></button></div>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <header class="app-page-head"><div><h1 class="app-page-title">상세페이지 분석</h1><p class="app-page-subtitle">백도씨 상세페이지에서 고객이 도달하고 머무는 구간을 확인합니다.</p></div><a href="/ga4.html">GA4 연결 관리 ↗</a></header>
+    <p id="detail-status" role="status" aria-live="polite">연결 상태 확인 중…</p>
+    <details class="panel" id="detail-setup" open>
+      <summary>설치 · 연동 설정</summary>
+      <p>설정 저장은 자사몰에 코드를 설치하지 않습니다. 아래 코드를 카페24 PC·모바일 상품 상세 스킨에 각각 한 번 적용해야 수집이 시작됩니다.</p>
+      <form id="detail-settings-form">
+        <div class="detail-grid">
+          <label>상품번호<input id="detail-product" inputmode="numeric" pattern="[0-9]+" maxlength="11" required value="458"></label>
+          <label>상세페이지 버전<input id="detail-version" pattern="[A-Za-z0-9_-]+" maxlength="32" required value="v1"></label>
+          <label>GA4 측정 ID<input id="detail-measurement" pattern="G-[A-Z0-9]+" maxlength="22" required value="G-RZF6S41CF0"></label>
+          <label>Clarity 프로젝트 ID<input id="detail-clarity" pattern="[a-z0-9]{4,32}" maxlength="32" placeholder="Clarity에서 발급 · 선택"></label>
+        </div>
+        <p><label><input id="detail-consent" type="checkbox"> 동의 관리 도구와 연동해 ROAS_DETAIL_CONSENT가 true일 때 추가 추적 시작</label></p>
+        <p class="helper">GA4 측정 ID는 현재 자사몰에서 확인된 값입니다. 기존 GA4 연결 속성이 이 웹 스트림을 포함하는지 확인하세요. 상세 구성이 바뀌면 버전을 v2, v3처럼 바꾸고 설치코드도 교체하세요.</p>
+        <div class="detail-actions"><button type="submit" class="primary" id="settings-save">설정 저장 · 설치코드 생성</button><a href="https://clarity.microsoft.com/" target="_blank" rel="noopener noreferrer">Clarity 프로젝트 만들기 ↗</a></div>
+      </form>
+      <p id="settings-message" role="status" hidden></p>
+      <div id="install-output" hidden>
+        <label for="install-code">카페24에 붙여넣을 코드</label><textarea id="install-code" readonly spellcheck="false"></textarea>
+        <div class="detail-actions"><button id="copy-code" type="button">설치코드 복사</button><a id="detail-visit" href="https://wemamang.com/product/detail.html?product_no=458" target="_blank" rel="noopener noreferrer">설치할 상세페이지 열기 ↗</a></div>
+        <ol>
+          <li>카페24 디자인 편집에서 실제 사용 중인 PC·모바일 상품 상세 템플릿 하단에 코드를 넣으세요. 기존 Google 태그는 유지합니다. 공통 레이아웃에 넣어도 위마망의 지정 상품에서만 동작합니다.</li>
+          <li>Clarity 설정 → 설치 → 수동 설치의 <code>clarity.ms/tag/</code> 뒤 값이 프로젝트 ID입니다. Clarity가 이미 설치되어 있으면 기존 프로젝트 ID를 사용하세요.</li>
+          <li>GA4 관리자 → 데이터 표시 → 맞춤 정의에서 아래 4개 측정기준과 1개 측정항목을 등록하세요. 범위는 모두 <b>이벤트</b>입니다.</li>
+          <li>설치 후 GA4 실시간·DebugView에서 <code>rp_detail_view</code>, <code>rp_content_view</code> 수신을 확인하세요. 이 화면의 일반 보고서 반영에는 24~48시간이 걸릴 수 있습니다.</li>
+        </ol>
+        <div class="detail-table"><table id="definition-table"><thead><tr><th>이벤트 매개변수</th><th>등록 종류</th><th>이름 / 단위</th></tr></thead><tbody>
+          <tr><td>rp_product_id</td><td>맞춤 측정기준</td><td>상세 상품번호</td></tr>
+          <tr><td>rp_content_version</td><td>맞춤 측정기준</td><td>상세 버전</td></tr>
+          <tr><td>rp_content_id</td><td>맞춤 측정기준</td><td>상세 구간 ID</td></tr>
+          <tr><td>rp_content_type</td><td>맞춤 측정기준</td><td>상세 콘텐츠 종류</td></tr>
+          <tr><td>rp_visible_ms</td><td>맞춤 측정항목</td><td>상세 노출 시간 / 시간(밀리초)</td></tr>
+        </tbody></table></div>
+        <p>현재 페이지의 YouTube 영상은 시청률 추적을 위해 iframe 주소에 <code>&amp;enablejsapi=1</code>을 추가해야 합니다. MP4 자동재생 영상은 그대로 추적합니다. GIF는 이미지 체류시간으로 집계합니다.</p>
+        <p class="helper">동의 관리 도구 사용 시 기존 Google·Clarity 동의 설정과 함께 연결하세요. 위 체크박스를 선택하면 동의 후 <code>window.ROAS_DETAIL_CONSENT = true</code>가 설정될 때 시작합니다. 철회 시에는 기존 동의 관리 도구에서도 Google·Clarity 수집 중지를 처리해야 합니다.</p>
+      </div>
+    </details>
+    <section class="panel">
+      <div class="detail-row"><form id="detail-report-form" class="detail-row">
+        <label>시작일<input id="detail-since" type="date" required></label><label>종료일<input id="detail-until" type="date" required></label>
+        <label>유입 범위<select id="detail-scope"><option value="all">전체 유입</option><option value="meta">Meta 유료 유입</option></select></label>
+        <button id="detail-query" class="primary" type="submit">기간 조회</button><button id="detail-refresh" type="button">새로 가져오기</button>
+      </form></div>
+      <p class="helper">최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
+      <div class="detail-links"><a id="clarity-dashboard" class="detail-link-disabled" target="_blank" rel="noopener noreferrer">Clarity 히트맵 · 녹화 열기 ↗</a></div>
+    </section>
+    <section id="detail-empty" class="panel"><h2>설치 후부터 데이터를 확인할 수 있습니다</h2><p>사진별 도달·체류와 영상 재생 분량은 GA4에서 가져옵니다. Clarity 히트맵과 방문 녹화는 위 링크에서 확인합니다. 설치 이전 행동은 소급 수집되지 않습니다.</p></section>
+    <div id="detail-results" hidden>
+      <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
+      <section class="panel"><h2>상세영역 스크롤 도달률</h2><div id="detail-scroll" class="detail-scroll"></div></section>
+      <section class="panel"><h2>이미지 · 영상 구간별 성과</h2><p>도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
+        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
+        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
+      </section>
+      <section class="panel"><h2>집계 안내</h2><ul id="detail-warnings"></ul><p>클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></section>
+    </div>
+  </main>
+</body>
+</html>

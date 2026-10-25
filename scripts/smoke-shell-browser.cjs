@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','원가관리','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','디스플레이 분석','원가관리','상세페이지 분석','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
@@ -117,6 +117,8 @@ async function go(route){
  await page.locator(selectors.sidebar).waitFor({state:'attached'});
  await page.locator(selectors.title).first().waitFor({state:'visible'});
  await page.waitForFunction(()=>document.readyState==='complete');
+ await page.mouse.move(600,700);
+ await page.keyboard.press('Escape');
  if(route.startsWith('/visual-overview'))await page.waitForFunction(()=>document.getElementById('reload')?.disabled===false);
  if(route.startsWith('/cost-management'))await page.waitForFunction(()=>!document.getElementById('status')?.textContent.includes('목록 확인 중'));
  await shellState(false);

@@ -7,7 +7,7 @@ const path=require('node:path');
 const {Readable}=require('node:stream');
 const {spawnSync}=require('node:child_process');
 const project=path.resolve(__dirname,'..');
-const assets=['ga4.html','ga4.js','ga4.css'];
+const assets=['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js'];
 
 function fixture(t){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-ga4-integration-'));
@@ -49,20 +49,34 @@ test('legacy updater with server.js only serves GA4 UI and unconfigured status w
 
 test('GA4 routes reject cross-origin/host access and mutations without the local action header',async t=>{
  const f=fixture(t);
- for(const endpoint of ['/api/ga4/credentials','/api/ga4/test','/api/ga4/disconnect']){
+ for(const endpoint of ['/api/ga4/credentials','/api/ga4/test','/api/ga4/disconnect','/api/ga4/detail-settings']){
   for(const headers of [{},{'x-roas-local-action':'yes',origin:'https://example.com'},{'x-roas-local-action':'yes',host:'untrusted.example:3000'}]){
    const response=await f.request(endpoint,{method:'POST',headers,body:'{}'});
    assert.equal(response.status,403,endpoint);
   }
-  assert.equal((await f.request(endpoint)).status,405);
+  assert.equal((await f.request(endpoint,{method:'DELETE'})).status,405);
  }
- for(const endpoint of ['/api/ga4/status','/api/ga4/report']){
+ for(const endpoint of ['/api/ga4/status','/api/ga4/report','/api/ga4/detail-report']){
   assert.equal((await f.request(endpoint,{headers:{host:'untrusted.example:3000'}})).status,403);
   assert.equal((await f.request(endpoint,{headers:{origin:'https://example.com'}})).status,403);
   assert.equal((await f.request(endpoint,{method:'POST',headers:{'x-roas-local-action':'yes'}})).status,405);
  }
  assert.equal((await f.request('/api/ga4/missing')).status,404);
  assert.equal(fs.existsSync(path.join(f.dir,'.roas-private')),false);
+});
+
+test('detail settings validate and persist only local configuration while reports require a GA4 connection',async t=>{
+ const f=fixture(t),headers={'x-roas-local-action':'yes','content-type':'application/json'};
+ const original=JSON.parse((await f.request('/api/ga4/detail-settings')).body);
+ assert.equal(original.measurementId,'G-RZF6S41CF0');
+ const input={...original,clarityProjectId:'abc123456'};
+ const saved=await f.request('/api/ga4/detail-settings',{method:'POST',headers,body:JSON.stringify(input)});
+ assert.equal(saved.status,200);assert.equal(JSON.parse((await f.request('/api/ga4/detail-settings')).body).clarityProjectId,'abc123456');
+ const invalid=await f.request('/api/ga4/detail-settings',{method:'POST',headers,body:JSON.stringify({...input,clarityProjectId:'</script>'})});
+ assert.equal(invalid.status,400);assert.equal(JSON.parse((await f.request('/api/ga4/detail-settings')).body).clarityProjectId,'abc123456');
+ const report=await f.request('/api/ga4/detail-report?since=2026-10-01&until=2026-10-25');
+ assert.equal(report.status,400);assert.match(JSON.parse(report.body).error,/연결/);
+ assert.equal((await f.request('/api/ga4/detail-settings',{headers:{origin:'https://untrusted.example'}})).status,403);
 });
 
 test('credential request rejects oversized and malformed JSON without echoing sensitive input',async t=>{

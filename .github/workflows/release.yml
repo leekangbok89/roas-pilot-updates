@@ -61,6 +61,8 @@ jobs:
           node --check public/app-shell.js
           node --check public/naver-settings.js
           node --check public/ga4.js
+          node --check public/detail-analysis.js
+          node --check public/detail-tracker.js
           node scripts/check-inline-scripts.js
           npm test
           node -e "const m=require('./server'); if(!m.server)process.exit(1)"
@@ -84,6 +86,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-profit-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-shell-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ga4-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-detail-browser.cjs
 
       - name: Package ROAS Pilot
         run: |

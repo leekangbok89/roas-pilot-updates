@@ -16,6 +16,65 @@ const MAX_CACHE_ENTRIES = 20;
 const METRICS = Object.freeze(['activeUsers', 'sessions', 'engagedSessions', 'engagementRate', 'averageSessionDuration', 'screenPageViews', 'ecommercePurchases', 'purchaseRevenue']);
 const ACQUISITION_DIMENSIONS = Object.freeze(['sessionSource', 'sessionMedium', 'sessionCampaignName', 'sessionManualCampaignId', 'sessionManualAdContent', 'sessionManualTerm']);
 const ACQUISITION_KEYS = Object.freeze(['source', 'medium', 'campaign', 'campaignId', 'adContent', 'adsetId']);
+const DETAIL_DIMENSIONS = Object.freeze(['rp_product_id', 'rp_content_version', 'rp_content_id', 'rp_content_type']);
+const DETAIL_DEFAULTS = Object.freeze({ productId: '458', contentVersion: 'v1', measurementId: 'G-RZF6S41CF0', clarityProjectId: '', rootSelector: '#prdDetail', requireConsent: false });
+
+function validateDetailSettings(input = {}) {
+  const value = { productId: String(input.productId || ''), contentVersion: String(input.contentVersion || '').trim(),
+    measurementId: String(input.measurementId || '').trim(), clarityProjectId: String(input.clarityProjectId || '').trim(), rootSelector: '#prdDetail', requireConsent: input.requireConsent === true };
+  if (!/^[1-9]\d{0,10}$/.test(value.productId) || !/^[A-Za-z0-9_-]{1,32}$/.test(value.contentVersion) ||
+      !/^G-[A-Z0-9]{4,20}$/.test(value.measurementId) || (value.clarityProjectId && !/^[a-z0-9]{4,32}$/.test(value.clarityProjectId))) {
+    throw failure(400, '상품번호, 상세페이지 버전, G-로 시작하는 측정 ID와 Clarity 프로젝트 ID 형식을 확인해 주세요.', 'DETAIL_SETTINGS');
+  }
+  return value;
+}
+function buildDetailRequest(input, withTime = true) {
+  validateDates(input.since, input.until);
+  const config = validateDetailSettings(input);
+  const expressions = [
+    { filter: { fieldName: 'customEvent:rp_product_id', stringFilter: { matchType: 'EXACT', value: config.productId } } },
+    { filter: { fieldName: 'customEvent:rp_content_version', stringFilter: { matchType: 'EXACT', value: config.contentVersion } } },
+    { filter: { fieldName: 'eventName', inListFilter: { values: ['rp_detail_view','rp_content_view','rp_content_time','rp_video_start','rp_video_25','rp_video_50','rp_video_75','rp_video_100','rp_scroll','rp_buy_click','rp_cart_click'] } } }
+  ];
+  if (input.scope === 'meta') expressions.push(metaFilter());
+  else if (input.scope && input.scope !== 'all') throw failure(400, '유입 범위를 확인해 주세요.', 'GA4_SCOPE');
+  return { dateRanges: [{ startDate: input.since, endDate: input.until }],
+    dimensions: ['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name => ({ name })),
+    metrics: ['eventCount', ...(withTime ? ['customEvent:rp_visible_ms'] : [])].map(name => ({ name })),
+    dimensionFilter: { andGroup: { expressions } }, limit: String(MAX_ROWS), returnPropertyQuota: true };
+}
+function assembleDetailReport(response, context, withTime) {
+  const warnings = [], content = new Map(), scroll = {};
+  const emptyCount = metricValues(response, null, ['eventCount'], warnings, '상세페이지').eventCount;
+  let views = emptyCount, buyClicks = emptyCount, cartClicks = emptyCount;
+  const read = (row, name) => metricValues(response, row, [name], warnings, '상세페이지')[name];
+  for (const row of responseRows(response)) {
+    const event = dimensionValue(response, row, 'eventName'), id = dimensionValue(response, row, 'customEvent:rp_content_id'), type = dimensionValue(response, row, 'customEvent:rp_content_type');
+    const count = read(row, 'eventCount');
+    if (event === 'rp_detail_view') { views = count; continue; }
+    if (event === 'rp_buy_click') { buyClicks = count; continue; }
+    if (event === 'rp_cart_click') { cartClicks = count; continue; }
+    if (event === 'rp_scroll') { scroll[id] = count; continue; }
+    if (!['image','video','embed'].includes(type) || !/^(image_\d+_p\d+|video_\d+|embed_\d+)$/.test(id)) continue;
+    if (!content.has(id)) content.set(id, { id, type, views: emptyCount, visibleMs: withTime && !restrictions(response).has('customEvent:rp_visible_ms') ? 0 : null, starts: emptyCount, video25: emptyCount, video50: emptyCount, video75: emptyCount, video100: emptyCount });
+    const item = content.get(id);
+    if (event === 'rp_content_view') item.views = count;
+    if (event === 'rp_content_time' && withTime) item.visibleMs = read(row, 'customEvent:rp_visible_ms');
+    const key = { rp_video_start: 'starts', rp_video_25: 'video25', rp_video_50: 'video50', rp_video_75: 'video75', rp_video_100: 'video100' }[event];
+    if (key) item[key] = count;
+  }
+  const rows = [...content.values()].sort((a,b) => a.id.localeCompare(b.id, 'en', { numeric: true })).map(item => ({ ...item,
+    reachRate: views > 0 && item.views !== null ? item.views / views : null,
+    averageVisibleSeconds: item.views > 0 && item.visibleMs !== null ? item.visibleMs / item.views / 1000 : null,
+    completionRate: item.starts > 0 && item.video100 !== null ? item.video100 / item.starts : null }));
+  const meta = reportMetadata(response, warnings, '상세페이지');
+  if (Number(response.rowCount) > (response.rows || []).length) warnings.push('GA4 응답이 5,000행을 초과해 일부 구간이 생략되었습니다. 기간을 줄여 조회하세요.');
+  if (!withTime) warnings.push('rp_visible_ms 맞춤 측정항목을 등록하면 체류시간이 표시됩니다.');
+  if (rows.some(item => item.reachRate > 1)) warnings.push('일부 구간 도달률이 100%를 넘습니다. 중복 설치 또는 최근 GA4 처리 상태를 확인하세요.');
+  warnings.push('최근 데이터와 맞춤 정의는 반영에 24~48시간이 걸릴 수 있습니다. 구매·장바구니 수치는 버튼 클릭 의향이며 결제 완료 건수가 아닙니다.');
+  return { ...context, state: rows.length || views > 0 ? 'ready' : views === null ? 'unavailable' : 'no_data', views, buyClicks, cartClicks, rows, scroll,
+    metadata: meta, warnings: [...new Set(warnings)], cached: false };
+}
 
 function failure(status, message, code = 'GA4_ERROR') {
   return Object.assign(new Error(message), { status, code });
@@ -240,6 +299,7 @@ function assembleReport(responses, context) {
 function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   // Constructor is deliberately lazy: Linux tests and existing installations can load the app without DPAPI.
   const filename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'ga4.dpapi');
+  const detailFilename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'detail-settings.json');
   const tokens = new Map(), reports = new Map(), inFlight = new Map();
   let stored = null, saveSequence = 0;
   const currentTime = () => { const value = Number(now()); if (!Number.isFinite(value)) throw failure(500, '현재 시간을 확인할 수 없습니다.', 'GA4_CLOCK'); return value; };
@@ -428,7 +488,54 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     try { return structuredClone(await work); }
     finally { if (inFlight.get(cacheKey) === work) inFlight.delete(cacheKey); }
   }
-  return { status: () => safeStatus(readConfig()), save, test, remove, report };
+  function detailSettings(input) {
+    if (input !== undefined) {
+      const config = validateDetailSettings(input);
+      fs.mkdirSync(path.dirname(detailFilename), { recursive: true, mode: 0o700 });
+      const temp = detailFilename + '.tmp-' + crypto.randomBytes(8).toString('hex');
+      try { fs.writeFileSync(temp, JSON.stringify(config), { mode: 0o600 }); fs.renameSync(temp, detailFilename); }
+      finally { try { fs.unlinkSync(temp); } catch (_) {} }
+      return config;
+    }
+    try { return validateDetailSettings(JSON.parse(fs.readFileSync(detailFilename, 'utf8'))); }
+    catch (error) { if (error.code === 'ENOENT') return { ...DETAIL_DEFAULTS }; throw failure(503, '상세페이지 설정을 읽을 수 없습니다.', 'DETAIL_SETTINGS_READ'); }
+  }
+  async function detailReport(input = {}) {
+    if (input.refresh !== undefined && typeof input.refresh !== 'boolean') throw failure(400, '새로고침 옵션을 확인해 주세요.', 'GA4_REFRESH');
+    const settings = { ...detailSettings(), ...input }, body = buildDetailRequest(settings, false);
+    const config = requireConfig(), identity = configurationIdentity(config);
+    const key = ['detail', identity, input.since, input.until, settings.productId, settings.contentVersion, settings.scope || 'all'].join('|');
+    const cached = reports.get(key);
+    if (!input.refresh && cached && currentTime() - cached.savedAt < CACHE_MS) return { ...structuredClone(cached.value), cached: true };
+    if (inFlight.has(key)) return structuredClone(await inFlight.get(key));
+    const work = (async () => {
+      let token = await accessToken(config.credentials);
+      let reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
+      if (reply.status === 401) {
+        token = await accessToken(config.credentials, token);
+        reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
+      }
+      if (!reply.ok) throw failure(reply.status === 403 ? 403 : 502, 'GA4 맞춤 정의를 확인하지 못했습니다. 연결 검사 후 다시 조회해 주세요.', 'DETAIL_METADATA');
+      const metadata = await jsonResponse(reply);
+      if (!Array.isArray(metadata.dimensions) || !Array.isArray(metadata.metrics)) throw failure(502, 'GA4 맞춤 정의 응답을 확인할 수 없습니다.', 'DETAIL_METADATA_SCHEMA');
+      const dims = new Set(metadata.dimensions.map(item => item.apiName)), metrics = new Set(metadata.metrics.map(item => item.apiName));
+      const missing = DETAIL_DIMENSIONS.filter(name => !dims.has('customEvent:' + name));
+      const context = { since: input.since, until: input.until, productId: settings.productId, contentVersion: settings.contentVersion, scope: settings.scope || 'all', fetchedAt: timestamp() };
+      if (missing.length) return { ...context, state: 'setup_required', missing, rows: [], warnings: ['GA4 관리자 → 맞춤 정의에서 이벤트 범위의 맞춤 측정기준을 등록하세요.'] };
+      const withTime = metrics.has('customEvent:rp_visible_ms');
+      if (withTime) body.metrics.push({ name: 'customEvent:rp_visible_ms' });
+      const result = assembleDetailReport(await runReport(config, body), context, withTime);
+      const latest = readConfig();
+      if (!latest || configurationIdentity(latest) !== identity) throw failure(409, '조회 중 GA4 연결이 변경되었습니다. 다시 조회해 주세요.', 'GA4_CONFIG_CHANGED');
+      reports.set(key, { savedAt: currentTime(), value: result });
+      while (reports.size > MAX_CACHE_ENTRIES) reports.delete(reports.keys().next().value);
+      return result;
+    })();
+    inFlight.set(key, work);
+    try { return structuredClone(await work); } finally { if (inFlight.get(key) === work) inFlight.delete(key); }
+  }
+  return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport };
 }
 
-module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS };
+module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS,
+  validateDetailSettings, buildDetailRequest, assembleDetailReport, DETAIL_DIMENSIONS, DETAIL_DEFAULTS };
