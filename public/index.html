@@ -279,7 +279,8 @@ async function syncStatus(){const d=await api('/api/cafe24/orders/status'),j=d.j
  if(j.running)setTimeout(()=>syncStatus().catch(()=>{}),3500);
 }
 for(const [id,mode] of [['cafe-backfill','backfill'],['cafe-recent','recent']])$(id).addEventListener('click',async()=>{try{await api('/api/cafe24/orders/sync',{mode});await syncStatus();}catch(e){$('cafe-sync-status').textContent='수집 시작 실패: '+e.message;}});
-$('cafe-refresh').onclick=()=>$('signal-run').onclick=async()=>{
+$('cafe-refresh').onclick=()=>syncStatus().catch(e=>$('cafe-sync-status').textContent=e.message);
+$('signal-run').onclick=async()=>{
  const button=$('signal-run'),start=$('impact-start').value,end=$('impact-end').value,summary=$('signal-summary'),table=$('signal-daily');
  if(!start||!end||start>end){summary.textContent='조회 시작일과 종료일을 확인해 주세요.';return;}
  let stored={};try{stored=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{}
