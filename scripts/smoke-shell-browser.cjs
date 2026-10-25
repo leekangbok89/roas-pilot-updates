@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','원가관리','메타 광고 실험실','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','원가관리','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
@@ -323,14 +323,16 @@ async function verifyBrowserScenario(){
  await page.keyboard.press('Escape');await shellState(false);
  pass('keyboard focus, Enter and Escape open/close navigation without shifting content');
 
- for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['메타 광고 실험실','/meta-experiments.html',null],['한눈에 보기','/visual-overview.html',null]]){
+ for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['한눈에 보기','/visual-overview.html',null]]){
   await nav(label);
   const target=new URL(page.url());assert.equal(target.pathname+target.hash,url,'Actual navigation destination for '+label);
   if(section){assert.equal(await page.locator(section).isVisible(),true,'Selected workspace section must be visible');for(const other of ['#ads-section','#daily-compare','#sales-impact'])if(other!==section)assert.equal(await page.locator(other).isVisible(),false,'Inactive workspace section must be hidden');}
  }
  pass('actual navigation clicks switch all routes/index sections and keep one correct active item');
  await page.goto(base+'/meta-experiments.html');
- assert.equal(await page.locator('#dimension').count(),1,'Experiment comparison page is available even after legacy update');
+ assert.equal(await page.locator('#dimension').count(),1,'Experiment comparison page remains available at its direct URL');
+ assert.equal(await page.locator('#app-nav [data-app-route="experiments"]').count(),0,'Direct experiment page must not reinsert its own sidebar entry');
+ assert.deepEqual(await activeLabel(),[],'Hidden experiment route must not activate an unavailable sidebar entry');
  // Exercise the read-only cross-account comparison with synthetic local data.
  assert.equal(await page.locator('#account-choice').inputValue(),'all');
  await page.locator('#load').click();
