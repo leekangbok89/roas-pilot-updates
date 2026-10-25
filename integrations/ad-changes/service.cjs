@@ -58,21 +58,25 @@ function createJournal({ baseDir, loadDay, today }) {
     const store = read(), index = store.entries.findIndex(e => e.id === input.id);
     if (index < 0) fail('삭제할 기록이 없습니다.', 404);
     if (Number(input.revision) !== store.entries[index].revision) fail('기록이 변경됐습니다. 새로고침하세요.', 409);
-    store.entries.splice(index, 1); write(store); return { ok: true };
+    const removed = store.entries.splice(index, 1)[0];
+    if (removed.legacyKey) store.legacyKeys = [...new Set([...(store.legacyKeys || []), removed.legacyKey])];
+    write(store); return { ok: true };
   }
   function importLegacy(items) {
     if (!Array.isArray(items) || items.length > 500) fail('기존 기록은 한 번에 500개까지 가져올 수 있습니다.');
     const store = read(); let imported = 0;
+    const seen = new Set([...(store.legacyKeys || []), ...store.entries.map(e => e.legacyKey).filter(Boolean)]);
     for (const item of items) {
       const raw = { date: item.date, kind: item.kind, ad: item.ad, note: item.note };
       const key = crypto.createHash('sha256').update(JSON.stringify(raw)).digest('hex');
-      if (store.entries.some(e => e.legacyKey === key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const entry = validate({ ...raw, channel: 'other', level: 'unlinked', entityName: item.ad || '기존 기록', windowDays: 7 });
       const now = new Date().toISOString();
       store.entries.push({ ...entry, id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, legacyKey: key }); imported++;
     }
     if (store.entries.length > 10000) fail('최대 10,000개까지 저장할 수 있습니다.');
-    if (imported) write(store);
+    if (imported || seen.size !== (store.legacyKeys || []).length) { store.legacyKeys = [...seen]; write(store); }
     return { imported, entries: list() };
   }
   function matches(entry, row) {
