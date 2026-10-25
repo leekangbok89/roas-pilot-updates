@@ -63,3 +63,11 @@ npm test
 ```
 
 GA4 클라이언트의 편집 원본은 `integrations/ga4/client.cjs`, 화면 원본은 `public/ga4.html`, `public/ga4.js`, `public/ga4.css`입니다. 실제 인증키 없이 합성 키와 응답으로 인증·집계·실패 보존을 검증하며, `scripts/smoke-ga4-browser.cjs`가 브라우저 연결 흐름과 기존 버전 업데이트 경로를 확인합니다.
+
+### 광고 변경 기록
+
+- 메뉴의 **광고 변경 기록**에서 변경일, 광고 채널, 캠페인·광고세트·광고, 변경 전후 설정과 이유를 저장합니다.
+- 기록은 `.roas-data/ad-changes.json`에 보관되어 프로그램 업데이트로 교체되지 않습니다. 이전 브라우저 메모는 새 화면을 열면 중복 없이 가져옵니다. 가져온 메모의 채널과 광고 ID는 직접 연결하세요.
+- **저장된 광고 불러오기**로 대상 ID를 연결하면 Meta 저장 데이터에서 변경 전후 각 3·7·14·28일의 광고비, 구매, ROAS, CPA, CPC, CTR을 비교합니다. 변경 당일과 오늘·미래 날짜는 제외하고 누락일·통화 차이·다른 변경 겹침을 표시합니다.
+- **전체 분석자료 내보내기**는 변경 이력과 일별 성과가 포함된 JSON을 다운로드합니다. 추후 광고 분석 요청에 첨부하세요. 네이버 검색광고·GFA는 현재 변경 메모를 저장하며 자동 성과 비교는 Meta부터 지원합니다.
+- 검증: `node --test tests/ad-changes.test.js`, `node scripts/bundle-ad-changes.cjs --check`, `node scripts/smoke-ad-changes-browser.cjs` (Playwright 필요).

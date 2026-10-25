@@ -124,7 +124,7 @@
       displayLink.className = 'app-nav-link';
       displayLink.dataset.appRoute = 'display';
       displayLink.href = '/display-analysis.html';
-      displayLink.textContent = '디스플레이 분석';
+      displayLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 13l3-3 3 2 4-5"/></svg><span>디스플레이 분석</span>';
       var costLink = nav.querySelector('[data-app-route="cost"]');
       if (costLink) nav.insertBefore(displayLink, costLink);
       else nav.appendChild(displayLink);
@@ -138,6 +138,16 @@
       var settingsLink = nav.querySelector('[data-app-route="data-source"]');
       if (settingsLink) nav.insertBefore(detailLink, settingsLink);
       else nav.appendChild(detailLink);
+    }
+    if (nav && !nav.querySelector('[data-app-route="changes"]')) {
+      var changeLink = document.createElement('a');
+      changeLink.className = 'app-nav-link';
+      changeLink.dataset.appRoute = 'changes';
+      changeLink.href = '/ad-changes.html';
+      changeLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v5M16 2v5M4 10h16M8 14h8M8 17h5"/></svg><span>광고 변경 기록</span>';
+      var dailyLink = nav.querySelector('[data-app-route="daily-compare"]');
+      if (dailyLink) dailyLink.after(changeLink);
+      else nav.appendChild(changeLink);
     }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
     links.forEach(function (link) {
@@ -220,7 +230,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(['cost','ga4','experiments','display','detail'].indexOf(page) >= 0 ? page : 'overview');
+      markActive(['cost','ga4','experiments','display','detail','changes'].indexOf(page) >= 0 ? page : 'overview');
       body.classList.add('app-route-ready');
     }
   }

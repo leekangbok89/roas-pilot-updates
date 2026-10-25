@@ -12,6 +12,7 @@ on:
       - 'tests/**'
       - 'scripts/**'
       - 'integrations/ga4/**'
+      - 'integrations/ad-changes/**'
   workflow_dispatch:
     inputs:
       version:
@@ -55,6 +56,8 @@ jobs:
         run: |
           node scripts/bundle-shell.cjs --check
           node scripts/bundle-ga4.cjs --check
+          node scripts/bundle-ad-changes.cjs --check
+          node --check public/ad-changes.js
           node scripts/bundle-experiments.cjs --check
           node --check server.js
           node --check public/app.js
@@ -87,6 +90,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-shell-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ga4-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-detail-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ad-changes-browser.cjs
 
       - name: Package ROAS Pilot
         run: |
