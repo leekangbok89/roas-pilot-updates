@@ -267,6 +267,41 @@ async function verifyBrowserScenario(){
   }
   pass(mode+' theme: three pages have readable primary/muted/table/control text and persist across navigation/reload');
  }
+ // Verify that the experiment page uses the shared light/dark palette and saved theme.
+ for(const mode of ['light','dark']){
+   await go('/meta-experiments.html');await theme(mode);
+   const color=await page.evaluate(()=>{
+     const root=getComputedStyle(document.documentElement);
+     const rgb=selector=>getComputedStyle(document.querySelector(selector)).backgroundColor;
+     const sample=document.createElement('div');document.body.appendChild(sample);
+     const token=name=>{sample.style.backgroundColor='var('+name+')';return getComputedStyle(sample).backgroundColor;};
+     const colors={
+       pagePalette:token('--app-bg'),
+       panelPalette:token('--app-surface'),
+       softPalette:token('--app-surface-soft'),
+       page:rgb('body'),panel:rgb('.experiment-panel'),
+       date:rgb('.filters input[type="date"]'),select:rgb('.filters select'),
+       table:rgb('.experiment-panel th'),notice:rgb('.experiment-panel .notice'),
+       scheme:root.colorScheme
+     };
+     sample.style.color='var(--app-muted)';
+     colors.muted=getComputedStyle(sample).color;
+     colors.description=getComputedStyle(document.querySelector('.experiment-panel p')).color;
+     sample.remove();return colors;
+   });
+   assert.equal(color.scheme,mode,'Native date inputs must use the selected theme');
+   assert.equal(color.page,color.pagePalette,'Page must match shared background');
+   assert.equal(color.panel,color.panelPalette,'Cards must match shared panel colors');
+   assert.equal(color.date,color.panelPalette,'Date fields must match shared controls');
+   assert.equal(color.select,color.panelPalette,'Dropdowns must match shared controls');
+   assert.equal(color.table,color.softPalette,'Table headers must use shared soft background');
+   assert.equal(color.notice,color.softPalette,'Information panels must use shared soft background');
+   assert.equal(color.description,color.muted,'Description must use shared secondary text color');
+   await contrastAudit(mode);
+   await page.reload({waitUntil:'domcontentloaded'});
+   assert.equal(await page.locator('html').getAttribute('data-theme'),mode,'Experiment theme must persist across reload');
+ }
+ pass('experiment cards, date fields, dropdowns, tables, text and notices match both shared themes');
  for(const hash of ['#cafe24-oauth','#naver-commerce','#history-audit','#update-manager']){
   await go('/'+hash);await theme('dark');assert.deepEqual(await activeLabel(),['설정 관리']);
   assert.equal(await page.locator(hash).isVisible(),true,'Direct settings hash opens correct settings section');

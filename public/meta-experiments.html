@@ -2,14 +2,28 @@
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ROAS Pilot | 메타 광고 실험실</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css">
 <style>
-*{box-sizing:border-box}body{margin:0;background:var(--app-bg,#f5f7fb);color:var(--text-primary,#27324a);font:14px 'Segoe UI','Noto Sans KR',sans-serif}
-.app-main{padding:26px;max-width:1750px} .experiment-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.experiment-panel{background:var(--surface,#fff);border:1px solid var(--border,#dce3ee);border-radius:14px;padding:18px}
-.experiment-panel h2{font-size:15px;margin:0 0 8px}.experiment-panel p{font-size:12px;line-height:1.5;opacity:.75;margin:0}
-.filters{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.filters label{display:grid;gap:5px;font-size:12px;min-width:140px}.filters input,.filters select,.filters button{padding:10px;border:1px solid #cbd4e3;border-radius:8px;font:inherit;max-width:100%;background:var(--surface,#fff);color:inherit}
-button{cursor:pointer}.primary{background:#6359df!important;color:white!important;border-color:#6359df!important}
-table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid #dce3ee;padding:11px;text-align:right}th:first-child,td:first-child{text-align:left}th{opacity:.7}
-.notice{border-radius:9px;padding:12px;background:rgba(140,150,170,.11);margin:12px 0;line-height:1.65}.scroll{overflow:auto}
-@media(max-width:1050px){.experiment-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.experiment-grid{grid-template-columns:1fr}.app-main{padding:14px}}
+/* Use the shared ROAS Pilot light/dark tokens; never hard-code light panels. */
+*{box-sizing:border-box}
+body{margin:0;background:var(--app-bg);color:var(--app-text);font:14px 'Segoe UI','Noto Sans KR',sans-serif}
+.app-main{padding:26px;max-width:1750px}
+.experiment-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.experiment-panel{background:var(--app-surface);color:var(--app-text);border:1px solid var(--app-border);border-radius:14px;padding:18px;box-shadow:var(--app-shadow)}
+.experiment-panel h2{font-size:15px;margin:0 0 8px;color:var(--app-text)}
+.experiment-panel p{font-size:12px;line-height:1.5;color:var(--app-muted);margin:0}
+.filters{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.filters label{display:grid;gap:5px;font-size:12px;min-width:140px;color:var(--app-muted)}
+.filters input,.filters select,.filters button{padding:10px;border:1px solid var(--app-border);border-radius:8px;font:inherit;max-width:100%;background:var(--app-surface);color:var(--app-text)}
+.filters :is(input,select):disabled{opacity:.65}
+button{cursor:pointer}
+.primary{background:var(--app-accent)!important;color:#fff!important;border-color:var(--app-accent)!important}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border-bottom:1px solid var(--app-border);padding:11px;text-align:right;color:var(--app-text)}
+th:first-child,td:first-child{text-align:left}
+th{background:var(--app-surface-soft);color:var(--app-muted);font-weight:600}
+.notice{border:1px solid var(--app-border);border-radius:9px;padding:12px;background:var(--app-surface-soft);color:var(--app-muted);margin:12px 0;line-height:1.65}
+.scroll{overflow:auto}
+@media(max-width:1050px){.experiment-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.experiment-grid{grid-template-columns:1fr}.app-main{padding:14px}}
 </style></head>
 <body data-app-page="experiments">
 <div class="app-nav-rail" id="app-nav-rail"><button class="app-rail-button" id="app-nav-toggle" type="button" aria-label="메뉴 열기" aria-controls="app-drawer">☰</button><button class="app-rail-button" id="app-theme-toggle" aria-label="테마 전환"><span data-theme-icon>☾</span></button></div>
