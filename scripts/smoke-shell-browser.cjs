@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','전체 매출 분석','원가관리','GA4 유입 분석','메타 광고 실험실','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','원가관리','메타 광고 실험실','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
@@ -177,6 +177,8 @@ async function hoverOverlay(){
  const icons=await page.locator(selectors.links+' svg').evaluateAll(nodes=>nodes.map(node=>({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));
  assert.equal(icons.length,expectedLabels.length,'Each navigation item retains its compact icon');
  for(const icon of icons)assert.ok(Math.abs(icon.width-17)<0.1&&Math.abs(icon.height-17)<0.1,'Navigation icons must be17px, never the hundreds of pixels seen with missing shell CSS: '+JSON.stringify(icon));
+ const labelSizes=await page.locator(selectors.links).evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).fontSize));
+ assert.deepEqual(labelSizes,expectedLabels.map(()=> '13px'),'All sidebar labels are 13px');
  sameBox(initial,await mainBox(),'Hovered navigation overlay');
  await page.mouse.move(900,650);await shellState(false);
  sameBox(initial,await mainBox(),'Closed navigation overlay');
@@ -321,7 +323,7 @@ async function verifyBrowserScenario(){
  await page.keyboard.press('Escape');await shellState(false);
  pass('keyboard focus, Enter and Escape open/close navigation without shifting content');
 
- for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['전체 매출 분석','/#sales-impact','#sales-impact'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['메타 광고 실험실','/meta-experiments.html',null],['한눈에 보기','/visual-overview.html',null]]){
+ for(const [label,url,section] of [['광고별 진단','/#ads-section','#ads-section'],['날짜별 비교','/#daily-compare','#daily-compare'],['설정 관리','/#data-source','#data-source'],['원가관리','/cost-management.html',null],['메타 광고 실험실','/meta-experiments.html',null],['한눈에 보기','/visual-overview.html',null]]){
   await nav(label);
   const target=new URL(page.url());assert.equal(target.pathname+target.hash,url,'Actual navigation destination for '+label);
   if(section){assert.equal(await page.locator(section).isVisible(),true,'Selected workspace section must be visible');for(const other of ['#ads-section','#daily-compare','#sales-impact'])if(other!==section)assert.equal(await page.locator(other).isVisible(),false,'Inactive workspace section must be hidden');}
@@ -345,10 +347,13 @@ async function verifyBrowserScenario(){
  await page.waitForFunction(()=>document.getElementById('status').textContent.includes('조회 완료'));
  assert.equal(await page.locator('#classify tr').first().locator('select[data-label="asc"]').inputValue(),'ON','Campaign classification is saved in the browser');
 
- await nav('광고별 진단');await nav('날짜별 비교');await nav('전체 매출 분석');
+ await nav('광고별 진단');await nav('날짜별 비교');
+ // The hidden legacy analysis view remains reachable by its direct URL.
+ await page.goto(base+'/#sales-impact');await page.waitForFunction(()=>document.body.dataset.appView==='sales-impact');
+ assert.deepEqual(await activeLabel(),[]);
  await page.goBack();await page.waitForFunction(()=>document.body.dataset.appView==='daily-compare');assert.deepEqual(await activeLabel(),['날짜별 비교']);assert.equal(await page.locator('#daily-compare').isVisible(),true);
- await page.goForward();await page.waitForFunction(()=>document.body.dataset.appView==='sales-impact');assert.deepEqual(await activeLabel(),['전체 매출 분석']);assert.equal(await page.locator('#sales-impact').isVisible(),true);assert.equal(await page.locator('#funnel').isVisible(),false);
- pass('browser back/forward restores the correct index workspace and keeps removed legacy views hidden');
+ await page.goForward();await page.waitForFunction(()=>document.body.dataset.appView==='sales-impact');assert.deepEqual(await activeLabel(),[]);assert.equal(await page.locator('#sales-impact').isVisible(),true);assert.equal(await page.locator('#funnel').isVisible(),false);
+ pass('browser back/forward retains direct sales route with no redundant menu link');
 
  const touch=await browser.newContext({viewport:{width:768,height:1024},hasTouch:true,isMobile:true,locale:'ko-KR',timezoneId:'Asia/Seoul'});
  await touch.addInitScript(ids=>localStorage.setItem('roas-account-ids',JSON.stringify(ids)),accountIds);
