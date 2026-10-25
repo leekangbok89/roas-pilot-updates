@@ -245,7 +245,7 @@ async function unconfiguredBrowser(mock) {
   assert.equal(await page.locator('#ga4-query').isDisabled(), true);
   assert.equal(await page.locator('#ga4-report').isVisible(), false);
   assert.equal(mock.calls.some(call => call.path === '/api/ga4/report'), false, 'Unconfigured UI must not ask for Google reports');
-  assert.equal(await page.locator('[data-app-route="ga4"]').getAttribute('aria-current'), 'page');
+  assert.equal(await page.locator('#app-nav [data-app-route="ga4"]').count(), 0, 'GA4 remains directly accessible without a sidebar menu item');
   await noHorizontalOverflow(1280, 'Unconfigured desktop');
   await noHorizontalOverflow(390, 'Unconfigured mobile');
   await page.setViewportSize({ width: 1280, height: 1000 });

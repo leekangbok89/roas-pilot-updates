@@ -112,6 +112,13 @@
     applyTheme(root.dataset.theme, false);
 
     var nav = document.getElementById('app-nav');
+    // Keep the original views and direct URLs available, but remove two
+    // redundant items from the shared navigation on every workspace page.
+    if (nav) {
+      nav.querySelectorAll('[data-app-route="sales-impact"], [data-app-route="ga4"]').forEach(function (link) {
+        link.remove();
+      });
+    }
     if (nav && !nav.querySelector('[data-app-route="experiments"]')) {
       var experimentalLink = document.createElement('a');
       experimentalLink.className = 'app-nav-link';
