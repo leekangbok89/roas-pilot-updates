@@ -119,6 +119,17 @@
         link.remove();
       });
     }
+    // Shared display analysis navigation, visible on all workspace pages.
+    if (nav && !nav.querySelector('[data-app-route="display"]')) {
+      var displayLink = document.createElement('a');
+      displayLink.className = 'app-nav-link';
+      displayLink.dataset.appRoute = 'display';
+      displayLink.href = '/display-analysis.html';
+      displayLink.textContent = '디스플레이 분석';
+      var costLink = nav.querySelector('[data-app-route="cost"]');
+      if (costLink) nav.insertBefore(displayLink, costLink);
+      else nav.appendChild(displayLink);
+    }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
     function markActive(key) {
       links.forEach(function (link) {
