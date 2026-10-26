@@ -54,7 +54,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
   const privateFile = path.join(baseDir, '.roas-private', 'naver-search.dpapi');
   const dataDir = path.join(baseDir, '.roas-data', 'naver-search');
   const stateFile = path.join(dataDir, 'state.json');
-  let active = false, progress = '', lastRequestAt = 0, memo, memoStamp;
+  let active = false, historyRunning = false, progress = '', lastRequestAt = 0, memo, memoStamp;
   const readJson = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
   function state() { return readJson(stateFile) || { enabled: true, lastAttemptAt: null, lastSuccessAt: null, error: null }; }
   function setState(values) { atomic(stateFile, JSON.stringify({ ...state(), ...values })); }
@@ -89,6 +89,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       scopeConfigured: !!selected, scopeCampaignIds: selected?.campaignIds || [], scopeKey: selected?.key || '',
       enabled: s.enabled !== false, intervalMinutes: 60, recentDays: 7, running: active, progress,
       lastSuccessAt: s.lastSuccessAt, lastAttemptAt: s.lastAttemptAt, error: s.error,
+      history: historyStatus(saved),
       nextAutomaticAt: saved && selected && s.enabled !== false ? new Date(Math.max(now(), Date.parse(s.lastAttemptAt || '') + HOUR || 0)).toISOString() : null };
   }
   async function exclusive(operation) {
@@ -205,10 +206,80 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       }
     });
   }
+  function historyRanges(since, until) {
+    if (!validDate(since) || !validDate(until) || since > until || until > kstDate(now()) || (Date.parse(until) - Date.parse(since)) / 86400000 > 365)
+      throw fail(400, '과거 수집 기간은 오늘까지 최대 366일로 선택해 주세요.');
+    const ranges = [];
+    for (let cursor = since; cursor <= until;) {
+      const year = Number(cursor.slice(0, 4)), month = Number(cursor.slice(5, 7));
+      const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10), end = monthEnd < until ? monthEnd : until;
+      ranges.push({ since: cursor, until: end });
+      cursor = new Date(Date.parse(end) + 86400000).toISOString().slice(0, 10);
+    }
+    return ranges;
+  }
+  function historyFile(config) { return path.join(dataDir, config.customerId, requireScope(config).key, 'history.json'); }
+  function historyStatus(config) {
+    if (!config || !scope(config)) return null;
+    const job = readJson(historyFile(config));
+    if (!job || job.customerId !== config.customerId || job.scopeKey !== scope(config).key) return null;
+    return { ...job, running: historyRunning, status: job.status === 'running' && !historyRunning ? 'paused' : job.status };
+  }
+  function historyReport() {
+    const config = requireConfig(), selected = requireScope(config), job = historyStatus(config);
+    if (!job) throw fail(404, '아직 과거 수집 내역이 없습니다. 6월부터 수집·저장을 눌러주세요.');
+    const reports = historyRanges(job.since, job.until).map(range => cached(config, range)).filter(Boolean);
+    if (!reports.length) throw fail(404, '저장된 기간이 없습니다. 과거 수집을 시작해 주세요.');
+    const output = selected.campaignIds.map(id => {
+      const rows = reports.map(report => report.campaigns.find(row => row.id === id));
+      const last = rows[rows.length - 1];
+      return { id, name: last.name, type: last.type, status: last.status, ...aggregate(rows) };
+    });
+    const daily = reports.flatMap(report => report.daily).sort((a, b) => a.date.localeCompare(b.date));
+    const totalDays = (Date.parse(job.until) - Date.parse(job.since)) / 86400000 + 1;
+    const fetchedAt = reports.map(report => report.fetchedAt).sort().at(-1);
+    const incomplete = reports.length !== job.totalRanges || daily.filter(day => day.complete).length < totalDays;
+    const warnings = [...new Set(reports.flatMap(report => report.warnings))];
+    if (incomplete) warnings.push('일부 기간 또는 캠페인 날짜가 미확인입니다. 아래 합계는 저장된 자료의 확인분이며 전체 기간 확정 합계가 아닙니다.');
+    return { customerId: config.customerId, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, since: job.since, until: job.until,
+      fetchedAt, currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings,
+      noData: !daily.length, cached: true, stale: true, history: true, partial: incomplete, completedRanges: reports.length, totalRanges: job.totalRanges, jobStatus: job.status };
+  }
+  function startHistory(input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail(400, '과거 수집 기간을 확인해 주세요.');
+    if (active) throw fail(409, '검색광고 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.');
+    const config = requireConfig(), selected = requireScope(config), since = input.since === undefined ? '2026-06-01' : input.since, until = input.until === undefined ? kstDate(now()) : input.until;
+    const ranges = historyRanges(since, until), filename = historyFile(config);
+    const job = { customerId: config.customerId, scopeKey: selected.key, since, until, status: 'running', startedAt: new Date(now()).toISOString(),
+      completedRanges: 0, totalRanges: ranges.length, confirmedDays: 0, currentRange: '', error: null, finishedAt: null };
+    atomic(filename, JSON.stringify(job));
+    // A local background task survives closing the page. Each monthly result is
+    // committed separately, so a retry or process restart can reuse saved months.
+    historyRunning = true;
+    void exclusive(async () => {
+      try {
+        for (const range of ranges) {
+          job.currentRange = range.since + ' ~ ' + range.until; progress = job.currentRange + ' 과거 자료 수집 중'; atomic(filename, JSON.stringify(job));
+          let value = cached(config, range);
+          if (!value || !Array.isArray(value.campaignDaily) || range.until === kstDate(now()) && now() - Date.parse(value.fetchedAt) >= HOUR) value = await collect(config, range);
+          job.completedRanges++; job.confirmedDays += value.daily.filter(day => day.complete).length;
+          atomic(filename, JSON.stringify(job));
+        }
+        const expected = (Date.parse(until) - Date.parse(since)) / 86400000 + 1;
+        job.status = job.confirmedDays === expected ? 'complete' : 'partial'; job.finishedAt = new Date(now()).toISOString();
+        setState({ lastSuccessAt: job.finishedAt, error: null });
+      } catch (error) {
+        job.status = 'failed'; job.error = error.message; job.finishedAt = new Date(now()).toISOString(); setState({ error: error.message });
+      } finally { historyRunning = false; atomic(filename, JSON.stringify(job)); }
+    }).catch(() => {});
+    return historyStatus(config);
+  }
   async function automatic() {
     if (active) return;
     let config; try { config = read(); } catch { return; }
     if (!config || !scope(config)) return;
+    const priorHistory = historyStatus(config);
+    if (priorHistory?.status === 'paused') { startHistory({ since: priorHistory.since, until: priorHistory.until }); return; }
     const s = state();
     if (s.enabled === false || (s.lastAttemptAt && now() - Date.parse(s.lastAttemptAt) < HOUR)) return;
     return exclusive(async () => {
@@ -255,7 +326,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     }
     return { customerId: config.customerId, scopeKey: selected.key, days };
   }
-  return { status, save, report, automatic, spendSnapshot,
+  return { status, save, report, automatic, spendSnapshot, startHistory, historyReport,
     campaignOptions: () => exclusive(async () => {
       const config = requireConfig(), selected = scope(config);
       return { customerId: config.customerId, campaignIds: selected?.campaignIds || [], campaigns: (await campaigns(config)).map(row => ({ id: row.nccCampaignId, name: String(row.name || row.nccCampaignId).slice(0, 300), type: String(row.campaignTp || ''), status: String(row.status || '') })) };

@@ -16,7 +16,7 @@ function fixture(t) {
   let clock = Date.parse('2026-10-25T03:00:00Z');
   const requests = [], waits = [];
   let handler = url => url.pathname === '/ncc/campaigns' ? [campaign('cmp-a'), campaign('cmp-b')] : { data: [day('2026-10-24', url.searchParams.get('id') === 'cmp-a' ? 1100 : 3300, 2, 22000)] };
-  const service = createSearchService({ baseDir: dir,
+  const makeService = () => createSearchService({ baseDir: dir,
     now: () => clock, sleep: async ms => { waits.push(ms); },
     protect: (mode, value) => mode === 'encrypt' ? 'ENC:' + Buffer.from(value).toString('base64') : Buffer.from(value.slice(4), 'base64').toString(),
     fetchImpl: async (raw, options) => {
@@ -25,8 +25,76 @@ function fixture(t) {
       if (result instanceof Response) return result;
       return new Response(JSON.stringify(result), { status: 200 });
     } });
-  return { service, dir, requests, waits, connect: async () => { const value = await service.save(config); await service.saveScope({ campaignIds: ['cmp-a', 'cmp-b'] }); return value; }, setHandler: value => { handler = value; }, advance: ms => { clock += ms; } };
+  const service = makeService();
+  return { service, restart: makeService, dir, requests, waits, connect: async () => { const value = await service.save(config); await service.saveScope({ campaignIds: ['cmp-a', 'cmp-b'] }); return value; }, setHandler: value => { handler = value; }, advance: ms => { clock += ms; } };
 }
+
+async function historyFinished(service) {
+  for (let i = 0; i < 2000; i++) {
+    if (!service.status().history?.running) return service.status().history;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw Error('Synthetic history job did not finish');
+}
+function historicalHandler(url) {
+  if (url.pathname === '/ncc/campaigns') return [campaign('cmp-a'), campaign('cmp-b'), campaign('truver')];
+  const range = JSON.parse(url.searchParams.get('timeRange')), rows = [];
+  for (let time = Date.parse(range.since); time <= Date.parse(range.until); time += 86400000) rows.push(day(new Date(time).toISOString().slice(0, 10), 100, 1, 1000));
+  return { data: rows };
+}
+
+test('June history runs in monthly chunks and saves scoped daily data and exact full-range totals', async t => {
+  const f = fixture(t); await f.connect(); f.setHandler(historicalHandler);
+  const started = f.service.startHistory(); assert.equal(started.running, true);
+  await assert.rejects(f.service.saveScope({ campaignIds: ['cmp-b'] }), { status: 409 });
+  const finished = await historyFinished(f.service);
+  assert.equal(finished.since, '2026-06-01'); assert.equal(finished.until, '2026-10-25');
+  assert.equal(finished.status, 'complete'); assert.equal(finished.completedRanges, 5); assert.equal(finished.confirmedDays, 147);
+  const ranges = f.requests.filter(r => r.url.pathname === '/stats').map(r => JSON.parse(r.url.searchParams.get('timeRange')));
+  assert.equal(ranges.length, 10); assert.ok(ranges.every(r => (Date.parse(r.until) - Date.parse(r.since)) / 86400000 < 31));
+  assert.ok(f.requests.filter(r => r.url.pathname === '/stats').every(r => r.url.searchParams.get('id') !== 'truver'));
+  const count = f.requests.length, result = f.service.historyReport();
+  assert.equal(result.daily.length, 147); assert.equal(result.summary.spend, 29400); assert.equal(result.summary.purchases, 294); assert.equal(result.partial, false);
+  assert.equal(f.requests.length, count, 'history viewing reads saved data without new API calls');
+  const snapshot=f.service.spendSnapshot('2026-06-01','2026-10-25');assert.equal(Object.keys(snapshot.days).length,147);assert.equal(Object.values(snapshot.days).reduce((sum,day)=>sum+day.powerlink,0),29400,'saved monthly history feeds daily advertising statistics exactly once');
+  assert.equal(f.restart().historyReport().summary.spend, 29400, 'the saved report survives service restart');
+});
+
+test('failed historical month preserves earlier data and retry skips already saved months', async t => {
+  const f = fixture(t); await f.connect();
+  f.setHandler(url => url.pathname === '/stats' && JSON.parse(url.searchParams.get('timeRange')).since === '2026-07-01' ? new Response('unavailable', { status: 503 }) : historicalHandler(url));
+  f.service.startHistory({ since: '2026-06-01', until: '2026-08-31' });
+  let job = await historyFinished(f.service); assert.equal(job.status, 'failed'); assert.equal(job.completedRanges, 1);
+  assert.equal(f.service.historyReport().daily.length, 30); assert.equal(f.service.historyReport().partial, true);
+  f.setHandler(historicalHandler);f.service.startHistory({ since: '2026-06-01', until: '2026-08-31' });
+  job = await historyFinished(f.service);assert.equal(job.status, 'complete');
+  const june = f.requests.filter(r => r.url.pathname === '/stats' && JSON.parse(r.url.searchParams.get('timeRange')).since === '2026-06-01');
+  assert.equal(june.length, 2, 'retry does not refetch or duplicate the saved June campaign rows');
+  assert.equal(f.service.historyReport().daily.length, 92);
+});
+
+test('interrupted history resumes after restart even when recent-day automatic refresh is disabled', async t => {
+  const f = fixture(t); await f.connect();f.setHandler(historicalHandler);
+  f.service.startHistory({ since: '2026-06-01', until: '2026-07-31' });await historyFinished(f.service);
+  f.service.settings({ enabled: false });
+  const file = path.join(f.dir, '.roas-data/naver-search/123456', f.service.status().scopeKey, 'history.json');
+  const job = JSON.parse(fs.readFileSync(file));job.status = 'running';fs.writeFileSync(file, JSON.stringify(job));
+  const restarted = f.restart();assert.equal(restarted.status().history.status, 'paused');
+  const count = f.requests.length;await restarted.automatic();await historyFinished(restarted);
+  assert.equal(restarted.status().history.status, 'complete');assert.equal(f.requests.length, count);
+  await restarted.saveScope({ campaignIds: ['cmp-b'] });assert.equal(restarted.status().history, null);
+  assert.throws(() => restarted.historyReport(), { status: 404 }, 'a new campaign scope cannot read old historical totals');
+});
+
+test('history never turns absent dates into zeros and validates ranges before starting work', async t => {
+  const f = fixture(t);await f.connect();
+  for (const input of [null, [], { since: '2026-02-30' }, { since: '2026-10-26' }, { since: '2024-06-01' }]) assert.throws(() => f.service.startHistory(input), { status: 400 });
+  assert.equal(f.service.status().history, null);
+  f.setHandler(url => url.pathname === '/ncc/campaigns' ? [campaign('cmp-a'), campaign('cmp-b')] : { data: [] });
+  f.service.startHistory({ since: '2026-06-01', until: '2026-06-30' });
+  const job = await historyFinished(f.service);assert.equal(job.status, 'partial');assert.equal(job.confirmedDays, 0);
+  assert.equal(f.service.historyReport().summary.spend, null);assert.equal(f.service.historyReport().partial, true);
+});
 
 test('Naver signing uses raw secret, timestamp, GET and URI without query', () => {
   assert.equal(signature('1792897200000', '/ncc/campaigns', 'test-secret-key'), 'Bi+/6Wgya2T0OlzAbIdi/A+MgK1hKb0LmVRsRKlNozM=');
@@ -223,14 +291,14 @@ test('legacy updater boots embedded search assets without installing client or U
 
 test('search endpoints reject cross-origin requests, wrong methods, missing action headers and malformed payloads', async t => {
   const f = serverFixture(t);
-  for (const endpoint of ['credentials', 'settings', 'test', 'disconnect', 'scope']) {
+  for (const endpoint of ['credentials', 'settings', 'test', 'disconnect', 'scope', 'history']) {
     const url = '/api/naver-search/' + endpoint;
     assert.equal((await f.request(url)).status, 405);
     for (const headers of [{}, { 'x-roas-local-action': 'yes', origin: 'https://evil.invalid' }, { 'x-roas-local-action': 'yes', host: 'evil.invalid:3000' }]) {
       assert.equal((await f.request(url, { method: 'POST', headers, body: '{}' })).status, 403);
     }
   }
-  for (const endpoint of ['status', 'report', 'campaigns']) {
+  for (const endpoint of ['status', 'report', 'campaigns', 'history-report']) {
     assert.equal((await f.request('/api/naver-search/' + endpoint, { headers: { host: 'evil.invalid:3000' } })).status, 403);
     assert.equal((await f.request('/api/naver-search/' + endpoint, { method: 'POST' })).status, 405);
   }

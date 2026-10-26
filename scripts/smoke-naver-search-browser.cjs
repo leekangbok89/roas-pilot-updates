@@ -10,8 +10,9 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-search-browser-'));
 const base = 'http://127.0.0.1:3000';
 const { chromium } = require(process.env.ROAS_PLAYWRIGHT_MODULE || 'playwright');
 let child, browser, page, connected = false, scopeChosen = false, auto = true, failSave = false, stale = false, missing = false;
+let history = null;
 const errors = [], external = [], posted = [];
-const status = () => ({ configured: connected, customerId: connected ? '123456' : '', scopeConfigured: connected && scopeChosen, scopeKey: scopeChosen ? 'scope-wemamang-a' : '', scopeCampaignIds: scopeChosen ? ['cmp-a'] : [], enabled: auto, running: false, lastSuccessAt: '2026-10-25T03:00:00Z', nextAutomaticAt: '2026-10-25T04:00:00Z' });
+const status = () => ({ configured: connected, customerId: connected ? '123456' : '', scopeConfigured: connected && scopeChosen, scopeKey: scopeChosen ? 'scope-wemamang-a' : '', scopeCampaignIds: scopeChosen ? ['cmp-a'] : [], enabled: auto, running: history?.running || false, history, lastSuccessAt: '2026-10-25T03:00:00Z', nextAutomaticAt: '2026-10-25T04:00:00Z' });
 const metrics = { spend: 4400, impressions: 2000, clicks: 20, purchases: 4, purchaseRevenue: 44000, purchaseRoas: 1000, ctr: 1, cpc: 220, cpm: 2200 };
 function result(url) {
   const range = new URL(url).searchParams;
@@ -48,6 +49,12 @@ async function main() {
     }
     if (endpoint === 'campaigns') return route.fulfill({ json: { campaignIds: scopeChosen ? ['cmp-a'] : [], campaigns: [{ id: 'cmp-a', name: '위마망 백도씨', type: 'WEB_SITE' }, { id: 'cmp-truver', name: '트루버 버너', type: 'SHOPPING' }, { id: 'cmp-unknown', name: '알 수 없는 캠페인', type: 'WEB_SITE' }] } });
     if (endpoint === 'scope') { assert.deepEqual(request.postDataJSON().campaignIds, ['cmp-a']); scopeChosen = true; }
+    if(endpoint==='history'){
+      const input=request.postDataJSON();assert.equal(input.since,'2026-06-01');
+      history={...input,status:'running',running:true,completedRanges:0,totalRanges:5,confirmedDays:0,currentRange:'2026-06-01 ~ 2026-06-30'};
+      return route.fulfill({status:202,json:history});
+    }
+    if(endpoint==='history-report')return route.fulfill({json:{...result(base+'/api/naver-search/report?'+new URLSearchParams({since:history.since,until:history.until})),history:true,partial:false,completedRanges:5,totalRanges:5}});
     if (endpoint === 'settings') auto = request.postDataJSON().enabled;
     if (endpoint === 'disconnect') connected = false;
     return route.fulfill({ json: endpoint === 'report' ? result(url) : endpoint === 'test' ? { ok: true, campaignCount: 1 } : status() });
@@ -79,6 +86,17 @@ async function main() {
   assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);
   console.log('PASS explicit Wemamang-only scope persists across reload; Truver and unknown campaigns stay unchecked');
   console.log('PASS legacy upgrade: connect/save/clear keys, purchase metrics, safe campaign text, no browser secret storage');
+  assert.equal(await page.locator('#search-history-since').inputValue(),'2026-06-01');
+  await page.locator('#search-history-start').click();
+  await page.waitForFunction(()=>document.getElementById('search-history-status').textContent.includes('수집 중'));
+  assert.equal(await page.locator('#search-history-start').isDisabled(),true);assert.equal(await page.locator('#search-load').isDisabled(),true);
+  assert.equal(posted.find(item=>item.endpoint==='history').body.until,await page.locator('#search-history-until').inputValue());
+  history={...history,status:'complete',running:false,completedRanges:5,confirmedDays:148};
+  await page.reload();await page.waitForFunction(()=>document.getElementById('search-history-status').textContent.includes('수집 완료')&&!document.getElementById('search-history-view').disabled);
+  await page.locator('#search-history-view').click();await page.waitForFunction(()=>document.getElementById('search-message').textContent.includes('과거 전체 기간'));
+  assert.match(await page.locator('#search-period').innerText(),/2026-06-01/);assert.match(await page.locator('#search-report-notice').innerText(),/전체 기간/);
+  assert.equal(await page.locator('#search-campaigns').getByText('트루버 버너').count(),0);
+  console.log('PASS June history starts once, locks competing actions, shows saved progress after reload and displays the full stored period');
   await page.locator('#search-auto').uncheck(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
   assert.equal(auto, false); await page.locator('#search-auto').check(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
   assert.equal(auto, true);
