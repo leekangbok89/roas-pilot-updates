@@ -54,7 +54,7 @@ function setup(){
   assert.ok(start>=0 && end>start,'AdsOverviewSummary must be present in public/app.js');
   vm.runInContext(app.slice(start,end+7)+'\nglobalThis.adapter=AdsOverviewSummary;',context);
   assert.equal(calls.length,0,'module initialization must not fetch');
-  assert.equal(context.adapter.metrics.length,23);
+  assert.equal(context.adapter.metrics.length,22);
   context.document={getElementById:id=>nodes[id],createElement:tag=>new Element(tag)};
   return {adapter:context.adapter,nodes,calls,setData:value=>data=value,setGate:value=>gate=value};
 }
@@ -88,7 +88,7 @@ test('selected summaries preserve full-spend ratios, scopes, financial subtotals
   assert.equal(m.totalStoreRevenue.value,170000);assert.equal(m.totalStoreRevenue.partial,true);
   assert.equal(m.profit.value,8800,'confirmed financial amount is used without redistributing ad spend');
   assert.equal(m.profit.partial,true);assert.equal(m.cost.value,40000);assert.equal(m.fee.value,11200);
-  assert.equal(env.calls.length,4);assert.equal(env.nodes['ads-period-summary-cards'].children.length,23);
+  assert.equal(env.calls.length,4);assert.equal(env.nodes['ads-period-summary-cards'].children.length,22);
   assert.equal(env.nodes['ads-period-summary-cards'].children[0].attributes['data-summary-key'],'smartstoreSpend');
   const again=byKey(await env.adapter.update({...base,keys:['spend','revenue'],channel:'naver'}));
   assert.equal(env.calls.length,4,'channel/key/search rerenders share a snapshot');
@@ -273,10 +273,11 @@ test('selected-period advertising diagnostics include Naver inputs in costs and 
  const env=setup(),data=fixtures();
  data.profit.days[0].naverAdSpend={powerlink:100,shopping:200,gfa:300};data.profit.days[0].naverAdSpendEstimated=true;
  env.setData(data);
- const keys=['spend','gfaSpend','shoppingSpend','powerlinkSpend','roas'];
+ const keys=['spend','gfaSpend','searchSpend','roas'];
  const result=await env.adapter.update({...base,keys,seriesKeys:keys,windowSize:1}),metrics=byKey(result);
  assert.equal(metrics.spend.value,110600);assert.equal(metrics.spend.partial,true);
- assert.equal(metrics.gfaSpend.value,300);assert.equal(metrics.gfaSpend.partial,true);assert.equal(metrics.powerlinkSpend.value,100);
+ assert.equal(metrics.gfaSpend.value,300);assert.equal(metrics.gfaSpend.partial,true);
+ assert.equal(metrics.searchSpend.value,300);assert.equal(metrics.searchSpend.partial,false);
  close(metrics.roas.value,25000/110000*100);
  assert.match(metrics.gfaSpend.detail,/균등 배분 추정/);
 });
