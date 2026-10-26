@@ -262,14 +262,17 @@ async function verifyBrowserScenario(){
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
  async function readSharedSpend(context){
-  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===6&&
-   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
-  const got=await page.locator('#ad-spend-breakdown [data-spend-key]').evaluateAll(nodes=>nodes.map(node=>({
-   key:node.dataset.spendKey,label:node.querySelector('.roas-shared-spend-title')?.textContent,
-   amount:node.querySelector('strong')?.textContent
+  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===1&&
+   document.querySelector('#ad-spend-breakdown .roas-spend-rollup-trigger strong')?.textContent.endsWith('원'));
+  const root=page.locator('#ad-spend-breakdown');
+  assert.equal(await root.locator('.roas-spend-rollup-trigger').count(),1,'Only one total spend card is visible: '+context);
+  const got=await root.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(node=>({
+   key:node.dataset.spendLine,label:node.querySelector('.roas-spend-line-label')?.textContent,
+   amount:node.querySelector('.roas-spend-line-amount')?.textContent
   })));
-  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'],context);
-  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
+  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
+  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+  assert.equal(await root.locator('.roas-spend-rollup-trigger').getAttribute('aria-expanded'),'false');
   return got.map(item=>item.amount);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
@@ -286,31 +289,35 @@ async function verifyBrowserScenario(){
  assert.equal(overviewPlacement.headingClass,'ad-spend-heading');
  assert.equal(overviewPlacement.afterAlert,true,'The strip stays after the overview toolbar and alert');
  assert.equal(overviewPlacement.afterToolbar,true);
- // Screenshot-sized breakpoints including intermediate 720–1100px widths
- // must not overlap, overflow or cut off any of the three spend cards.
+ // Hover and keyboard-click both reveal the same five-line disclosure.
+ const root=page.locator('#ad-spend-breakdown'),trigger=root.locator('.roas-spend-rollup-trigger'),popover=root.locator('.roas-spend-popover');
+ assert.equal(await popover.isVisible(),false);
+ await trigger.hover();assert.equal(await popover.isVisible(),true,'Hover reveals the breakdown');
+ assert.equal(await root.locator('[data-spend-line]').count(),5);
+ await page.mouse.move(900,700);assert.equal(await popover.isVisible(),false);
+ await trigger.click();assert.equal(await trigger.getAttribute('aria-expanded'),'true');
+ assert.equal(await popover.isVisible(),true,'Click opens the popover without hover');
+ await trigger.focus();await page.keyboard.press('Escape');assert.equal(await trigger.getAttribute('aria-expanded'),'false');
+ // Responsive checks: one card stays readable and the popover cannot overflow
+ // the viewport or mask another menu's navigation.
  for(const width of [390,700,768,920,1024,1280,1440,1920]){
   await page.setViewportSize({width,height:1000});
   const geometry=await page.evaluate(()=>{
-   const root=document.getElementById('ad-spend-breakdown'),cards=[...root.querySelectorAll('[data-spend-key]')];
-   return {viewport:document.documentElement.clientWidth,strip:root.getBoundingClientRect().toJSON(),cards:cards.map(x=>x.getBoundingClientRect().toJSON())};
+   const root=document.getElementById('ad-spend-breakdown'),card=root.querySelector('.roas-spend-rollup');
+   return {viewport:document.documentElement.clientWidth,rect:card.getBoundingClientRect().toJSON(),
+    lineCount:root.querySelectorAll('[data-spend-line]').length};
   });
-  assert.equal(geometry.cards.length,6,'All three spend cards stay visible at '+width+'px');
-  for(const [index,card] of geometry.cards.entries()){
-   assert.ok(card.width>60&&card.height>35,'Card '+index+' has a readable size at '+width+'px');
-   assert.ok(card.left>=-1&&card.right<=geometry.viewport+1,'No horizontal spend-card clipping at '+width+'px '+JSON.stringify(card));
-   for(const previous of geometry.cards.slice(0,index)){
-    const overlapWidth=Math.min(card.right,previous.right)-Math.max(card.left,previous.left);
-    const overlapHeight=Math.min(card.bottom,previous.bottom)-Math.max(card.top,previous.top);
-    assert.ok(overlapWidth<=1||overlapHeight<=1,'Spend cards must not overlap at '+width+'px');
-   }
-  }
+  assert.equal(geometry.lineCount,5);
+  assert.ok(geometry.rect.width>110&&geometry.rect.height>50,'Total spend card remains legible at '+width+'px');
+  assert.ok(geometry.rect.left>=-1&&geometry.rect.right<=geometry.viewport+2,
+   'Spend card does not overflow at '+width+'px: '+JSON.stringify(geometry.rect));
  }
 
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
    await go(route.url);assert.deepEqual(await labelList(),expectedLabels,'Shared navigation labels/order on '+route.url);
-   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Three spend values must be identical on overview, diagnosis and cost pages over the same period');
+   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Five spend amounts must be identical on overview, diagnosis and cost pages over the same period');
    assert.deepEqual(await activeLabel(),[route.active]);
    const current=await typography();
    for(const key of ['body','title','button','input','select','table'])assert.ok(current[key],key+' must have a visible sample on '+route.url);
