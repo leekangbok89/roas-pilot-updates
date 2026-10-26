@@ -195,6 +195,15 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
    detail:known.length?(apiDays?'API 수집 '+apiDays+'일 · 확인 ':'입력 ')+known.length+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):(channel==='gfa'?'미입력 · 네이버 GFA 분석에서 광고비를 저장하세요.':'미수집 · 위마망 검색광고 선택 후 새로 가져오기를 실행하세요.')};
   for(let i=0;i<daily.length;i++){daily[i][key]=enteredCosts[i].amounts[channel];daily[i].known[key]=daily[i][key]!==null;daily[i].complete[key]=daily[i].known[key];}
  }
+ const combined=enteredCosts.map(cost=>({value:cost.amounts.shopping===null&&cost.amounts.powerlink===null?null:(cost.amounts.shopping??0)+(cost.amounts.powerlink??0),
+  complete:cost.amounts.shopping!==null&&cost.amounts.powerlink!==null,
+  api:cost.sources?.shopping==='api'||cost.sources?.powerlink==='api'}));
+ const confirmedSearch=combined.filter(row=>row.value!==null);
+ metrics.searchSpend={label:'검색광고 (네이버쇼핑 + 파워링크)',scope:'네이버 검색광고 · API 우선',value:confirmedSearch.length?confirmedSearch.reduce((sum,row)=>sum+row.value,0):null,
+  knownDays:confirmedSearch.length,completeDays:combined.filter(row=>row.complete).length,totalDays:dates.length,
+  partial:confirmedSearch.length>0&&combined.some(row=>!row.complete),
+  detail:'검색광고 API '+combined.filter(row=>row.api).length+'일 · 확인 '+confirmedSearch.length+'/'+dates.length+'일 · 동일 날짜 수동 입력 중복 제외'};
+ for(let i=0;i<daily.length;i++){daily[i].searchSpend=combined[i].value;daily[i].known.searchSpend=combined[i].value!==null;daily[i].complete.searchSpend=combined[i].complete;}
  if(enteredCosts.some(day=>day.entered)){
   const total=metrics.spend;total.value=(total.value??0)+enteredCosts.reduce((sum,day)=>sum+day.total,0);total.scope='Meta + 네이버 광고비';
   const manualComplete=enteredCosts.every(day=>Object.values(day.amounts).every(Number.isFinite));
