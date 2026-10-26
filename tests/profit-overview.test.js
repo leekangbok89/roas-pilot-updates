@@ -203,31 +203,32 @@ test('saved spend layouts preserve twelve slots and only ROAS cards appear in th
  assert.deepEqual(auditRows.map(row=>row.attributes['data-roas-key']),['roas','mallRoas'],'The audit includes only distinct selected ROAS metrics');
 });
 
-test('fixed six-category spend strip is always visible and preserves the saved twelve-slot configuration',()=>{
+test('one grouped spend card exposes five consistent categories and preserves saved KPI slots',()=>{
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];savedSummaryCardKeys=Array(12).fill('');");
  completeAdCoverage(h);
  h.run('renderSummaryCards();');
- const root=h.node('ad-spend-breakdown'),rows=root.children;
- assert.deepEqual(rows.map(row=>row.attributes['data-spend-key']),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend']);
- assert.deepEqual(rows.map(row=>row.children[0].textContent),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
- assert.deepEqual(rows.map(row=>row.children[1].children[0].textContent),['3,000원','1,000원','2,000원','—','—','—']);
- assert.deepEqual(rows.map(row=>row.children[2].textContent),['Meta · 전체 연결 계정','Meta · 스마트스토어 광고','Meta · 자사몰 광고','네이버 · GFA 입력분','네이버 · 쇼핑검색 입력분','네이버 · 파워링크 입력분']);
- assert.equal(h.node('summary-cards').children.filter(row=>row.attributes['data-summary-key']).length,0,'Stored empty custom summary slots remain unchanged');
+ const root=h.node('ad-spend-breakdown'),card=root.children[0],trigger=card.children[0],panel=card.children[1],rows=panel.children;
+ assert.equal(root.children.length,1);
+ assert.equal(card.attributes['data-spend-key'],'spend');
+ assert.equal(trigger.children[0].textContent,'총 광고비');
+ assert.equal(trigger.children[1].children[0].textContent,'3,000원');
+ assert.deepEqual(rows.map(row=>row.attributes['data-spend-line']),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend']);
+ assert.deepEqual(rows.map(row=>row.children[0].textContent),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+ assert.deepEqual(rows.map(row=>row.children[1].textContent),['3,000원','1,000원','2,000원','—','—']);
+ assert.equal(h.node('summary-cards').children.filter(row=>row.attributes['data-summary-key']).length,0,'Stored empty custom KPI slots remain unchanged');
  assert.equal(h.run('savedSummaryCardKeys.every(key=>key==="")'),true);
- assert.match(h.node('ad-spend-note').textContent,/협력 캠페인만 자동 식별한 값은 아닙니다/);
  h.node('channel').value='cafe';h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['3,000원','1,000원','2,000원','—','—','—'],'Three totals cannot change with the channel filter');
+ assert.equal(root.children[0].children[0].children[1].children[0].textContent,'3,000원','Total spend ignores the global channel filter');
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.cafe=data.naver;");
  completeAdCoverage(h,['111']);h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['1,000원','—','—','—','—','—'],'A shared account cannot be assigned to both channels');
- assert.match(h.node('ad-spend-note').textContent,/동일한 Meta 광고 계정/);
- for(const row of root.children.slice(1,3))assert.match(row.children[3].textContent,/동일 광고계정.*구분/);
- h.run("connectedAccounts={naver:'111',cafe:''};data.cafe=[];");completeAdCoverage(h,['111']);h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['1,000원','1,000원','—','—','—','—']);
- assert.equal(root.children[0].children[1].children[1].textContent,'확인분','One missing account cannot certify complete total');
- assert.match(h.node('ad-spend-note').textContent,/일부 미연결/);
- assert.match(root.children[2].children[3].textContent,/광고계정 미연결/);
+ const sharedRows=root.children[0].children[1].children;
+ assert.equal(root.children[0].children[0].children[1].children[0].textContent,'1,000원');
+ assert.deepEqual(sharedRows.slice(0,3).map(row=>row.children[1].textContent),['1,000원','—','—'],'A shared Meta account is counted once and never fabricated into two channel values');
+ h.run("profitDays=new Map([['2026-09-01',{naverAdSpend:{gfa:300,shopping:200,powerlink:100},searchAdSpend:300,naverAdSpendSources:{gfa:'manual',shopping:'api',powerlink:'api'},naverAdSpendEstimatedChannels:{gfa:false,shopping:false,powerlink:false}}]]);connectedAccounts={naver:'111',cafe:'222'};data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];");
+ completeAdCoverage(h);h.run('renderSummaryCards();');
+ const five=root.children[0].children[1].children;
+ assert.deepEqual(five.map(row=>row.children[1].textContent),['3,600원','1,000원','2,000원','300원','300원']);
 });
 
 test('channel ROAS retains explicit zero revenue and identifies incomplete dates without inventing returns',()=>{
