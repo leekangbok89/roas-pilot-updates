@@ -60,3 +60,13 @@ test('ledger API persists through reload, enforces local mutations and supports 
  assert.equal((await f.request('PUT',{})).status,405);assert.equal((await f.request('POST',null)).status,400);
  f.write('naver-ad-spend.json',{broken:true});assert.equal((await f.request('GET')).status,500,'corrupt persisted costs must not become zero');
 });
+
+test('selected search API costs override matching manual dates once, preserve GFA and distinguish zero from missing',t=>{
+ const f=fixture(t),date='2026-09-01',saved=f.save({shopping:200,powerlink:100,gfa:300},date,'2026-09-02');
+ const snapshot={days:{[date]:{shopping:0,powerlink:450}}},cost=f.naverSpendDay(date,saved,snapshot);
+ assert.deepEqual(cost.amounts,{shopping:0,powerlink:450,gfa:150});assert.equal(cost.total,600);assert.deepEqual(cost.sources,{shopping:'api',powerlink:'api',gfa:'manual'});assert.equal(cost.estimatedChannels.shopping,false);assert.equal(cost.estimatedChannels.gfa,true);
+ assert.equal(f.naverSpendDay(date,saved,{days:{[date]:{shopping:null}}}).amounts.shopping,100);
+ for(const ch of ['naver','cafe24']){f.write(ch+'-orders/orders.json',{orders:{}});f.write(ch+'-orders/sync.json',{days:{[date]:{checkedAt:'2026-09-02'}}});}
+ f.write('daily/11111/'+date+'.json',{date,account:'11111',currency:'KRW',rows:[{spend:'1000',account_currency:'KRW'}]});
+ const row=f.profitDaily(date,date,{accounts:['11111'],searchSpendSnapshot:snapshot}).days[0];assert.equal(row.adSpend,1600);assert.equal(row.profit,-1600);assert.equal(row.confirmed.profit,-1600);assert.equal(row.naverAdSpendSources.shopping,'api');
+});

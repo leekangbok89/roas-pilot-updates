@@ -241,3 +241,28 @@ test('search endpoints reject cross-origin requests, wrong methods, missing acti
   }
   assert.equal(fs.existsSync(path.join(f.dir, '.roas-private')), false);
 });
+
+test('overview spend snapshot splits selected shopping and Powerlink caches without API calls or overlap duplication', async t => {
+  const f=fixture(t);await f.connect();
+  let shopping=1200;
+  f.setHandler(url=>url.pathname==='/ncc/campaigns'?[{...campaign('cmp-a'),campaignTp:'SHOPPING'},campaign('cmp-b'),campaign('truver')]:{data:[day('2026-10-23',url.searchParams.get('id')==='cmp-a'?shopping:300,1,1000),day('2026-10-24',url.searchParams.get('id')==='cmp-a'?0:500,1,1000)]});
+  await f.service.report({since:'2026-10-23',until:'2026-10-24'});
+  let count=f.requests.length,s=f.service.spendSnapshot('2026-10-23','2026-10-24');
+  assert.equal(f.requests.length,count);assert.equal(s.days['2026-10-23'].shopping,1200);assert.equal(s.days['2026-10-23'].powerlink,300);assert.equal(s.days['2026-10-24'].shopping,0);assert.equal(s.days['2026-10-24'].powerlink,500);
+  assert.equal(f.requests.some(r=>r.url.searchParams.get('id')==='truver'),false);
+  shopping=1700;f.advance(1000);
+  f.setHandler(url=>url.pathname==='/ncc/campaigns'?[{...campaign('cmp-a'),campaignTp:'SHOPPING'},campaign('cmp-b')]:{data:[day('2026-10-23',url.searchParams.get('id')==='cmp-a'?shopping:400,1,1000)]});
+  await f.service.report({since:'2026-10-23',until:'2026-10-23'});
+  s=f.service.spendSnapshot('2026-10-23','2026-10-24');assert.equal(s.days['2026-10-23'].shopping,1700);assert.equal(s.days['2026-10-23'].powerlink,400);assert.equal(s.days['2026-10-24'].powerlink,500);
+  await f.service.saveScope({campaignIds:['cmp-b']});count=f.requests.length;
+  assert.deepEqual(f.service.spendSnapshot('2026-10-23','2026-10-24').days,{});assert.equal(f.requests.length,count);
+});
+
+test('legacy mixed multi-day search caches require refresh and incomplete daily rows stay unknown',async t=>{
+ const f=fixture(t);await f.connect();
+ f.setHandler(url=>url.pathname==='/ncc/campaigns'?[{...campaign('cmp-a'),campaignTp:'SHOPPING'},campaign('cmp-b')]:{data:[day('2026-10-23',100,1,1000),day('2026-10-24',200,1,1000)]});
+ await f.service.report({since:'2026-10-23',until:'2026-10-24'});
+ const file=path.join(f.dir,'.roas-data/naver-search/123456',f.service.status().scopeKey,'2026-10-23_2026-10-24.json'),r=JSON.parse(fs.readFileSync(file));
+ const rows=r.campaignDaily;delete r.campaignDaily;fs.writeFileSync(file,JSON.stringify(r));assert.deepEqual(f.service.spendSnapshot('2026-10-23','2026-10-24').days,{});
+ r.campaignDaily=rows.filter(row=>row.id==='cmp-a');fs.writeFileSync(file,JSON.stringify(r));const s=f.service.spendSnapshot('2026-10-23','2026-10-24');assert.equal(s.days['2026-10-23'].shopping,null);assert.equal(s.days['2026-10-23'].powerlink,null);
+});

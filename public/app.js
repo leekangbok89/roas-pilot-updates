@@ -232,9 +232,9 @@ const AdsOverviewSummary = (() => {
     return snapshot.contexts.get(choice);
   }
 function naverCostMetric(channel,dates,days){
- let value=0,knownDays=0,estimated=false;
- for(const date of dates){const day=days.get(date),amount=day?.naverAdSpend?.[channel];if(!Number.isFinite(amount))continue;value+=amount;knownDays++;estimated||=day.naverAdSpendEstimated===true;}
- return {value:knownDays?value:null,knownDays,completeDays:knownDays,totalDays:dates.length,partial:knownDays>0&&knownDays<dates.length,scope:'네이버 입력분',detail:knownDays?'입력 '+knownDays+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):'미입력 · 네이버 GFA 분석에서 입력하세요.'};
+ let value=0,knownDays=0,apiDays=0,estimated=false;
+ for(const date of dates){const day=days.get(date),amount=day?.naverAdSpend?.[channel];if(!Number.isFinite(amount))continue;value+=amount;knownDays++;if(day.naverAdSpendSources?.[channel]==='api')apiDays++;estimated||=day.naverAdSpendEstimatedChannels?.[channel]??(day.naverAdSpendEstimated===true);}
+ return {value:knownDays?value:null,knownDays,apiDays,completeDays:knownDays,totalDays:dates.length,partial:knownDays>0&&knownDays<dates.length,scope:apiDays?'네이버 검색 API':'네이버 입력분',detail:knownDays?(apiDays?'API 수집 '+apiDays+'일 · 확인 ':'입력 ')+knownDays+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):(channel==='gfa'?'미입력 · 네이버 GFA 분석에서 광고비를 저장하세요.':'미수집 · 위마망 검색광고 선택 후 새로 가져오기를 실행하세요.')};
 }
   function calculate(key,snapshot,choice,contexts) {
     const definition=definitions[key],resolvedChoice=definition.adScope || choice;
@@ -243,7 +243,7 @@ function naverCostMetric(channel,dates,days){
     const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend';
     const scope=definition.scope || (definition.field ? '전체 연결 · 위마망' : context.scope);
     const unavailable=detail => ({value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail});
-    if(definition.naverSpendChannel)return {...naverCostMetric(definition.naverSpendChannel,context.dates,snapshot.profitDays),scope:definition.scope};
+    if(definition.naverSpendChannel){const cost=naverCostMetric(definition.naverSpendChannel,context.dates,snapshot.profitDays);return {...cost,scope:cost.apiDays?cost.scope:definition.scope};}
     if (definition.adScope) {
       const connected=definition.adScope==='all' ? snapshot.accounts.naver || snapshot.accounts.cafe : snapshot.accounts[definition.adScope];
       if (!connected && !(key==='spend' && context.dates.some(date=>Object.values(snapshot.profitDays.get(date)?.naverAdSpend||{}).some(Number.isFinite)))) return unavailable('광고계정 미연결');
@@ -272,7 +272,7 @@ function naverCostMetric(channel,dates,days){
       let amount=knownDays ? sum(context.selected.filter(knownSpend)).spend : null,partial=amount!==null && completeDays<totalDays;
       const entered=key==='spend'?['gfa','shopping','powerlink'].map(channel=>naverCostMetric(channel,context.dates,snapshot.profitDays)).filter(cost=>cost.value!==null):[];
       if(entered.length){amount=(amount??0)+entered.reduce((sum,cost)=>sum+cost.value,0);partial=completeDays<totalDays||entered.length<3||entered.some(cost=>cost.partial);}
-      return {value:amount,partial,knownDays,completeDays,totalDays,scope:entered.length?'Meta + 네이버 입력분':scope,
+      return {value:amount,partial,knownDays,completeDays,totalDays,scope:entered.length?'Meta + 네이버 광고비':scope,
         detail:(amount===null ? '미수집 · ' : '')+'확인 '+knownDays+'/'+totalDays+'일'+(partial ? ' · 광고비 일부 미확인' : '')+(entered.length?' · 네이버 입력분 포함 · 기간 합계 입력은 일별 균등 배분 추정':'')};
     }
     const required=key==='revenue' || isRoas ? 'revenue' : ['purchases','cpa'].includes(key) ? 'purchases' : null;

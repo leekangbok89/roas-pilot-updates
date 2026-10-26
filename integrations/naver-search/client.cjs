@@ -153,7 +153,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     return value?.schema === 2 && value.scopeKey === selected.key && value.customerId === config.customerId && value.since === range.since && value.until === range.until && Array.isArray(value.campaigns) && value.campaigns.length === selected.campaignIds.length && new Set(value.campaigns.map(row => row.id)).size === selected.campaignIds.length && value.campaigns.every(row => selected.campaignIds.includes(row.id)) && Array.isArray(value.daily) && validDate(value.since) && Number.isFinite(Date.parse(value.fetchedAt)) ? value : null;
   }
   async function collect(config, range) {
-    const selected = requireScope(config), all = await campaigns(config), output = [], days = new Map();
+    const selected = requireScope(config), all = await campaigns(config), output = [], days = new Map(), campaignDaily = [];
     const list = all.filter(row => selected.campaignIds.includes(row.nccCampaignId));
     if (list.length !== selected.campaignIds.length) throw fail(409, '선택한 캠페인 중 일부를 조회할 수 없습니다. 위마망 캠페인 선택을 다시 확인해 주세요.');
     for (const [index, campaign] of list.entries()) {
@@ -170,6 +170,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
         if (['spend', 'clicks', 'impressions'].some(key => item[key] === null)) throw fail(502, '검색광고 광고비·클릭·노출 지표가 누락되어 갱신을 완료하지 못했습니다.');
         if (!days.has(date)) days.set(date, []);
         days.get(date).push(item);
+        campaignDaily.push({ ...item, id: campaign.nccCampaignId, type: String(campaign.campaignTp || '') });
         return item;
       });
       output.push({ id: campaign.nccCampaignId, name: String(campaign.name || campaign.nccCampaignId).slice(0, 300), type: String(campaign.campaignTp || ''), status: String(campaign.status || ''), noData: !data.length, ...aggregate(normalized) });
@@ -180,7 +181,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     if (output.some(row => row.purchases === null || row.purchaseRevenue === null)) warnings.push('구매 지표가 없거나 응답되지 않은 캠페인은 미확인으로 표시합니다. 전체 전환을 구매로 대체하지 않습니다.');
     if (output.some(row => row.noData)) warnings.push('일별 성과가 반환되지 않은 캠페인은 미확인으로 표시하며 합계도 확정하지 않습니다.');
     if (daily.some(row => !row.complete)) warnings.push('일부 캠페인의 성과가 반환되지 않은 날짜는 일별 합계를 미확인으로 표시합니다.');
-    const result = { schema: 2, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, customerId: config.customerId, ...range, fetchedAt: new Date(now()).toISOString(), currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings, noData: !daily.length };
+    const result = { schema: 2, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, customerId: config.customerId, ...range, fetchedAt: new Date(now()).toISOString(), currency: 'KRW', vatIncluded: true, campaigns: output, campaignDaily, daily, summary: aggregate(output), warnings, noData: !daily.length };
     // Commit only after every campaign succeeds. Failed refreshes retain the last report.
     atomic(cacheFile(config, range), JSON.stringify(result));
     return result;
@@ -218,7 +219,43 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       } catch (error) { setState({ error: error.message }); }
     });
   }
-  return { status, save, report, automatic,
+  function spendSnapshot(since, until) {
+    // Dashboard reads saved, explicitly selected campaign data only. No API calls.
+    let config; try { config = read(); } catch { return { days: {}, issue: '검색광고 연결 확인 필요' }; }
+    const selected = scope(config);
+    if (!config || !selected) return { days: {}, issue: '위마망 검색광고 캠페인 선택 필요' };
+    const dir = path.join(dataDir, config.customerId, selected.key);
+    if (!fs.existsSync(dir)) return { days: {}, issue: '선택 기간 검색광고 수집 필요' };
+    const reports = fs.readdirSync(dir).filter(name => /^\d{4}-\d\d-\d\d_\d{4}-\d\d-\d\d\.json$/.test(name) && name.slice(0, 10) <= until && name.slice(11, 21) >= since)
+      .map(name => readJson(path.join(dir, name)))
+      .filter(r => r?.schema === 2 && validDate(r.since) && validDate(r.until) && r.since <= r.until && r.customerId === config.customerId && r.scopeKey === selected.key && Number.isFinite(Date.parse(r.fetchedAt)) && Array.isArray(r.campaigns) && r.campaigns.length === selected.campaignIds.length && new Set(r.campaigns.map(c => c.id)).size === selected.campaignIds.length && r.campaigns.every(c => selected.campaignIds.includes(c.id)) && Array.isArray(r.daily))
+      .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt));
+    const days = {};
+    const channel = type => type === 'SHOPPING' ? 'shopping' : type === 'WEB_SITE' ? 'powerlink' : null;
+    for (const r of reports) {
+      for (const day of r.daily) {
+        if (!validDate(day.date) || day.date < since || day.date > until || day.date < r.since || day.date > r.until) continue;
+        let rows = Array.isArray(r.campaignDaily) ? r.campaignDaily.filter(row => row.date === day.date) : null;
+        // Old one-day and single-product reports can be split without guessing.
+        if (!rows && r.since === r.until) rows = r.campaigns;
+        if (!rows && day.complete === true && r.campaigns.every(c => channel(c.type) === channel(r.campaigns[0].type)) && channel(r.campaigns[0].type) && metric(day.spend) !== null) {
+          const key = channel(r.campaigns[0].type);
+          days[day.date] = { shopping: key === 'shopping' ? Number(day.spend) : null, powerlink: key === 'powerlink' ? Number(day.spend) : null, fetchedAt: r.fetchedAt };
+          continue;
+        }
+        if (!rows) continue;
+        const validRows = rows.length === selected.campaignIds.length && new Set(rows.map(row => row.id)).size === selected.campaignIds.length && rows.every(row => selected.campaignIds.includes(row.id) && metric(row.spend) !== null && row.type === r.campaigns.find(c => c.id === row.id)?.type);
+        if (!validRows) { days[day.date] = { shopping: null, powerlink: null, fetchedAt: r.fetchedAt }; continue; }
+        const amounts = { shopping: rows.some(row => channel(row.type) === 'shopping') ? 0 : null, powerlink: rows.some(row => channel(row.type) === 'powerlink') ? 0 : null };
+        for (const row of rows) { const key = channel(row.type); if (key) amounts[key] += Number(row.spend); }
+        // Unsupported types must not masquerade as known zero spend.
+        if (rows.some(row => !channel(row.type))) { days[day.date] = { shopping: null, powerlink: null, fetchedAt: r.fetchedAt }; continue; }
+        days[day.date] = { ...amounts, fetchedAt: r.fetchedAt };
+      }
+    }
+    return { customerId: config.customerId, scopeKey: selected.key, days };
+  }
+  return { status, save, report, automatic, spendSnapshot,
     campaignOptions: () => exclusive(async () => {
       const config = requireConfig(), selected = scope(config);
       return { customerId: config.customerId, campaignIds: selected?.campaignIds || [], campaigns: (await campaigns(config)).map(row => ({ id: row.nccCampaignId, name: String(row.name || row.nccCampaignId).slice(0, 300), type: String(row.campaignTp || ''), status: String(row.status || '') })) };

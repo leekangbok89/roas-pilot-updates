@@ -790,3 +790,10 @@ test('Naver inputs join fixed total costs and remain independently selectable wi
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.cafe=data.naver;");completeAdCoverage(h,['111']);
  assert.equal(h.run("summaryMetric('spend').value"),1600,'shared Meta account plus Naver cost is counted once each');
 });
+
+test('overview labels API shopping separately from manual GFA and preserves channel-specific estimation',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];profitDays=new Map([['2026-09-01',{naverAdSpend:{shopping:450,powerlink:0,gfa:300},naverAdSpendSources:{shopping:'api',powerlink:'api',gfa:'manual'},naverAdSpendEstimated:true,naverAdSpendEstimatedChannels:{shopping:false,powerlink:false,gfa:true}}]]);");completeAdCoverage(h);
+ assert.equal(h.run("summaryMetric('shoppingSpend').value"),450);assert.match(h.run("summaryMetric('shoppingSpend').scope"),/API/);assert.doesNotMatch(h.run("summaryMetric('shoppingSpend').detail"),/배분 추정/);
+ assert.equal(h.run("summaryMetric('gfaSpend').value"),300);assert.match(h.run("summaryMetric('gfaSpend').detail"),/배분 추정/);assert.equal(h.run("summaryMetric('powerlinkSpend').value"),0);assert.equal(h.run("summaryMetric('spend').value"),3750);
+});

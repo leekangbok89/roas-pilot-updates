@@ -725,6 +725,9 @@ async function verifyMetricCards(requests) {
 async function verifyOptionalCards(requests) {
   fixture();
   await range('2026-09-01', '2026-09-07');
+  // The report becomes interactive before auxiliary product/status reads finish.
+  // Drain those reads before attributing requests to card preference changes.
+  await page.waitForLoadState('networkidle');
   await page.setViewportSize({ width: 1440, height: 1100 });
   const defaults = ['spend', 'revenue', 'roas', 'cpa', 'purchases', 'ctr', 'impressions', 'clicks', 'smartstoreRevenue', 'mallRevenue', 'totalStoreRevenue', 'profit'];
   const storageKey = 'roas-overview-summary-cards-v1';
