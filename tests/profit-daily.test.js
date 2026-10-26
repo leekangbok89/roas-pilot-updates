@@ -511,3 +511,44 @@ test('single-pass dashboard overview returns identical scoped profit, comparison
  assert.equal(updated.profit.revenueDiagnostics.cafe24.includedOrders,0,'Changing brand scope must be reflected on the next request');
  assert.equal(updated.profit.revenueDiagnostics.cafe24.excludedOrders,1);
 });
+
+test('canonical Meta spend endpoint uses one currency conversion and never fabricates missing or duplicate spend',async t=>{
+ const f=fixture(t);
+ f.ads('11111',[{spend:'10',account_currency:'USD'}],'USD');
+ f.ads('22222',[{spend:'5000',account_currency:'KRW'}],'KRW');
+ await new Promise(resolve=>f.server.listen(0,'127.0.0.1',resolve));
+ t.after(()=>new Promise(resolve=>f.server.close(resolve)));
+ const base='http://127.0.0.1:'+f.server.address().port;
+ const get=async(naver,cafe)=>{const params=new URLSearchParams({since:day,until:day,naver,cafe,fx:'1350'});
+  const response=await fetch(base+'/api/meta/spend/summary?'+params);
+  assert.equal(response.status,200);return response.json();};
+ const distinct=await get('11111','22222');
+ assert.deepEqual(Object.fromEntries(Object.entries(distinct.scopes).map(([k,v])=>[k,v.value])),{spend:18500,smartstoreSpend:13500,mallSpend:5000});
+ assert.deepEqual(Object.fromEntries(Object.entries(distinct.scopes).map(([k,v])=>[k,v.label])),{
+  spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비'
+ });
+ assert.equal(distinct.scopes.spend.partial,false);
+ assert.equal(distinct.daily[0].complete.spend,true);
+ const duplicate=await get('11111','11111');
+ assert.equal(duplicate.scopes.spend.value,13500);
+ assert.equal(duplicate.scopes.smartstoreSpend.value,null);
+ assert.equal(duplicate.scopes.mallSpend.value,null);
+ assert.match(duplicate.scopes.smartstoreSpend.detail,/동일 광고계정/);
+ const one=await get('11111','');
+ assert.equal(one.scopes.spend.value,13500);
+ assert.equal(one.scopes.spend.partial,true);
+ assert.equal(one.scopes.mallSpend.value,null);
+ fs.unlinkSync(path.join(f.dir,'.roas-data','daily','22222',day+'.json'));
+ const missing=await get('11111','22222');
+ assert.equal(missing.scopes.spend.value,13500);
+ assert.equal(missing.scopes.spend.partial,true);
+ assert.equal(missing.scopes.mallSpend.value,null);
+ f.ads('11111',[], '');
+ f.ads('22222',[], '');
+ const empty=await get('11111','22222');
+ assert.equal(empty.scopes.spend.value,0);
+ assert.equal(empty.scopes.spend.partial,false);
+ assert.equal(empty.scopes.smartstoreSpend.value,0);
+ const bad=await fetch(base+'/api/meta/spend/summary?'+new URLSearchParams({since:day,until:day,naver:'invalid-name',cafe:'22222',fx:'1350'}));
+ assert.equal(bad.status,400);
+});

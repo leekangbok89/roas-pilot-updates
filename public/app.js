@@ -102,9 +102,9 @@ $('chart').innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="날짜
 // visual-overview.html. Store totals are never attributed to an individual ad.
 const AdsOverviewSummary = (() => {
   const definitions = {
-    smartstoreSpend: {label:'스마트스토어 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'선택 기간의 스마트스토어 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
-    mallSpend: {label:'자사몰 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'선택 기간의 자사몰 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
-    spend: {label:'통합 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta · 전체 연결 계정',description:'선택 기간의 스마트스토어·자사몰 광고비 합계입니다. 광고 표의 필터와 관계없이 전체 연결 계정을 포함하고, 동일 광고계정은 한 번만 집계합니다. 미수집 광고비가 있으면 확인분으로 표시합니다.'},
+    smartstoreSpend: {label:'스마트스토어 협력 메타 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'선택 기간의 스마트스토어 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+    mallSpend: {label:'자사몰 메타 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'선택 기간의 자사몰 광고계정 지출 합계입니다. 구매매출 확인 여부와 광고 표의 필터에 관계없이 해당 계정의 광고비를 모두 포함합니다. 두 채널이 동일 계정이면 채널별로 구분할 수 없습니다.'},
+    spend: {label:'총 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta · 전체 연결 계정',description:'선택 기간의 스마트스토어·자사몰 광고비 합계입니다. 광고 표의 필터와 관계없이 전체 연결 계정을 포함하고, 동일 광고계정은 한 번만 집계합니다. 미수집 광고비가 있으면 확인분으로 표시합니다.'},
     revenue: {label:'Meta 귀속 구매매출',format:'won',description:'선택한 광고 채널에서 확인된 Meta 구매 전환매출 합계입니다. 쇼핑몰 전체 주문매출과 다릅니다.'},
     roas: {label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 광고 표의 필터와 관계없이 전체 연결 계정 기준입니다.'},
     mallRoas: {label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},

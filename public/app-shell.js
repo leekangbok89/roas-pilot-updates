@@ -247,3 +247,100 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeShell, { once: true });
   else initializeShell();
 })();
+
+/* Read-only Meta spending strip shared by every workspace page and route.
+   Unlike advertising attribution metrics, these are raw spending totals. */
+(function(){
+ 'use strict';
+ const keys=['spend','smartstoreSpend','mallSpend'];
+ const labels=Object.freeze({
+  spend:'총 광고비',
+  smartstoreSpend:'스마트스토어 협력 메타 광고비',
+  mallSpend:'자사몰 메타 광고비'
+ });
+ const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
+ let refreshToken=0,scheduled=null,mainNode=null,root=null,heading=null;
+ const validDate=date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date+'T00:00:00Z'));
+ const asKRW=value=>Number.isFinite(value)?fmt.format(value)+'원':'—';
+ function storedPeriod(){try{const x=JSON.parse(localStorage.getItem(rangeKey)||'null');if(validDate(x?.since)&&validDate(x?.until)&&x.since<=x.until)return x;}catch{}return null;}
+ function defaultPeriod(){
+  const d=new Date(),end=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  d.setDate(d.getDate()-6);
+  return {since:[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-'),until:end};
+ }
+ function selection(){
+  const sinceField=document.getElementById('since'),untilField=document.getElementById('until');
+  const from=sinceField?.value,to=untilField?.value,local=validDate(from)&&validDate(to)&&from<=to;
+  const saved=storedPeriod();
+  const range=local?{since:from,until:to}:saved||defaultPeriod();
+  if(local)try{localStorage.setItem(rangeKey,JSON.stringify(range));}catch{}
+  let fx=Number(document.getElementById('fx-rate')?.value);
+  if(!Number.isFinite(fx)||fx<=0){try{fx=Number(localStorage.getItem('roas-meta-spend-fx-v1'));}catch{}}
+  if(!Number.isFinite(fx)||fx<=0)fx=1350;
+  let accounts={naver:'',cafe:''};
+  try{
+   const raw=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};
+   accounts={naver:String(raw.naver||'').replace(/^act_/,''),cafe:String(raw.cafe||'').replace(/^act_/,'')};
+  }catch{}
+  return {...range,fx,accounts};
+ }
+ function ensure(){
+  mainNode=document.getElementById('app-main');if(!mainNode)return false;
+  const header=mainNode.querySelector('.app-page-head')||mainNode.firstElementChild;
+  if(!header)return false;
+  root=document.getElementById('ad-spend-breakdown');
+  heading=mainNode.querySelector('.ad-spend-heading');
+  if(!heading){heading=document.createElement('div');heading.className='ad-spend-heading';const h=document.createElement('h2');h.id='ad-spend-heading';h.textContent='메타 광고비 구분';const note=document.createElement('p');note.id='ad-spend-note';note.className='small';heading.append(h,note);}
+  if(!root){root=document.createElement('section');root.id='ad-spend-breakdown';root.className='metrics';root.setAttribute('aria-labelledby','ad-spend-heading');root.setAttribute('aria-live','polite');}
+  if(!heading.parentNode||heading.previousElementSibling!==header)header.after(heading);
+  if(!root.parentNode||root.previousElementSibling!==heading)heading.after(root);
+  root.dataset.sharedSpendRoot='yes';
+  return true;
+ }
+ function draw(data,range){
+  if(!root||!heading)return;
+  const note=document.getElementById('ad-spend-note');
+  if(note)note.textContent='조회 기간 '+range.since+' ~ '+range.until+' · '+(data?.explanation||'Meta 원본 광고비 · 저장 데이터를 확인하세요.')+
+   (data?.sharedAccount?' · 두 채널 동일 광고계정: 채널별 광고비 구분 불가':'');
+  root.replaceChildren();
+  for(const key of keys){
+   const metric=data?.scopes?.[key]||null;
+   const card=document.createElement('article');card.className='roas-shared-spend-card';card.dataset.spendKey=key;
+   card.title=metric?.detail||'로컬 Meta 저장 데이터 기준';
+   const name=document.createElement('small');name.className='roas-shared-spend-title';name.textContent=labels[key];
+   const value=document.createElement('div');value.className='roas-shared-spend-value';
+   const strong=document.createElement('strong');strong.textContent=asKRW(metric?.value);value.append(strong);
+   if(metric?.partial){const badge=document.createElement('span');badge.className='roas-shared-spend-partial';badge.textContent='확인분';value.append(badge);}
+   const scope=document.createElement('small');scope.className='roas-shared-spend-scope';scope.textContent=metric?.scope||'Meta · 계정 저장 기준';
+   const detail=document.createElement('small');detail.className='roas-shared-spend-status';detail.textContent=metric?.detail||'저장 데이터 조회 중…';
+   card.append(name,value,scope,detail);root.append(card);
+  }
+ }
+ async function refresh(){
+  if(!ensure())return;
+  const request=++refreshToken,range=selection();
+  if((Date.parse(range.until)-Date.parse(range.since))/86400000>731){draw(null,range);document.getElementById('ad-spend-note').textContent='조회 기간이 732일을 초과합니다.';return;}
+  if(!root.querySelector('[data-spend-key]'))draw(null,range);
+  root.setAttribute('aria-busy','true');
+  try{
+   const q=new URLSearchParams({since:range.since,until:range.until,naver:range.accounts.naver,cafe:range.accounts.cafe,fx:String(range.fx)});
+   const response=await fetch('/api/meta/spend/summary?'+q,{cache:'no-store',signal:AbortSignal.timeout(25000)});
+   const result=await response.json();
+   if(!response.ok||!result.scopes)throw Error(result.error||'Meta 광고비 응답 확인 필요');
+   if(request===refreshToken){draw(result,range);root.setAttribute('aria-busy','false');}
+  }catch(error){
+   if(request===refreshToken){draw(null,range);const note=document.getElementById('ad-spend-note');if(note)note.textContent=range.since+' ~ '+range.until+' · 광고비 확인 실패: '+error.message;root.setAttribute('aria-busy','false');}
+  }
+ }
+ function requestRefresh(){if(scheduled!==null)clearTimeout(scheduled);scheduled=setTimeout(()=>{scheduled=null;void refresh();},50);}
+ window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh});
+ function init(){
+  if(!ensure())return;
+  requestRefresh();
+  document.addEventListener('change',e=>{if(['since','until','fx-rate'].includes(e.target?.id))requestRefresh();});
+  document.addEventListener('click',e=>{if(e.target?.closest?.('[data-days],[data-period],#reload,#connect,#save-accounts'))requestRefresh();});
+  document.addEventListener('roas:meta-cache-updated',requestRefresh);
+  window.addEventListener('storage',e=>{if(['roas-account-ids',rangeKey,'roas-meta-spend-fx-v1'].includes(e.key))requestRefresh();});
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})();
