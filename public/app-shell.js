@@ -292,8 +292,14 @@
   heading=mainNode.querySelector('.ad-spend-heading');
   if(!heading){heading=document.createElement('div');heading.className='ad-spend-heading';const h=document.createElement('h2');h.id='ad-spend-heading';h.textContent='메타 광고비 구분';const note=document.createElement('p');note.id='ad-spend-note';note.className='small';heading.append(h,note);}
   if(!root){root=document.createElement('section');root.id='ad-spend-breakdown';root.className='metrics';root.setAttribute('aria-labelledby','ad-spend-heading');root.setAttribute('aria-live','polite');}
-  if(!heading.parentNode||heading.previousElementSibling!==header)header.after(heading);
-  if(!root.parentNode||root.previousElementSibling!==heading)heading.after(root);
+  // Overview already has this block in its chosen reading order after the
+  // date/filter toolbar. Moving it to the header caused an unexpected layout
+  // jump and collided with the page-specific grid rules.
+  const existingPair=heading.parentElement===mainNode&&root.parentElement===mainNode&&root.previousElementSibling===heading;
+  if(!existingPair){
+   if(heading.previousElementSibling!==header)header.after(heading);
+   if(root.previousElementSibling!==heading)heading.after(root);
+  }
   root.dataset.sharedSpendRoot='yes';
   return true;
  }
