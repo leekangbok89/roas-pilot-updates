@@ -17,6 +17,18 @@
     .video-thumb{width:110px;flex:none}.video-thumb a{display:block;position:relative;width:110px;height:88px;border-radius:6px;background:var(--app-surface-soft);overflow:hidden}.video-thumb img,.video-thumb canvas{display:block;width:110px;height:88px;object-fit:contain}.video-thumb .thumb-placeholder{display:flex;align-items:center;justify-content:center;width:110px;height:88px;text-align:center;font-size:12px;color:var(--app-muted)}.thumb-upload{display:block;font-size:12px;cursor:pointer;text-decoration:underline}.thumb-upload input{display:none}.thumb-message{max-width:140px;font-size:12px;white-space:normal}
     details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
     .detail-links{display:flex;gap:12px;flex-wrap:wrap}.detail-link-disabled{display:none}#definition-table td:first-child{font-family:monospace}
+    /* Keep the compact layout while giving this report stronger, readable type. */
+    body[data-app-page="detail"]{--detail-secondary:#3d506a;font-weight:500}
+    :root[data-theme="dark"] body[data-app-page="detail"]{--detail-secondary:#d0dbee}
+    body[data-app-page="detail"] .app-main :is(h1,h2,h3,summary,label,button,strong){font-weight:700}
+    body[data-app-page="detail"] .app-main :is(p,li){font-weight:500;line-height:1.65}
+    body[data-app-page="detail"] .app-main p{color:var(--app-text)}
+    body[data-app-page="detail"] .app-main :is(.app-page-subtitle,.helper,small,.thumb-placeholder){color:var(--detail-secondary);font-weight:500;line-height:1.6}
+    body[data-app-page="detail"] .app-main :is(label,th){color:var(--app-text)}
+    body[data-app-page="detail"] .app-main th{font-weight:700}
+    body[data-app-page="detail"] .app-main :is(td,input,select){font-weight:600}
+    body[data-app-page="detail"] .app-main textarea{font-weight:500}
+    body[data-app-page="detail"] .app-main :is(.detail-kpis,.detail-scroll,#detail-status,#catalog-message,#settings-message,#detail-connection-status){font-weight:600}
     @media(max-width:800px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-kpis{grid-template-columns:1fr}.detail-scroll{grid-template-columns:repeat(2,minmax(0,1fr))}}
   </style>
 </head>
