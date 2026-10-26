@@ -36,7 +36,7 @@ test('partial weeks, missing source days, no GFA selections and zero denominator
  r=model.analyze([entry('ads',ads().map(r=>({...r,spend:0}))),entries[1]],'2026-09-01','2026-09-07');assert.equal(r.lastRoas,null);
 });
 test('file snapshots survive restart, same-period imports replace, overlaps and stale writes cannot mutate history',t=>{
- const f=fixture(t),input=entry('channels',channels().rows);f.save(input);f.save({...input,filename:'again.xlsx'});assert.equal(f.store.read().entries.length,1);assert.equal(f.store.read().entries[0].filename,'again.xlsx');assert.equal(createStore({baseDir:f.baseDir,model}).read().entries.length,1);
+ const f=fixture(t),input=entry('channels',channels().rows);f.save(input);f.save({...input,filename:'again.xlsx',replaceExisting:true});assert.equal(f.store.read().entries.length,1);assert.equal(f.store.read().entries[0].filename,'again.xlsx');assert.equal(createStore({baseDir:f.baseDir,model}).read().entries.length,1);
  const before=f.store.read();assert.throws(()=>f.save({...input,since:'2026-09-02'}),/기간 밖|겹치는/);assert.throws(()=>f.store.save({...input,revision:0}),/다른 화면/);assert.deepEqual(f.store.read(),before);
  f.save(entry('ads',ads()));assert.equal(f.store.read().entries.length,2);assert.throws(()=>f.store.remove({id:before.entries[0].id,revision:0}),/다른 화면/);
 });
@@ -45,6 +45,46 @@ test('invalid numeric data, impossible dates, duplicates and nested daily totals
  for(const bad of [{...input,since:'2026-02-30'},{...input,rows:[{...input.rows[0],sales:-1}]},{...input,rows:[{...input.rows[0],sales:'100'}]},{...input,rows:[input.rows[0],input.rows[0]]},{...input,rows:[input.rows[0],{...input.rows[0],since:'2026-09-02',until:'2026-09-02'}]}])assert.throws(()=>f.save(bad));
  assert.equal(f.store.read().entries.length,0);
  fs.mkdirSync(path.join(f.baseDir,'.roas-data'),{recursive:true});fs.writeFileSync(path.join(f.baseDir,'.roas-data/gfa-analysis.json'),'bad');assert.throws(()=>f.store.read(),/읽지 못/);
+});
+test('weekly overlapping daily channel files save only new date and route rows',t=>{
+ const f=fixture(t);
+ const rows=(a,b)=>Array.from({length:b-a+1},(_,i)=>String(a+i).padStart(2,'0')).map(d=>({path1:'모바일',path2:'광고',path3:'성과형 디스플레이광고',since:'2026-10-'+d,until:'2026-10-'+d,visits:10,orders:1,sales:399000,gfa:true}));
+ let result=f.save(entry('channels',rows(1,7),'2026-10-01','2026-10-07'));
+ assert.equal(result.importStats.added,7);
+ result=f.save(entry('channels',rows(5,11),'2026-10-05','2026-10-11'));
+ assert.deepEqual([result.importStats.added,result.importStats.duplicates,result.importStats.conflicts,result.importStats.ambiguous],[4,3,0,0]);
+ const report=model.analyze(f.store.read().entries,'2026-10-01','2026-10-11');
+ assert.equal(report.channels.covered,11);assert.equal(report.channels.complete,true);
+ assert.equal(report.store.orders,11);assert.equal(report.store.sales,11*399000);
+ const original=f.store.read();
+ result=f.save(entry('channels',rows(5,11),'2026-10-05','2026-10-11'));
+ assert.equal(result.importStats.added,0);assert.equal(result.importStats.duplicates,7);
+ assert.deepEqual(f.store.read(),original,'repeated weekly export must not double count');
+ const changed=rows(5,11);changed[0].sales=500000;
+ result=f.save(entry('channels',changed,'2026-10-05','2026-10-11'));
+ assert.equal(result.importStats.conflicts,1,'changed past result is flagged, not counted twice');
+ assert.equal(f.store.read().entries.length,2);
+});
+test('overlapping aggregate files remain safe because totals cannot be split into dates',t=>{
+ const f=fixture(t),old=f.save(entry('channels',channels().rows));
+ const next={...channels().rows[0],since:'2026-09-05',until:'2026-09-11'};
+ const result=f.save(entry('channels',[next],'2026-09-05','2026-09-11'));
+ assert.equal(result.importStats.ambiguous,1);assert.equal(result.importStats.added,0);
+ assert.equal(f.store.read().revision,old.revision);
+});
+test('real Biz Advisor column names, compact dates and separate planned campaign budget are supported',()=>{
+ const report=model.parseChannels([
+  ['채널속성','채널그룹','채널명','채널상세','유입수','결제수(마지막클릭)','결제금액(마지막클릭)'],
+  ['모바일','광고','네이버 성과형디스플레이광고','','100','4','1706600'],
+  ['PC','광고','네이버 성과형디스플레이광고','','50','2','798000']
+ ],'visit_20261001-20261024.xlsx');
+ assert.equal(report.since,'2026-10-01');assert.equal(report.until,'2026-10-24');
+ assert.equal(report.rows.length,2);assert.ok(report.rows.every(r=>r.gfa));
+ assert.equal(report.rows.reduce((s,r)=>s+r.sales,0),2504600);
+ const campaign=model.parseAds('캠페인 이름\t총비용\t캠페인 예산\t구매완료 수\t구매완료 전환매출액\n위마망 A\t1000\t50000\t1\t399000');
+ assert.equal(campaign[0].spend,1000);assert.equal(campaign[0].budget,50000);
+ assert.equal(model.metrics(campaign).roas,39900,'actual spend, never planned budget, is the ROAS denominator');
+ assert.equal(model.parseAds('캠페인 이름\t캠페인 예산\n위마망 A\t50000').length,0,'budget alone must not masquerade as spend');
 });
 test('bundled API guards local mutations and keeps performance saves paired with GFA costs',async t=>{
  const f=fixture(t),serverFile=path.join(f.baseDir,'server.js');fs.copyFileSync(path.join(__dirname,'../server.js'),serverFile);const app=require(serverFile);t.after(()=>delete require.cache[serverFile]);
