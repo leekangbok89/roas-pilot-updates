@@ -195,6 +195,29 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
    detail:known.length?(apiDays?'API 수집 '+apiDays+'일 · 확인 ':'입력 ')+known.length+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):(channel==='gfa'?'미입력 · 네이버 GFA 분석에서 광고비를 저장하세요.':'미수집 · 위마망 검색광고 선택 후 새로 가져오기를 실행하세요.')};
   for(let i=0;i<daily.length;i++){daily[i][key]=enteredCosts[i].amounts[channel];daily[i].known[key]=daily[i][key]!==null;daily[i].complete[key]=daily[i].known[key];}
  }
+ // Search Ads is one reporting category (Powerlink + Shopping Search).
+ // Its two sources are already resolved API-first, date by date in
+ // naverSpendDay; this is a view-only grouping and must NOT be added again.
+ const searchRows=enteredCosts.map(cost=>{
+  const shopping=cost.amounts.shopping,powerlink=cost.amounts.powerlink;
+  return {value:shopping===null&&powerlink===null?null:(shopping??0)+(powerlink??0),
+   complete:shopping!==null&&powerlink!==null,
+   api:cost.sources?.shopping==='api'||cost.sources?.powerlink==='api',
+   estimated:cost.estimatedChannels?.shopping||cost.estimatedChannels?.powerlink};
+ });
+ const searchKnown=searchRows.filter(row=>row.value!==null),searchComplete=searchRows.filter(row=>row.complete),searchApiDays=searchRows.filter(row=>row.api).length;
+ metrics.searchSpend={label:'검색광고 (네이버쇼핑 + 파워링크)',scope:'네이버 검색광고 API 우선 · 수동 보충',
+  value:searchKnown.length?searchKnown.reduce((sum,row)=>sum+row.value,0):null,
+  knownDays:searchKnown.length,completeDays:searchComplete.length,totalDays:dates.length,
+  partial:searchKnown.length>0&&searchComplete.length<dates.length,
+  detail:searchKnown.length?'검색 API '+searchApiDays+'일 · 확인 '+searchKnown.length+'/'+dates.length+'일'+
+   (searchKnown.some(row=>row.estimated)?' · 기간 합계 균등 배분 추정':''):
+   '미수집 · 위마망 검색광고 캠페인 선택 후 API에서 새로 가져오세요.'};
+ for(let i=0;i<daily.length;i++){
+  daily[i].searchSpend=searchRows[i].value;
+  daily[i].known.searchSpend=searchRows[i].value!==null;
+  daily[i].complete.searchSpend=searchRows[i].complete;
+ }
  if(enteredCosts.some(day=>day.entered)){
   const total=metrics.spend;total.value=(total.value??0)+enteredCosts.reduce((sum,day)=>sum+day.total,0);total.scope='Meta + 네이버 광고비';
   const manualComplete=enteredCosts.every(day=>Object.values(day.amounts).every(Number.isFinite));
