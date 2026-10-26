@@ -979,8 +979,10 @@ async function verifySplitSpend(requests) {
   };
   const fixedSplit = page.locator('#ad-spend-breakdown [data-spend-key]');
   assert.equal(await fixedSplit.count(),3,'The overview shows three advertising spend totals independently of configurable KPI slots');
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.summary-card-label').textContent)),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비']);
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.summary-card-value strong').textContent)),[money(30000),money(20000),money(10000)]);
+  await page.waitForFunction(()=>[...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].length===3&&
+   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].every(node=>node.textContent.endsWith('원')&&node.textContent!=='—'));
+  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-title')?.textContent)),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비']);
+  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-value strong')?.textContent)),[money(30000),money(20000),money(10000)]);
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
   const requestStart = requests.length;
