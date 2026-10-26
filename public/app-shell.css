@@ -254,7 +254,7 @@ body .app-main #summary-cards .summary-spend-has-breakdown{position:relative;ove
 body .app-main #summary-cards .summary-spend-has-breakdown:is(:hover,:focus-within,[data-spend-open="yes"]){z-index:75}
 body .app-main .summary-spend-detail-button{display:inline-flex;align-items:center;align-self:flex-start;justify-content:center;margin-top:7px;padding:4px 7px;font-family:inherit;font-size:11px;font-weight:600;line-height:1.4;border:1px solid var(--app-border);border-radius:6px;background:var(--app-surface-soft);color:var(--app-link);cursor:pointer;min-height:0}
 body .app-main .summary-spend-popover{display:none;position:absolute;left:0;top:calc(100% - 2px);width:min(470px,calc(100vw - 72px));min-width:260px;max-height:min(72vh,620px);overflow-y:auto;padding:13px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:0 16px 44px #0003;z-index:76}
-body .app-main .summary-spend-has-breakdown:hover .summary-spend-popover,
+body .app-main .summary-spend-has-breakdown:hover:not([data-spend-dismissed="yes"]) .summary-spend-popover,
 body .app-main .summary-spend-has-breakdown:focus-within .summary-spend-popover,
 body .app-main .summary-spend-has-breakdown[data-spend-open="yes"] .summary-spend-popover{display:block}
 body .app-main .summary-spend-popover-heading{display:block;margin:0 0 8px;color:var(--app-text);font-size:13px;line-height:1.5}
