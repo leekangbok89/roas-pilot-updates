@@ -183,6 +183,19 @@ function summaryMetric(key,context=summaryMetricContext()){
  if(!definition)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope:'',detail:'지원하지 않는 지표'};
  const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend',scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
  if(summaryLoading||!totalDays)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:summaryLoading?'기간 데이터 조회 중…':'조회 기간을 선택해 주세요.'};
+ if(key==='searchSpend'){
+  const rows=context.dates.map(date=>{
+   const day=profitDays.get(date),direct=day?.searchAdSpend;
+   if(Number.isFinite(direct))return {value:direct,complete:true,api:day?.naverAdSpendSources?.shopping==='api'||day?.naverAdSpendSources?.powerlink==='api'};
+   const shopping=day?.naverAdSpend?.shopping,powerlink=day?.naverAdSpend?.powerlink;
+   return {value:Number.isFinite(shopping)||Number.isFinite(powerlink)?(Number.isFinite(shopping)?shopping:0)+(Number.isFinite(powerlink)?powerlink:0):null,
+    complete:Number.isFinite(shopping)&&Number.isFinite(powerlink),
+    api:day?.naverAdSpendSources?.shopping==='api'||day?.naverAdSpendSources?.powerlink==='api'};
+  }),known=rows.filter(row=>Number.isFinite(row.value)),complete=rows.filter(row=>row.complete),apiDays=rows.filter(row=>row.api).length;
+  return {value:known.length?known.reduce((sum,row)=>sum+row.value,0):null,partial:known.length>0&&complete.length<totalDays,
+   knownDays:known.length,completeDays:complete.length,totalDays,scope:definition.scope,
+   detail:known.length?'검색 API '+apiDays+'일 · 확인 '+known.length+'/'+totalDays+'일':'저장된 검색광고비 확인 전'};
+ }
  if(definition.naverSpendChannel){const cost=naverCostMetric(definition.naverSpendChannel,context.dates,profitDays);return {...cost,scope:cost.apiDays?cost.scope:definition.scope};}
  if(definition.adScope){
   const connected=definition.adScope==='all'?connectedAccounts.naver||connectedAccounts.cafe:connectedAccounts[definition.adScope];
@@ -229,7 +242,7 @@ function summaryMetric(key,context=summaryMetricContext()){
    const costs=['gfa','shopping','powerlink'].map(channel=>naverCostMetric(channel,context.dates,profitDays)),entered=costs.filter(cost=>cost.value!==null);
    if(entered.length){amount=(amount??0)+entered.reduce((sum,cost)=>sum+cost.value,0);partial=completeDays<totalDays||entered.length<3||entered.some(cost=>cost.partial);detail+=' · 네이버 광고비 포함 (검색 API 우선 · 중복 제외)'+(entered.length<3||entered.some(cost=>cost.partial)?' · 미입력 항목/날짜 제외':'')+(context.dates.some(date=>profitDays.get(date)?.naverAdSpendEstimated)?' · 일별 균등 배분 추정':'');}
   }
-  return {value:amount,partial,knownDays,completeDays,totalDays,scope:key==='spend'&&context.dates.some(date=>Object.values(profitDays.get(date)?.naverAdSpend||{}).some(Number.isFinite))?'Meta + 네이버 광고비':scope,detail};
+  return {value:amount,partial,knownDays,completeDays,totalDays,scope:key==='spend'&&context.dates.some(date=>Object.values(profitDays.get(date)?.naverAdSpend||{}).some(Number.isFinite))?'Meta + GFA + 검색광고':scope,detail};
  }
  const required=key==='revenue'||isRoas?'revenue':['purchases','cpa'].includes(key)?'purchases':null;
  const isKnown=row=>!required||Number.isFinite(row[required]),rows=context.selected.filter(isKnown);
