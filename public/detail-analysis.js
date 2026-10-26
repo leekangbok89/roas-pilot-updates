@@ -160,7 +160,7 @@
   function render(report) {
     lastReport = report;
     $('detail-results').hidden = true; $('detail-empty').hidden = false;
-    if (report.state === 'setup_required') { notice('detail-status', '맞춤 측정기준 등록 필요: ' + report.missing.join(', '), true); $('detail-setup').open = true; return; }
+    if (report.state === 'setup_required') { notice('detail-status', '맞춤 측정기준 등록 필요: ' + report.missing.join(', '), true); $('detail-reference').open = true; $('detail-setup').open = true; return; }
     if (report.state === 'unavailable') { notice('detail-status', 'GA4 제한으로 수치를 확인할 수 없습니다. ' + (report.warnings || []).join(' '), true); return; }
     if (report.state === 'no_data') { notice('detail-status', '선택한 상품·버전·기간의 추적 이벤트가 아직 없습니다. 설치 상태와 GA4 반영 시간을 확인하세요.'); return; }
     $('detail-results').hidden = false; $('detail-empty').hidden = true;
@@ -213,6 +213,7 @@
     else { notice('detail-status', results[1].reason.message, true); return; }
     if (results[0].status === 'rejected') { notice('detail-status', results[0].reason.message, true); return; }
     connected = results[0].value.configured;
-    notice('detail-status', connected ? 'GA4 연결됨 · 자사몰 설치와 맞춤 정의 등록 후 기간을 조회하세요.' : 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.');
+    notice('detail-connection-status', connected ? 'GA4 연결됨 · 자사몰 설치와 맞춤 정의 등록 후 기간을 조회하세요.' : 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.');
+    if (!connected) notice('detail-status', 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.', true);
   });
 })();

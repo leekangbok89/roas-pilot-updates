@@ -297,8 +297,12 @@
   // Overview already has this block in its chosen reading order after the
   // date/filter toolbar. Moving it to the header caused an unexpected layout
   // jump and collided with the page-specific grid rules.
+  const spendHost=mainNode.querySelector('[data-ad-spend-host]');
   const existingPair=heading.parentElement===mainNode&&root.parentElement===mainNode&&root.previousElementSibling===heading;
-  if(!existingPair){
+  if(spendHost){
+   if(heading.parentElement!==spendHost)spendHost.append(heading);
+   if(root.parentElement!==spendHost)spendHost.append(root);
+  }else if(!existingPair){
    if(heading.previousElementSibling!==header)header.after(heading);
    if(root.previousElementSibling!==heading)heading.after(root);
   }

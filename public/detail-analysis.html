@@ -38,7 +38,39 @@
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
     <header class="app-page-head"><div><h1 class="app-page-title">상세페이지 분석</h1><p class="app-page-subtitle">백도씨 상세페이지에서 고객이 도달하고 머무는 구간을 확인합니다.</p></div><a href="/ga4.html">GA4 연결 관리 ↗</a></header>
-    <p id="detail-status" role="status" aria-live="polite">연결 상태 확인 중…</p>
+    <p id="detail-status" role="status" aria-live="polite" hidden></p>
+    <section class="panel">
+      <div class="detail-row"><form id="detail-report-form" class="detail-row">
+        <label>시작일<input id="detail-since" type="date" required></label><label>종료일<input id="detail-until" type="date" required></label>
+        <label>유입 범위<select id="detail-scope"><option value="all">전체 유입</option><option value="meta">Meta 유료 유입</option></select></label>
+        <button id="detail-query" class="primary" type="submit">기간 조회</button><button id="detail-refresh" type="button">새로 가져오기</button>
+      </form></div>
+      <p class="helper">최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
+      <div class="detail-links"><a id="clarity-dashboard" class="detail-link-disabled" target="_blank" rel="noopener noreferrer">Clarity 히트맵 · 녹화 열기 ↗</a></div>
+    </section>
+    <details class="panel" id="content-catalog" open>
+      <summary>이미지 · 영상 이름 관리</summary>
+      <p>현재 자사몰에서 파일 목록을 불러온 뒤 ‘100℃ 가열 설명’, ‘세척 시연’처럼 이름을 붙여 저장하세요. 같은 이름이 통계에도 표시됩니다. GA4 연결 없이도 목록을 관리할 수 있습니다.</p>
+      <p>영상은 재생창 대신 자동으로 추출한 장면을 표시합니다. 추출이 제한되면 ‘썸네일 등록 / 변경’에서 이미지 또는 원본 영상 파일을 선택하세요. 썸네일을 누르면 원본 영상이 열립니다.</p>
+      <div class="detail-actions"><button id="catalog-import" type="button">자사몰 콘텐츠 불러오기</button><button id="catalog-save" type="button" disabled>이름 저장</button></div>
+      <p id="catalog-message" role="status" aria-live="polite">콘텐츠 목록 확인 중…</p>
+      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
+      <p class="helper">이름은 상품번호·상세 버전별로 이 PC에 저장됩니다. 이미지 미리보기는 분할 구간이 아닌 원본 전체입니다. 콘텐츠 순서·파일을 바꾸면 상세 버전과 자사몰 설치코드도 함께 바꿔 새 목록을 불러오세요. 처음 불러온 목록은 현재 페이지 기준이므로 그 이전에 페이지 구성이 달랐다면 과거 통계와 대조가 필요합니다.</p>
+    </details>
+    <section id="detail-empty" class="panel"><h2>설치 후부터 데이터를 확인할 수 있습니다</h2><p>사진별 도달·체류와 영상 재생 분량은 GA4에서 가져옵니다. Clarity 히트맵과 방문 녹화는 위 링크에서 확인합니다. 설치 이전 행동은 소급 수집되지 않습니다.</p></section>
+    <div id="detail-results" hidden>
+      <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
+      <section class="panel"><h2>상세영역 스크롤 도달률</h2><div id="detail-scroll" class="detail-scroll"></div></section>
+      <section class="panel"><h2>이미지 · 영상 구간별 성과</h2><p>도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
+        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
+        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
+      </section>
+      <section class="panel"><h2>집계 안내</h2><ul id="detail-warnings"></ul><p>클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></section>
+    </div>
+    <details class="panel" id="detail-reference">
+      <summary>광고비 · 설치 및 연동 정보 — 클릭하여 펼치기</summary>
+      <div data-ad-spend-host></div>
+      <p id="detail-connection-status" role="status">연결 상태 확인 중…</p>
     <details class="panel" id="detail-setup" open>
       <summary>설치 · 연동 설정</summary>
       <p>설정 저장은 자사몰에 코드를 설치하지 않습니다. 아래 코드를 카페24 PC·모바일 상품 상세 스킨에 각각 한 번 적용해야 수집이 시작됩니다.</p>
@@ -74,34 +106,7 @@
         <p class="helper">동의 관리 도구 사용 시 기존 Google·Clarity 동의 설정과 함께 연결하세요. 위 체크박스를 선택하면 동의 후 <code>window.ROAS_DETAIL_CONSENT = true</code>가 설정될 때 시작합니다. 철회 시에는 기존 동의 관리 도구에서도 Google·Clarity 수집 중지를 처리해야 합니다.</p>
       </div>
     </details>
-    <section class="panel">
-      <div class="detail-row"><form id="detail-report-form" class="detail-row">
-        <label>시작일<input id="detail-since" type="date" required></label><label>종료일<input id="detail-until" type="date" required></label>
-        <label>유입 범위<select id="detail-scope"><option value="all">전체 유입</option><option value="meta">Meta 유료 유입</option></select></label>
-        <button id="detail-query" class="primary" type="submit">기간 조회</button><button id="detail-refresh" type="button">새로 가져오기</button>
-      </form></div>
-      <p class="helper">최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
-      <div class="detail-links"><a id="clarity-dashboard" class="detail-link-disabled" target="_blank" rel="noopener noreferrer">Clarity 히트맵 · 녹화 열기 ↗</a></div>
-    </section>
-    <details class="panel" id="content-catalog" open>
-      <summary>이미지 · 영상 이름 관리</summary>
-      <p>현재 자사몰에서 파일 목록을 불러온 뒤 ‘100℃ 가열 설명’, ‘세척 시연’처럼 이름을 붙여 저장하세요. 같은 이름이 통계에도 표시됩니다. GA4 연결 없이도 목록을 관리할 수 있습니다.</p>
-      <p>영상은 재생창 대신 자동으로 추출한 장면을 표시합니다. 추출이 제한되면 ‘썸네일 등록 / 변경’에서 이미지 또는 원본 영상 파일을 선택하세요. 썸네일을 누르면 원본 영상이 열립니다.</p>
-      <div class="detail-actions"><button id="catalog-import" type="button">자사몰 콘텐츠 불러오기</button><button id="catalog-save" type="button" disabled>이름 저장</button></div>
-      <p id="catalog-message" role="status" aria-live="polite">콘텐츠 목록 확인 중…</p>
-      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
-      <p class="helper">이름은 상품번호·상세 버전별로 이 PC에 저장됩니다. 이미지 미리보기는 분할 구간이 아닌 원본 전체입니다. 콘텐츠 순서·파일을 바꾸면 상세 버전과 자사몰 설치코드도 함께 바꿔 새 목록을 불러오세요. 처음 불러온 목록은 현재 페이지 기준이므로 그 이전에 페이지 구성이 달랐다면 과거 통계와 대조가 필요합니다.</p>
     </details>
-    <section id="detail-empty" class="panel"><h2>설치 후부터 데이터를 확인할 수 있습니다</h2><p>사진별 도달·체류와 영상 재생 분량은 GA4에서 가져옵니다. Clarity 히트맵과 방문 녹화는 위 링크에서 확인합니다. 설치 이전 행동은 소급 수집되지 않습니다.</p></section>
-    <div id="detail-results" hidden>
-      <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
-      <section class="panel"><h2>상세영역 스크롤 도달률</h2><div id="detail-scroll" class="detail-scroll"></div></section>
-      <section class="panel"><h2>이미지 · 영상 구간별 성과</h2><p>도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
-        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
-        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
-      </section>
-      <section class="panel"><h2>집계 안내</h2><ul id="detail-warnings"></ul><p>클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></section>
-    </div>
   </main>
 </body>
 </html>
