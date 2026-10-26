@@ -204,6 +204,48 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       }
     });
   }
+  // Read only reports already downloaded by the Naver Search Ads API.
+  // Reports overlap in rolling seven-day windows; select the newest valid
+  // value for each date, never sum the same date twice. Do not make an API
+  // call from a dashboard render, or read data from a different campaign scope.
+  function savedSpend({ since, until }) {
+    if (!validDate(since) || !validDate(until) || since > until ||
+        (Date.parse(until) - Date.parse(since)) / 86400000 > 731) throw fail(400, '광고비 집계 기간을 확인해 주세요.');
+    let config;
+    try { config = read(); }
+    catch { return { configured: false, scopeReady: false, unreadable: true, days: [], detail: '검색광고 연결정보를 읽을 수 없습니다.' }; }
+    if (!config) return { configured: false, scopeReady: false, days: [], detail: '네이버 검색광고 API 미연결' };
+    const selected = scope(config);
+    if (!selected) return { configured: true, scopeReady: false, days: [], detail: '집계할 위마망 검색광고 캠페인 선택 필요' };
+    const folder = path.join(dataDir, config.customerId, selected.key), winners = new Map();
+    let files;
+    try { files = fs.readdirSync(folder); } catch { files = []; }
+    let unsupportedCampaigns = 0, reportsUsed = 0;
+    for (const file of files) {
+      const match = /^(\d{4}-\d\d-\d\d)_(\d{4}-\d\d-\d\d)\.json$/.exec(file);
+      if (!match || !validDate(match[1]) || !validDate(match[2]) || match[1] > until || match[2] < since) continue;
+      const report = cached(config, { since: match[1], until: match[2] });
+      if (!report) continue;
+      // Powerlink (WEB_SITE) and Shopping Search (SHOPPING) only. An
+      // unrelated campaign type must not be mislabeled as either one.
+      if (report.campaigns.some(item => !['WEB_SITE', 'SHOPPING'].includes(String(item.type || '').toUpperCase()))) {
+        unsupportedCampaigns++;
+        continue;
+      }
+      reportsUsed++;
+      const stamp = Date.parse(report.fetchedAt);
+      for (const row of report.daily) {
+        if (!row || !validDate(row.date) || row.date < since || row.date > until ||
+            row.complete !== true || !Number.isFinite(row.spend) || row.spend < 0) continue;
+        const previous = winners.get(row.date);
+        if (!previous || stamp > previous.stamp) winners.set(row.date, { date: row.date, spend: row.spend, stamp });
+      }
+    }
+    return { configured: true, scopeReady: true, days: [...winners.values()].sort((a,b)=>a.date.localeCompare(b.date))
+      .map(({date,spend})=>({date,spend})), reportsUsed, unsupportedCampaigns,
+      detail: unsupportedCampaigns ? '선택 캠페인에 파워링크·쇼핑검색 이외 유형이 있어 해당 자료를 제외했습니다.' :
+        winners.size ? '연결된 검색광고 API의 저장 자료 사용' : '선택 기간에 저장된 검색광고 API 자료가 없습니다.' };
+  }
   async function automatic() {
     if (active) return;
     let config; try { config = read(); } catch { return; }
@@ -218,7 +260,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       } catch (error) { setState({ error: error.message }); }
     });
   }
-  return { status, save, report, automatic,
+  return { status, save, report, savedSpend, automatic,
     campaignOptions: () => exclusive(async () => {
       const config = requireConfig(), selected = scope(config);
       return { customerId: config.customerId, campaignIds: selected?.campaignIds || [], campaigns: (await campaigns(config)).map(row => ({ id: row.nccCampaignId, name: String(row.name || row.nccCampaignId).slice(0, 300), type: String(row.campaignTp || ''), status: String(row.status || '') })) };
