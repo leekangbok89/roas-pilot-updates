@@ -75,6 +75,7 @@ function value(a){if(!Array.isArray(a))return null;for(const type of types){cons
 let storeSales=new Map(),profitDays=new Map(),profitFees={naver:7,cafe24:3.5},profitLoadError='',requestVersion=0,pendingBrandProducts=[],savedBrandAssignments=[],storeRevenueDiagnostics={};
 let cafeRevenueRecoveryJob=null,cafeRevenueRecoveryPolling=false,cafeRevenueRecoveryStarting=false,detailRepairStarting=false,recent3Refreshing=false;
 const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350,connectedAccounts={naver:'',cafe:''};
+try{const savedFx=Number(localStorage.getItem('roas-meta-spend-fx-v1'));if(Number.isFinite(savedFx)&&savedFx>0)rates=savedFx;}catch{}
 const metrics={smartstoreRevenue:'스마트스토어 매출',mallRevenue:'자사몰 매출',totalStoreRevenue:'통합 매출',profit:'통합 예상 이익',spend:'광고비',revenue:'Meta 귀속 구매매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR',cpa:'구매 CPA'};
 function normalize(row,channel){
  const rawSpend=metricNumber(row.spend),code=String(row.account_currency||currency[channel]||'').toUpperCase(),factor=code==='USD'?rates:code==='KRW'?1:null;
@@ -156,6 +157,17 @@ function summaryMetricContext(choice=$('channel').value){
 }
 function summaryMetric(key,context=summaryMetricContext()){
  const definition=summaryCardMetrics[key];
+ // Use the same server-calculated Meta spend totals as other workspaces.
+ // Until its request completes, preserve the existing local calculation.
+ if(definition?.adMetric==='spend'&&typeof window!=='undefined'){
+  const shared=window.ROASMetaSpend?.getSnapshot?.();
+  const ids={naver:String(connectedAccounts.naver||''),cafe:String(connectedAccounts.cafe||'')};
+  if(shared?.since===$('since').value&&shared?.until===$('until').value&&
+    shared.accounts?.naver===ids.naver&&shared.accounts?.cafe===ids.cafe&&
+    Number(shared.fx)===Number(rates)&&shared.scopes?.[key]){
+   return {...shared.scopes[key]};
+  }
+ }
  if(definition?.adScope&&context.choice!==definition.adScope)context=summaryMetricContext(definition.adScope);
  const totalDays=context.dates.length;
  if(!definition)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope:'',detail:'지원하지 않는 지표'};
@@ -1114,6 +1126,7 @@ async function run(){
 }
 let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
 setupSummaryCards();
+if(typeof window!=='undefined')window.addEventListener('roas:meta-spend-ready',()=>{if(!summaryLoading)renderSummaryCards();});
 document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-period]').forEach(t=>t.classList.toggle('active',t===b));const end=new Date();end.setHours(12,0,0,0);const start=new Date(end);const period=b.dataset.period;if(period==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}else if(period==='3months'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(period==='6months'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(period==='1year'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(period==='2years'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else if(period!=='today'){start.setDate(start.getDate()-(Number(period)-1));}$('since').value=iso(start);$('until').value=iso(end);run()});
 async function showCafeRepairDiagnosis(){
  const textArea=$('profit-diagnostic-output'),hint=$('profit-diagnostic-hint'),panel=$('cafe-repair-detail');
