@@ -192,18 +192,29 @@ body .app-theme-drawer-toggle [data-theme-icon] { font-size:20px; }
 @media(pointer:coarse){body .app-drawer .app-nav-link{min-height:44px;padding:9px}}
 @media(prefers-reduced-motion:reduce) { body .app-drawer { transition:none; } }
 
-/* A single stable Meta advertising spend block on every workspace tab.
-   It uses the same cached server calculation and account scope everywhere. */
+/* One compact total-ad-spend card on every workspace page.
+   Hover/focus shows five components; click and Escape provide equivalent touch/keyboard access. */
 body .app-main .ad-spend-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 12px;margin:8px 0 6px}
 body .app-main .ad-spend-heading h2{margin:0;font-size:17px;font-weight:650}
 body .app-main .ad-spend-heading p{margin:0;color:var(--app-muted);font-size:12px;line-height:1.45}
-body .app-main #ad-spend-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 13px;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-body .app-main .roas-shared-spend-card{min-width:0;display:flex;flex-direction:column;gap:3px;padding:11px 12px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:var(--app-shadow)}
+body .app-main #ad-spend-breakdown{display:block;position:relative;z-index:25;width:min(370px,100%);max-width:100%;min-width:0;margin:0 0 14px;overflow:visible;box-sizing:border-box}
+body .app-main .roas-spend-rollup{position:relative;min-width:0}
+body .app-main .roas-spend-rollup-trigger{display:flex;flex-direction:column;align-items:stretch;gap:5px;width:100%;min-height:106px;padding:12px 14px;text-align:left;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:var(--app-shadow);cursor:pointer}
+body .app-main .roas-spend-rollup-trigger:is(:hover,:focus-visible),body .app-main .roas-spend-rollup.is-open .roas-spend-rollup-trigger{border-color:var(--app-accent)}
 body .app-main .roas-shared-spend-title{font-size:13px;line-height:1.4;font-weight:650;color:var(--app-text);overflow-wrap:anywhere}
 body .app-main .roas-shared-spend-value{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px}
 body .app-main .roas-shared-spend-value strong{font-size:clamp(19px,2vw,26px);line-height:1.3;color:var(--app-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;word-break:break-word;max-width:100%;white-space:normal}
 body .app-main .roas-shared-spend-partial{font-size:11px;color:var(--app-warning);border:1px solid var(--app-warning-line);border-radius:5px;padding:1px 5px}
-body .app-main .roas-shared-spend-scope{font-size:12px;color:var(--app-muted);margin-top:auto}
 body .app-main .roas-shared-spend-status{font-size:12px;line-height:1.4;color:var(--app-muted);overflow-wrap:anywhere}
-@media(max-width:920px){body .app-main #ad-spend-breakdown{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:720px){body .app-main #ad-spend-breakdown{grid-template-columns:minmax(0,1fr)}}
+body .app-main .roas-spend-rollup-hint{font-size:12px;color:var(--app-link);font-weight:600}
+body .app-main .roas-spend-popover{display:none;position:absolute;left:0;top:calc(100% + 6px);z-index:60;width:min(500px,calc(100vw - 36px));max-width:calc(100vw - 36px);max-height:min(76vh,650px);overflow:auto;padding:14px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:0 15px 42px #0003}
+body .app-main .roas-spend-rollup:hover .roas-spend-popover,body .app-main .roas-spend-rollup:focus-within .roas-spend-popover,body .app-main .roas-spend-rollup.is-open .roas-spend-popover{display:block}
+body .app-main .roas-spend-popover-title{display:block;margin:0 0 7px;color:var(--app-text);font-size:13px;font-weight:700}
+body .app-main .roas-spend-popover-list{display:flex;flex-direction:column}
+body .app-main .roas-spend-popover-line{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:2px;padding:8px 1px;border-bottom:1px solid var(--app-border)}
+body .app-main .roas-spend-popover-line:first-child{font-weight:700}
+body .app-main .roas-spend-line-label{color:var(--app-text);font-size:13px;overflow-wrap:anywhere}
+body .app-main .roas-spend-line-amount{color:var(--app-text);font-size:14px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+body .app-main .roas-spend-line-state{grid-column:1/-1;color:var(--app-muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+body .app-main .roas-spend-popover-footnote{display:block;margin-top:10px;color:var(--app-muted);font-size:11px;line-height:1.5}
+@media(max-width:720px){body .app-main #ad-spend-breakdown{width:100%}body .app-main .roas-spend-popover{left:0;width:100%;max-width:calc(100vw - 24px)}}
