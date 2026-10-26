@@ -924,7 +924,7 @@ async function verifySplitRoas(requests) {
   const assertRoas = async (expected, message) => {
     for (const [index, key] of keys.entries()) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
-      assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : expected[index].toFixed(1) + '%', message + ': ' + key);
+      assert.equal(await card(key).locator('.summary-card-value strong').innerText(), expected[index] == null ? '—' : expected[index].toFixed(1) + '%', message + ': ' + key);
       assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
       assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each ROAS card identifies its fixed Meta source');
     }
@@ -1066,12 +1066,29 @@ async function verifySplitSpend(requests) {
   const assertSpend = async (expected, message) => {
     for (const [index, key] of keys.entries()) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
-      assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
+      assert.equal(await card(key).locator('.summary-card-value strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
       assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
       assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each spend card identifies its fixed account scope');
     }
   };
   assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'The removed fixed spend breakdown stays absent');
+  const hoverCard=card('spend'),detailsPanel=hoverCard.locator('.summary-spend-popover');
+  await hoverCard.hover();
+  assert.equal(await detailsPanel.isVisible(),true,'Hover reveals breakdown inside the existing total spend KPI');
+  assert.deepEqual(await detailsPanel.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(n=>n.dataset.spendLine)),
+   ['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend']);
+  assert.deepEqual(await detailsPanel.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(n=>n.querySelector('.summary-spend-popover-label')?.textContent)),
+   ['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+  const breakdownButton=hoverCard.locator('.summary-spend-detail-button');
+  await page.mouse.move(900,90);
+  assert.equal(await detailsPanel.isVisible(),false,'Leaving total KPI closes hover details');
+  await breakdownButton.click();
+  assert.equal(await breakdownButton.getAttribute('aria-expanded'),'true');
+  assert.equal(await detailsPanel.isVisible(),true,'Click opens the same disclosure for touch');
+  await breakdownButton.focus();await page.keyboard.press('Escape');
+  assert.equal(await breakdownButton.getAttribute('aria-expanded'),'false');
+  assert.equal(await detailsPanel.isVisible(),false,'Escape closes expanded details');
+
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
   const requestStart = requests.length;
@@ -1085,7 +1102,7 @@ async function verifySplitSpend(requests) {
   assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'Configuring KPI cards does not restore the removed spend breakdown');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
-  assert.deepEqual(await Promise.all(keys.map(key=>card(key).locator('strong').innerText())),[money(20000),money(10000),money(30000)],
+  assert.deepEqual(await Promise.all(keys.map(key=>card(key).locator('.summary-card-value strong').innerText())),[money(20000),money(10000),money(30000)],
   'Configurable overview cards keep the three Meta spending values after the fixed strip is removed');
   assert.deepEqual(await page.locator('#summary-roas-audit-body [data-roas-key]').evaluateAll(rows => rows.map(row => row.dataset.roasKey).sort()), roasKeys.slice().sort(), 'ROAS evidence contains only ROAS rows, never the three spend metrics');
   const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
@@ -1110,7 +1127,7 @@ async function verifySplitSpend(requests) {
     await page.locator('#channel').selectOption(channel);
     await idle();
     await assertSpend([20000, 10000, 30000], 'Spend scopes ignore the top channel filter ' + channel);
-    const values = await Promise.all(keys.map(key => card(key).locator('strong').innerText()));
+    const values = await Promise.all(keys.map(key => card(key).locator('.summary-card-value strong').innerText()));
     assert.equal(Number(values[0].replace(/[^\d]/g, '')) + Number(values[1].replace(/[^\d]/g, '')), Number(values[2].replace(/[^\d]/g, '')), 'The displayed total equals the displayed channel amounts');
   }
   check('spend: three fixed-scope choices save locally with three ROAS cards, keep empty slots across reload, ignore top filters, and never enter the ROAS audit');
@@ -1121,7 +1138,7 @@ async function verifySplitSpend(requests) {
   await range('2026-09-01');
   await assertSpend([20000, 10000, 30000], 'Spend includes ads with entirely unknown purchase revenue');
   for (const key of keys) assert.equal(await card(key).locator('.summary-card-badge').count(), 0, 'Unknown purchases do not make complete spend partial');
-  for (const key of roasKeys) assert.equal(await card(key).locator('strong').innerText(), '—', 'Unknown purchase revenue remains distinct from its known spend');
+  for (const key of roasKeys) assert.equal(await card(key).locator('.summary-card-value strong').innerText(), '—', 'Unknown purchase revenue remains distinct from its known spend');
   for (const account of Object.values(accountIds)) {
     const relative = '.roas-data/daily/' + account + '/2026-09-04.json';
     const saved = JSON.parse(fs.readFileSync(path.join(temp, relative), 'utf8'));
@@ -1133,7 +1150,7 @@ async function verifySplitSpend(requests) {
   }
   await range('2026-09-04');
   await assertSpend([20000, 10000, 30000], 'Explicit zero purchase revenue never removes ad spend');
-  for (const key of roasKeys) assert.equal(await card(key).locator('strong').innerText(), '0.0%');
+  for (const key of roasKeys) assert.equal(await card(key).locator('.summary-card-value strong').innerText(), '0.0%');
   const selected = roasSpendFixture(false);
   fs.unlinkSync(path.join(temp, '.roas-data/daily', accountIds.cafe, selected.since + '.json'));
   await range(selected.since, selected.until);
