@@ -52,7 +52,7 @@ function parseDetailMedia(html) {
     if (tag === 'source' && video && !video.url) video.url = detailMediaUrl(a.src || '');
     if (!Object.hasOwn(counts, tag)) continue;
     const index = ++counts[tag], type = { img:'image',video:'video',iframe:'embed' }[tag];
-    const item = { id:type + '_' + String(index).padStart(3,'0'), type, url:detailMediaUrl(a['ec-data-src'] || a['data-src'] || a.src || ''), alt:(a.alt || '').slice(0,150), name:'' };
+    const item = { id:type + '_' + String(index).padStart(3,'0'), type, url:detailMediaUrl(a['ec-data-src'] || a['data-src'] || a.src || ''), poster:detailMediaUrl(a.poster || ''), alt:(a.alt || '').slice(0,150), name:'' };
     items.push(item); if (tag === 'video') video = item;
     if (items.length > 500) throw failure(400, '상세 콘텐츠가 너무 많습니다.', 'DETAIL_CATALOG_SIZE');
   }
@@ -606,6 +606,15 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
       const signature = list => JSON.stringify(list.map(item=>[item.id,item.url]));
       if (previous && signature(previous.items) !== signature(items)) throw failure(409,'현재 페이지의 순서·파일이 저장된 목록과 다릅니다. 기존 통계를 보존하려면 상세 버전을 변경하고 자사몰 설치코드도 교체한 후 불러오세요.','DETAIL_CATALOG_VERSION');
       value = {productId:context.productId,contentVersion:context.contentVersion,importedAt:timestamp(),items};
+    } else if (input.action === 'thumbnail') {
+      if (!previous) throw failure(400,'먼저 콘텐츠 목록을 불러오세요.','DETAIL_THUMBNAIL');
+      value = structuredClone(previous);
+      const item = value.items.find(item=>item.id === input.id && item.type !== 'image');
+      const data = input.thumbnail;
+      if (!item || typeof data !== 'string' || data.length > 85000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(data)) throw failure(400,'썸네일 JPEG 형식을 확인하세요.','DETAIL_THUMBNAIL');
+      const bytes = Buffer.from(data.split(',')[1],'base64');
+      if (bytes.length < 4 || bytes.length > 63000 || bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) throw failure(400,'썸네일 JPEG 파일을 확인하세요.','DETAIL_THUMBNAIL');
+      item.thumbnail = data;
     } else if (input.action === 'rename') {
       if (!previous || !Array.isArray(input.names) || input.names.length > 500) throw failure(400,'저장할 콘텐츠 이름을 확인하세요.','DETAIL_CATALOG_NAMES');
       value = structuredClone(previous);
@@ -618,7 +627,7 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     if (catalogContext().key !== context.key) throw failure(409,'조회 중 상품·버전이 변경됐습니다.','DETAIL_CATALOG_CHANGED');
     const latest = catalogStore();
     if (input.action === 'import' && latest.versions[context.key] && JSON.stringify(latest.versions[context.key].items.map(item=>[item.id,item.url])) !== JSON.stringify(value.items.map(item=>[item.id,item.url]))) throw failure(409,'불러오는 동안 콘텐츠 목록이 변경됐습니다. 다시 확인하세요.','DETAIL_CATALOG_CHANGED');
-    if (input.action === 'import') for (const item of value.items) item.name = (latest.versions[context.key]?.items.find(old=>old.id===item.id) || {}).name || '';
+    if (input.action === 'import') for (const item of value.items) { const old = latest.versions[context.key]?.items.find(old=>old.id===item.id); item.name = old?.name || ''; if (old?.thumbnail) item.thumbnail = old.thumbnail; }
     latest.versions[context.key] = value; catalogWrite(latest); return value;
   }
   return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport, detailCatalog };

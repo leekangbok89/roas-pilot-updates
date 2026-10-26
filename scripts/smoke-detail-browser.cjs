@@ -3,6 +3,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {chromium}=require(process.env.ROAS_PLAYWRIGHT_MODULE||'playwright');
 const base=path.resolve(__dirname,'..'), tracker=fs.readFileSync(path.join(base,'public/detail-tracker.js'),'utf8');
+const thumbnailVideo=Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAWUbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAABL50cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAUAAAAC0AAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAEAAABAAAAAAQ2bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAyAAAAZABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAD4W1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAA6FzdGJsAAAAwXN0c2QAAAAAAAAAAQAAALFhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAUAAtABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAN2F2Y0MBZAAM/+EAGmdkAAys2UFBn58BEAAAAwAQAAADAyDxQplgAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAABfcAAAX3AAAABhzdHRzAAAAAAAAAAEAAAAyAAACAAAAABRzdHNzAAAAAAAAAAEAAAABAAABoGN0dHMAAAAAAAAAMgAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAABAAAAAAcc3RzYwAAAAAAAAABAAAAAQAAADIAAAABAAAA3HN0c3oAAAAAAAAAAAAAADIAAAL1AAAAEAAAAA0AAAANAAAADQAAABYAAAAPAAAADQAAAA0AAAAWAAAADwAAAA0AAAANAAAAFgAAAA8AAAANAAAADQAAABYAAAAPAAAADQAAAA0AAAAWAAAADwAAAA0AAAANAAAAFgAAAA8AAAANAAAADQAAABYAAAAPAAAADQAAAA0AAAAWAAAADwAAAA0AAAANAAAAFgAAAA8AAAANAAAADQAAABYAAAAPAAAADQAAAA0AAAAWAAAADwAAAA0AAAANAAAAFgAAABRzdGNvAAAAAAAAAAEAAAXEAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2MC4xNi4xMDAAAAAIZnJlZQAABf9tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCByMzEwOCAzMWUxOWY5IC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyMyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTYgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAP2WIhAA7//7jq/gU1nLQc9f+k2wu9GNPzxSXbPITNxyv/gd9NWAALGGW9CnGTJVG0AEsAAASwM2GMJqpyT1tgQAAAAxBmiRsQ7/+qZYAAgYAAAAJQZ5CeIX/AAJvAAAACQGeYXRCvwADUgAAAAkBnmNqQr8AA1MAAAASQZpoSahBaJlMCHf//qmWAAIHAAAAC0GehkURLC//AAJvAAAACQGepXRCvwADUwAAAAkBnqdqQr8AA1IAAAASQZqsSahBbJlMCHf//qmWAAIGAAAAC0GeykUVLC//AAJvAAAACQGe6XRCvwADUgAAAAkBnutqQr8AA1IAAAASQZrwSahBbJlMCHf//qmWAAIHAAAAC0GfDkUVLC//AAJvAAAACQGfLXRCvwADUwAAAAkBny9qQr8AA1IAAAASQZs0SahBbJlMCHf//qmWAAIGAAAAC0GfUkUVLC//AAJvAAAACQGfcXRCvwADUgAAAAkBn3NqQr8AA1IAAAASQZt4SahBbJlMCHf//qmWAAIHAAAAC0GflkUVLC//AAJuAAAACQGftXRCvwADUwAAAAkBn7dqQr8AA1MAAAASQZu8SahBbJlMCHf//qmWAAIGAAAAC0Gf2kUVLC//AAJvAAAACQGf+XRCvwADUgAAAAkBn/tqQr8AA1MAAAASQZvgSahBbJlMCHf//qmWAAIHAAAAC0GeHkUVLC//AAJuAAAACQGePXRCvwADUgAAAAkBnj9qQr8AA1MAAAASQZokSahBbJlMCHf//qmWAAIGAAAAC0GeQkUVLC//AAJvAAAACQGeYXRCvwADUgAAAAkBnmNqQr8AA1MAAAASQZpoSahBbJlMCG///qeEAAP9AAAAC0GehkUVLC//AAJvAAAACQGepXRCvwADUwAAAAkBnqdqQr8AA1IAAAASQZqsSahBbJlMCG///qeEAAP8AAAAC0GeykUVLC//AAJvAAAACQGe6XRCvwADUgAAAAkBnutqQr8AA1IAAAASQZrwSahBbJlMCF///oywAA+5AAAAC0GfDkUVLC//AAJvAAAACQGfLXRCvwADUwAAAAkBny9qQr8AA1IAAAASQZsxSahBbJlMCFf//jhAAD0g','base64');
 const {DETAIL_DEFAULTS,assembleDetailReport}=require('../integrations/ga4/client.cjs');
 let checks=0;
 const pass=label=>{checks++;console.log('PASS '+label);};
@@ -64,13 +65,15 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     const report=assembleDetailReport(raw,{since:'2026-10-19',until:'2026-10-25',productId:'458',contentVersion:'v1'},true);
     await ui.route('**/*',async route=>{
       const url=new URL(route.request().url()),p=url.pathname;
+      if(url.hostname==='wemamang.mycafe24.com'&&p==='/detail/dp02.mp4')return route.fulfill({contentType:'video/mp4',headers:{'Access-Control-Allow-Origin':'*'},body:thumbnailVideo});
       if(url.hostname!=='127.0.0.1')return route.abort();
       if(p==='/api/ga4/status')return route.fulfill({json:{configured:true}});
       if(p==='/api/ga4/detail-settings'){if(route.request().method()==='POST')saved=route.request().postDataJSON();return route.fulfill({json:saved});}
       if(p==='/api/ga4/detail-catalog'){
         if(route.request().method()==='POST'){
           const input=route.request().postDataJSON();
-          if(input.action==='import')catalog.items=[{id:'image_001',type:'image',url:'https://wemamang.mycafe24.com/detail/dp01.jpg',filename:'dp01.jpg',alt:'상세 이미지',name:''},{id:'video_001',type:'video',url:'https://wemamang.mycafe24.com/detail/dp02.mp4',filename:'dp02.mp4',name:''}];
+          if(input.action==='import')catalog.items=[{id:'image_001',type:'image',url:'https://wemamang.mycafe24.com/detail/dp01.jpg',filename:'dp01.jpg',alt:'상세 이미지',name:''},{id:'video_001',type:'video',url:'https://wemamang.mycafe24.com/detail/dp02.mp4',filename:'dp02.mp4',name:''},{id:'video_002',type:'video',url:'https://wemamang.mycafe24.com/detail/blocked.mp4',filename:'blocked.mp4',name:''}];
+          else if(input.action==='thumbnail')catalog.items.find(item=>item.id===input.id).thumbnail=input.thumbnail;
           else for(const n of input.names)catalog.items.find(item=>item.id===n.id).name=n.name;
         }
         return route.fulfill({json:catalog});
@@ -84,7 +87,18 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     assert.match(await ui.locator('#clarity-dashboard').getAttribute('href'),/abc123456/);
     await ui.locator('#catalog-import').click();await ui.locator('.catalog-name').first().waitFor();
     assert.equal(await ui.locator('#catalog-body img').getAttribute('src'),'https://wemamang.mycafe24.com/detail/dp01.jpg');
-    assert.equal(await ui.locator('#catalog-body video').getAttribute('preload'),'none');
+    assert.equal(await ui.locator('#catalog-body video').count(),0,'No blank video player should be displayed');
+    await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
+    await ui.waitForFunction(()=>document.querySelector('#catalog-body .video-thumb .thumb-message').textContent==='');
+    await ui.locator('.catalog-name').first().fill('수정 중인 이름');
+    await ui.locator('#catalog-body input[type=file]').first().setInputFiles({name:'local-video.mp4',mimeType:'video/mp4',buffer:thumbnailVideo});
+    await ui.waitForFunction(()=>document.querySelector('#catalog-body .thumb-message').textContent.includes('썸네일 저장 완료'));
+    assert.equal(await ui.locator('.catalog-name').first().inputValue(),'수정 중인 이름','Thumbnail updates must preserve unsaved names');
+    assert.ok(catalog.items[1].thumbnail.startsWith('data:image/jpeg;base64,'));
+    await ui.locator('#catalog-body .video-thumb').nth(1).scrollIntoViewIfNeeded();
+    await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .thumb-placeholder')).some(node=>node.textContent==='썸네일 등록 필요'));
+    assert.equal(await ui.locator('#catalog-body video').count(),0);
+    pass('automatic video frame thumbnails and local-video uploads persist without clearing unsaved names');
     await ui.locator('.catalog-name').first().fill('100℃ 가열 설명 <b>테스트</b>');await ui.locator('#catalog-save').click();
     await ui.waitForFunction(()=>document.querySelector('#catalog-message').textContent.includes('이름을 저장했습니다'));
     await ui.locator('#detail-setup summary').click();await ui.locator('#detail-query').click();await ui.locator('#detail-results').waitFor({state:'visible'});
@@ -97,6 +111,8 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     await ui.locator('#app-theme-toggle').click();assert.equal(await ui.locator('html').getAttribute('data-theme'),'light');
     for(const m of ['error','setup','zero']){mode=m;await ui.locator('#detail-refresh').click();await ui.waitForFunction(()=>!document.querySelector('#detail-refresh').disabled);assert.equal(await ui.locator('#detail-results').isVisible(),false);}
     assert.equal(await ui.evaluate(()=>window.injected),undefined);
+    await ui.reload();await ui.mouse.move(900,700);await ui.keyboard.press('Escape');await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
+    assert.equal(await ui.locator('.catalog-name').first().inputValue(),'100℃ 가열 설명 <b>테스트</b>');pass('blocked remote video has an upload fallback; saved thumbnails and names survive reload');
     await ui.setViewportSize({width:390,height:844});assert.ok(await ui.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));
     assert.deepEqual(errors,[]);pass('dashboard setup/snippet, real calculations, dark/light, mobile and safe empty/error states');
     console.log('Detail browser verification: '+checks+' checks passed.');

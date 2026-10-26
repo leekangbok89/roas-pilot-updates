@@ -41,3 +41,13 @@ test('invalid alias mutations and failed imports preserve the saved catalog',asy
  for(const name of ['x'.repeat(81),'line\nbreak'])await assert.rejects(f.api.detailCatalog({...context,action:'rename',names:[{id:'image_001',name}]}),{code:'DETAIL_CATALOG_NAMES'});
  f.set('<div>missing content</div>');await assert.rejects(f.api.detailCatalog({...context,action:'import'}));assert.equal((await f.api.detailCatalog()).items.length,4);
 });
+test('video thumbnails persist across restart and imports without losing names; invalid or image-target uploads are rejected',async t=>{
+ const f=fixture(t);await f.api.detailCatalog({...context,action:'import'});
+ await f.api.detailCatalog({...context,action:'rename',names:[{id:'video_001',name:'조유 시연'}]});
+ const thumbnail='data:image/jpeg;base64,'+Buffer.from([255,216,255,217]).toString('base64');
+ const saved=await f.api.detailCatalog({...context,action:'thumbnail',id:'video_001',thumbnail});
+ assert.equal(saved.items[1].thumbnail,thumbnail);assert.equal(saved.items[1].name,'조유 시연');
+ assert.equal((await createGa4Service({baseDir:f.dir}).detailCatalog()).items[1].thumbnail,thumbnail);
+ assert.equal((await f.api.detailCatalog({...context,action:'import'})).items[1].thumbnail,thumbnail);
+ for(const [id,data] of [['image_001',thumbnail],['video_001','data:image/svg+xml,<svg/>'],['video_001','data:image/jpeg;base64,YmFk']])await assert.rejects(f.api.detailCatalog({...context,action:'thumbnail',id,thumbnail:data}),{code:'DETAIL_THUMBNAIL'});
+});

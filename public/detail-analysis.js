@@ -28,6 +28,89 @@
     return id.replace(/^video_0*/, '영상 ').replace(/^embed_0*/, '외부 영상 ');
   }
   function cell(tr, text) { var td = document.createElement('td'); td.textContent = text; tr.appendChild(td); return td; }
+  var thumbFrames = new Map(), thumbJobs = [], thumbActive = 0;
+  function thumbKey(item, context) { return JSON.stringify([context.productId, context.contentVersion, item.id, item.url]); }
+  function imageCanvas(image) {
+    var width = image.videoWidth || image.naturalWidth, height = image.videoHeight || image.naturalHeight;
+    if (!width || !height) throw Error('영상 장면을 읽을 수 없습니다.');
+    var scale = Math.min(320 / width, 240 / height, 1), canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height); return canvas;
+  }
+  function videoFrame(url, anonymous) {
+    return new Promise(function (resolve, reject) {
+      var video = document.createElement('video'), finished = false;
+      video.muted = true; video.playsInline = true; video.preload = 'auto';
+      if (anonymous) video.crossOrigin = 'anonymous';
+      var timer = setTimeout(function () { finish(Error('영상 서버에서 장면을 불러오지 못했습니다.')); }, 10000);
+      function finish(error, canvas) { if (finished) return; finished = true; clearTimeout(timer); video.onloadeddata = video.onseeked = video.onerror = null; video.removeAttribute('src'); video.load(); error ? reject(error) : resolve(canvas); }
+      function capture() { try { finish(null, imageCanvas(video)); } catch (error) { finish(error); } }
+      video.onloadeddata = function () { var time = Number.isFinite(video.duration) ? Math.min(1, video.duration / 3) : 0;
+        if (time > .01) { video.onseeked = capture; video.currentTime = time; } else capture(); };
+      video.onerror = function () { finish(Error('영상 접근이 제한됐습니다. 썸네일을 직접 등록하세요.')); };
+      video.src = url; video.load();
+    });
+  }
+  function showThumb(slot, frame, title) {
+    slot.replaceChildren();
+    if (frame.data) { var img = document.createElement('img'); img.src = frame.data; img.alt = title + ' 썸네일'; slot.appendChild(img); }
+    else { var canvas = document.createElement('canvas'); canvas.width = frame.canvas.width; canvas.height = frame.canvas.height;
+      canvas.getContext('2d').drawImage(frame.canvas, 0, 0); canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', title + ' 썸네일'); slot.appendChild(canvas); }
+    var badge = document.createElement('span'); badge.textContent = '▶'; badge.style.cssText = 'position:absolute;right:5px;bottom:2px;color:white;text-shadow:0 1px 3px black'; slot.appendChild(badge);
+  }
+  async function persistThumb(item, context, data) {
+    var result = await api('detail-catalog', Object.assign({action:'thumbnail',id:item.id,thumbnail:data},context));
+    if (catalog && catalog.productId === context.productId && catalog.contentVersion === context.contentVersion) {
+      var saved = result.items.find(function (entry) { return entry.id === item.id; }), local = catalog.items.find(function (entry) { return entry.id === item.id; });
+      if (saved && local) local.thumbnail = saved.thumbnail;
+    }
+  }
+  function enqueueThumb(job) { thumbJobs.push(job); pumpThumbs(); }
+  function pumpThumbs() { while (thumbActive < 2 && thumbJobs.length) {
+    var job = thumbJobs.shift(); thumbActive++;
+    Promise.resolve().then(job).catch(function () {}).finally(function () { thumbActive--; pumpThumbs(); });
+  } }
+  var thumbObserver = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) { if (entry.isIntersecting) { thumbObserver.unobserve(entry.target); entry.target.__loadThumb(); } });
+  }, {rootMargin:'200px'}) : null;
+  function videoThumbnail(item, id) {
+    var holder = document.createElement('div'); holder.className = 'video-thumb';
+    var slot = document.createElement('a'); slot.href = item.url; slot.target = '_blank'; slot.rel = 'noopener noreferrer'; slot.title = '원본 영상 열기';
+    slot.setAttribute('aria-label', (item.name || label(id)) + ' 원본 영상 열기');
+    var context = {productId:catalog.productId,contentVersion:catalog.contentVersion}, key = thumbKey(item, context);
+    slot.dataset.thumbKey = key; var message = document.createElement('small'); message.className = 'thumb-message';
+    var placeholder = document.createElement('span'); placeholder.className = 'thumb-placeholder'; placeholder.textContent = '썸네일 준비 중'; slot.appendChild(placeholder);
+    function display(frame) { thumbFrames.set(key,frame); document.querySelectorAll('.video-thumb a').forEach(function (node) { if (node.dataset.thumbKey === key) showThumb(node,frame,item.name || label(id)); }); }
+    slot.__loadThumb = function () { enqueueThumb(async function () {
+      if (!slot.isConnected) return;
+      if (thumbFrames.has(key)) { showThumb(slot,thumbFrames.get(key),item.name || label(id)); return; }
+      if (item.thumbnail || item.poster) { var img = document.createElement('img'); img.alt = (item.name || label(id)) + ' 썸네일'; img.src = item.thumbnail || item.poster;
+        img.onerror = function () { placeholder.textContent = '썸네일 등록 필요'; slot.replaceChildren(placeholder); }; slot.replaceChildren(img); return; }
+      var yt = item.type === 'embed' && item.url.match(/\/embed\/([A-Za-z0-9_-]{6,})/);
+      if (yt) { var preview = document.createElement('img'); preview.alt = '외부 영상 썸네일'; preview.src = 'https://i.ytimg.com/vi/' + yt[1] + '/hqdefault.jpg'; preview.onerror = function () { placeholder.textContent = '썸네일 등록 필요'; slot.replaceChildren(placeholder); }; slot.replaceChildren(preview); return; }
+      try {
+        var canvas; try { canvas = await videoFrame(item.url, true); } catch (_) { canvas = await videoFrame(item.url, false); }
+        if (thumbFrames.has(key)) { showThumb(slot,thumbFrames.get(key),item.name || label(id)); return; }
+        var frame = {canvas:canvas}; try { frame.data = canvas.toDataURL('image/jpeg',.72); } catch (_) {}
+        display(frame); if (frame.data) { try { await persistThumb(item,context,frame.data); } catch (_) { message.textContent = '저장되지 않아 다음 접속 시 다시 추출합니다.'; } }
+      } catch (_) { placeholder.textContent = '썸네일 등록 필요'; slot.replaceChildren(placeholder); message.textContent = '서버 접근 제한 · 이미지나 원본 영상을 등록하세요.'; }
+    }); };
+    var upload = document.createElement('label'); upload.className = 'thumb-upload'; upload.tabIndex = 0; upload.setAttribute('role','button'); upload.appendChild(document.createTextNode('썸네일 등록 / 변경'));
+    var input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*,video/mp4,video/webm'; input.setAttribute('aria-label',(item.name || label(id)) + ' 썸네일 파일'); upload.appendChild(input);
+    upload.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){event.preventDefault();input.click();}});
+    input.addEventListener('change',async function () {
+      var file = input.files[0]; if (!file) return; if (file.size > 100*1024*1024) { message.textContent = '100MB 이하의 파일을 선택하세요.'; return; }
+      var url = URL.createObjectURL(file); input.disabled = true; message.textContent = '썸네일 생성 중…';
+      try {
+        var canvas = file.type.indexOf('video/') === 0 ? await videoFrame(url,false) : await new Promise(function (resolve,reject) { var img = new Image(); img.onload = function () { try { resolve(imageCanvas(img)); } catch(error) { reject(error); } }; img.onerror = function () { reject(Error('이미지 파일을 확인하세요.')); }; img.src = url; });
+        var data = canvas.toDataURL('image/jpeg',.72); await persistThumb(item,context,data); display({data:data}); message.textContent = '썸네일 저장 완료';
+      } catch (error) { message.textContent = error.message || '썸네일을 저장하지 못했습니다.'; }
+      finally { URL.revokeObjectURL(url); input.disabled = false; input.value = ''; }
+    });
+    holder.append(slot,upload,message);
+    if (thumbObserver) thumbObserver.observe(slot); else setTimeout(slot.__loadThumb,0);
+    return holder;
+  }
   function assetFor(id, context) {
     if (!catalog || !context || catalog.productId !== context.productId || catalog.contentVersion !== context.contentVersion) return null;
     return catalog.items.find(function (item) { return item.id === id.replace(/_p\d+$/, ''); }) || null;
@@ -37,9 +120,8 @@
     if (item && item.url && /^https:\/\//.test(item.url)) {
       var link = document.createElement('a'); link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.title = '원본 콘텐츠 열기';
       if (item.type === 'image') { var img = document.createElement('img'); img.src = item.url; img.alt = item.name || item.alt || label(id); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; link.appendChild(img); }
-      else if (item.type === 'video') { var video = document.createElement('video'); video.src = item.url; video.controls = true; video.preload = 'none'; video.setAttribute('aria-label', item.name || label(id)); box.appendChild(video); link.textContent = '원본 열기 ↗'; }
-      else link.textContent = '외부 영상 열기 ↗';
-      box.appendChild(link);
+      else box.appendChild(videoThumbnail(item,id));
+      if (item.type === 'image') box.appendChild(link);
     }
     var text = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small'), file = document.createElement('small');
     title.textContent = item && item.name ? item.name : label(id); detail.textContent = label(id) + ' · ' + id;
