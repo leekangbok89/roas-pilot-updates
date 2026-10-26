@@ -137,7 +137,7 @@ function loadDay(account,date,readCache=null){
 function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
  if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)
   throw Object.assign(Error('유효한 조회 기간을 선택하세요(최대 732일).'),{status:400});
- const accounts={naver:String(naverId??'').trim().replace(/^act_/,''),cafe:String(cafeId??'').trim().replace(/^act_/,'')};
+ const accounts={naver:String(naverId??'').trim().replace(/^act_/,''),cafe:String(cafeId??'').trim().replace(/^act_/, '')};
  if(Object.values(accounts).some(id=>id&&!/^[0-9]{5,30}$/.test(id)))
   throw Object.assign(Error('Meta 광고 계정 ID를 확인하세요.'),{status:400});
  const rate=Number(fx);
@@ -151,60 +151,60 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
   if(!snap)return {value:null,known:false,complete:false};
   let amount=0,accepted=0,complete=true;
   for(const row of snap.rows){
-   const cost=row?.spend==null||row.spend===''?NaN:Number(row.spend);
-   const currency=String(row?.account_currency||snap.currency||'').toUpperCase();
+   const cost=row?.spend==null||row.spend===''?NaN:Number(row.spend),currency=String(row?.account_currency||snap.currency||'').toUpperCase();
    if(!Number.isFinite(cost)||cost<0||!['USD','KRW'].includes(currency)){complete=false;continue;}
    amount+=cost*(currency==='USD'?rate:1);accepted++;
   }
   const known=!snap.rows.length||accepted>0;
   return {value:known?amount:null,known,complete:complete&&known};
  };
- const naverSpendReadSnapshot=naverSpendRead();
+ const manualCosts=naverSpendRead();
+ const api=naverSearch.savedSpend({since,until});
+ const apiMap=new Map((api.days||[]).map(row=>[row.date,row]));
+ let apiDays=0,manualDays=0,missingSearchDays=0,estimatedGfa=false;
  const daily=dates.map(date=>{
   const states=new Map(ids.map(id=>[id,read(id,date)]));
   const totalKnown=ids.some(id=>states.get(id).known);
-  const totalComplete=ids.length>0&&ids.every(id=>states.get(id).complete)&&!!accounts.naver&&!!accounts.cafe||shared&&states.get(accounts.naver)?.complete;
-  const total={value:totalKnown?ids.reduce((sum,id)=>sum+(states.get(id).value??0),0):null,known:totalKnown,complete:!!totalComplete};
+  const metaComplete=ids.length>0&&ids.every(id=>states.get(id).complete)&&!!accounts.naver&&!!accounts.cafe||shared&&states.get(accounts.naver)?.complete;
+  const meta={value:totalKnown?ids.reduce((sum,id)=>sum+(states.get(id).value??0),0):null,known:totalKnown,complete:!!metaComplete};
   const naver=shared?{value:null,known:false,complete:false}:accounts.naver?states.get(accounts.naver):{value:null,known:false,complete:false};
   const cafe=shared?{value:null,known:false,complete:false}:accounts.cafe?states.get(accounts.cafe):{value:null,known:false,complete:false};
-  return {date,spend:total.value,smartstoreSpend:naver.value,mallSpend:cafe.value,
-   complete:{spend:total.complete,smartstoreSpend:naver.complete,mallSpend:cafe.complete},
-   known:{spend:total.known,smartstoreSpend:naver.known,mallSpend:cafe.known}};
+  const manual=naverSpendDay(date,manualCosts),search=resolveSearchAdSpend(date,manual,apiMap),gfa=manual.amounts.gfa;
+  if(search.source==='api')apiDays++;else if(search.source==='manual')manualDays++;else missingSearchDays++;
+  if(gfa!==null&&manual.estimated)estimatedGfa=true;
+  const known={spend:meta.known||search.value!==null||gfa!==null,smartstoreSpend:naver.known,mallSpend:cafe.known,gfaSpend:gfa!==null,searchSpend:search.value!==null,
+   shoppingSpend:manual.amounts.shopping!==null,powerlinkSpend:manual.amounts.powerlink!==null};
+  const complete={spend:meta.complete&&search.complete&&gfa!==null,smartstoreSpend:naver.complete,mallSpend:cafe.complete,
+   gfaSpend:gfa!==null,searchSpend:search.complete,shoppingSpend:manual.amounts.shopping!==null,powerlinkSpend:manual.amounts.powerlink!==null};
+  return {date,spend:known.spend?(meta.value??0)+(gfa??0)+(search.value??0):null,metaSpend:meta.value,
+   smartstoreSpend:naver.value,mallSpend:cafe.value,gfaSpend:gfa,searchSpend:search.value,searchSpendSource:search.source,
+   shoppingSpend:manual.amounts.shopping,powerlinkSpend:manual.amounts.powerlink,complete,known};
  });
- const labels={spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비'};
- const scopes={spend:'Meta · 전체 연결 계정',smartstoreSpend:'Meta · 스마트스토어 광고',mallSpend:'Meta · 자사몰 광고'};
+ const labels={spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비',
+  gfaSpend:'GFA 광고비',searchSpend:'검색광고 (쇼핑검색 + 파워링크)',shoppingSpend:'네이버 쇼핑검색 수동 입력',powerlinkSpend:'네이버 파워링크 수동 입력'};
+ const scopes={spend:'Meta + GFA + 검색광고',smartstoreSpend:'Meta · 스마트스토어 광고',mallSpend:'Meta · 자사몰 광고',
+  gfaSpend:'네이버 GFA · 사용자 입력',searchSpend:'네이버 검색광고 API 우선 · 수동 보충',
+  shoppingSpend:'네이버 · 쇼핑검색 수동 입력',powerlinkSpend:'네이버 · 파워링크 수동 입력'};
  const metrics={};
  for(const key of Object.keys(labels)){
   const known=daily.filter(row=>row.known[key]),complete=daily.filter(row=>row.complete[key]);
-  const value=known.length?known.reduce((sum,row)=>sum+row[key],0):null;
-  const cause=key!=='spend'&&shared?'동일 광고계정 · 채널 구분 필요':
-   key!=='spend'&&!accounts[key==='smartstoreSpend'?'naver':'cafe']?'광고계정 미연결':
-   key==='spend'&&ids.length===0?'광고계정 미연결':
-   key==='spend'&&(!accounts.naver||!accounts.cafe)?'다른 채널 광고계정 미연결 · 연결 계정만 포함':null;
-  const partial=value!==null&&complete.length<daily.length;
-  metrics[key]={label:labels[key],scope:scopes[key],value,knownDays:known.length,completeDays:complete.length,totalDays:daily.length,
-   partial,detail:cause||((value===null?'미수집 · ':'')+'확인 '+known.length+'/'+daily.length+'일'+(partial?' · 광고비 일부 미확인':''))};
+  const value=known.length?known.reduce((sum,row)=>sum+(row[key]??0),0):null,partial=value!==null&&complete.length<daily.length;
+  const cause=key!=='spend'&&['smartstoreSpend','mallSpend'].includes(key)&&shared?'동일 광고계정 · 채널 구분 필요':
+   key==='smartstoreSpend'&&!accounts.naver?'광고계정 미연결':key==='mallSpend'&&!accounts.cafe?'광고계정 미연결':
+   key==='spend'&&ids.length===0?'Meta 광고계정 미연결 · 확인된 다른 광고비만 합산':
+   key==='gfaSpend'&&!known.length?'GFA 광고비 미입력 · 네이버 GFA 분석에서 저장해 주세요.':
+   key==='searchSpend'&&!known.length?api.detail||'검색광고 저장 자료 없음':null;
+  let detail=cause||((value===null?'미수집 · ':'')+'확인 '+known.length+'/'+daily.length+'일'+(partial?' · 일부 날짜/항목 미확인':''));
+  if(key==='searchSpend')detail+=' · API '+apiDays+'일 · 수동 보충 '+manualDays+'일'+(missingSearchDays?' · 미확인 '+missingSearchDays+'일':'')+
+   (api.unsupportedCampaigns?' · 검색·쇼핑 이외 캠페인 제외':'')+' · API 금액은 부가세 포함';
+  if(key==='gfaSpend'&&estimatedGfa)detail+=' · 기간 합계 균등 배분 추정';
+  if(key==='spend')detail+=' · Meta 중복 계정 한 번만 반영 · GFA 수동 입력 · 검색광고 API 우선 (같은 날짜 수동 검색비와 중복 계산 없음)';
+  metrics[key]={label:labels[key],scope:scopes[key],value,knownDays:known.length,completeDays:complete.length,
+   totalDays:daily.length,partial:partial||key==='spend'&&value!==null&&(!accounts.naver||!accounts.cafe),detail};
  }
- const enteredCosts=dates.map(date=>naverSpendDay(date,naverSpendReadSnapshot));
- const fields={gfaSpend:'gfa',shoppingSpend:'shopping',powerlinkSpend:'powerlink'};
- const extraNames={gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'};
- for(const [key,channel] of Object.entries(fields)){
-  const known=enteredCosts.filter(day=>day.amounts[channel]!==null),estimated=known.some(day=>day.estimated);
-  const value=known.length?known.reduce((sum,day)=>sum+day.amounts[channel],0):null;
-  metrics[key]={label:extraNames[key],scope:'네이버 · '+extraNames[key]+' 입력분',value,knownDays:known.length,completeDays:known.length,totalDays:dates.length,partial:known.length>0&&known.length<dates.length,
-   detail:known.length?'입력 '+known.length+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):'미입력 · 네이버 데이터 분석에서 입력하세요.'};
-  for(let i=0;i<daily.length;i++){daily[i][key]=enteredCosts[i].amounts[channel];daily[i].known[key]=daily[i][key]!==null;daily[i].complete[key]=daily[i].known[key];}
- }
- if(enteredCosts.some(day=>day.entered)){
-  const total=metrics.spend;total.value=(total.value??0)+enteredCosts.reduce((sum,day)=>sum+day.total,0);total.scope='Meta + 네이버 입력분';
-  const manualComplete=enteredCosts.every(day=>Object.values(day.amounts).every(Number.isFinite));
-  total.partial=total.partial||!total.knownDays||!manualComplete;
-  total.detail+=' · 네이버 광고비 입력분 포함'+(!manualComplete?' · 미입력 항목/날짜 제외':'')+(enteredCosts.some(day=>day.estimated)?' · 일별 균등 배분 추정':'');
-  for(let i=0;i<daily.length;i++){const day=daily[i],cost=enteredCosts[i];if(cost.entered){day.spend=(day.spend??0)+cost.total;day.known.spend=true;}day.complete.spend&&=Object.values(cost.amounts).every(Number.isFinite);}
-  total.knownDays=daily.filter(day=>day.known.spend).length;total.completeDays=daily.filter(day=>day.complete.spend).length;
- }
- return {since,until,fxUsed:rate,scopes:metrics,daily,sharedAccount:shared,allAccountsConnected:!!accounts.naver&&!!accounts.cafe,
-  explanation:'총 광고비는 저장된 Meta 원본 광고비와 네이버 광고비 입력분을 합산합니다. 미입력 네이버 항목은 포함하지 않습니다. 스마트스토어용 계정 지출은 협력광고 캠페인만 자동 판별한 값이 아닙니다.'};
+ return {since,until,fxUsed:rate,scopes:metrics,daily,sharedAccount:shared,
+  allAccountsConnected:!!accounts.naver&&!!accounts.cafe,search:{apiDays,manualDays,missingDays:missingSearchDays,configured:api.configured,scopeReady:api.scopeReady},
+  explanation:'총 광고비는 Meta 광고 2채널과 GFA 수동 입력, 네이버 검색광고(쇼핑검색+파워링크) 합계입니다. 검색 API 저장 자료를 우선하며 동일 날짜 수동 검색비는 중복 합산하지 않습니다. GFA 미입력이나 검색광고 자료 누락은 확인분으로 표시합니다.'};
 }
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
 function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
@@ -1280,6 +1280,14 @@ function naverSpendDay(date,saved){
  }
  return {amounts,total:Object.values(amounts).reduce((s,v)=>s+(v??0),0),entered:Object.values(amounts).some(v=>v!==null),estimated};
 }
+function resolveSearchAdSpend(date,manual,apiMap){
+ const row=apiMap?.get(date);
+ if(row&&Number.isFinite(row.spend)&&row.spend>=0)return {value:row.spend,complete:true,source:'api'};
+ const shopping=manual?.amounts?.shopping,powerlink=manual?.amounts?.powerlink;
+ if(shopping!==null&&shopping!==undefined||powerlink!==null&&powerlink!==undefined)
+  return {value:(shopping??0)+(powerlink??0),complete:shopping!==null&&powerlink!==null,source:'manual'};
+ return {value:null,complete:false,source:'missing'};
+}
 function profitAdSpend(accounts,date,fx,snapshotCache=null){
  if(!accounts.length)return {adSpend:null,adComplete:false,reasons:['광고 계정 미설정']};
  let spend=0;const reasons=[];
@@ -1356,6 +1364,7 @@ function profitDaily(since,until,options={}){
  if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)throw Object.assign(Error('유효한 조회 기간을 선택하세요.'),{status:400});
  const includeAds=options.accounts!==undefined,accounts=includeAds?profitAccounts(options.accounts):[],fx=Number(options.fx??1350),snapshotCache=options.snapshotCache||null;
  const naverSpend=includeAds?naverSpendRead():null;
+ const apiSearchSpend=includeAds?naverSearch.savedSpend({since,until}):null,apiSearchDays=new Map((apiSearchSpend?.days||[]).map(row=>[row.date,row]));
  if(includeAds&&(!Number.isFinite(fx)||fx<=0))throw Object.assign(Error('USD→KRW 환율값을 확인하세요.'),{status:400});
  const cafeCacheState=cafeOrderCacheForReport(),cafeCacheValid=cafeCacheState.cacheState==='ok';
  const nv=naverRead(naverOrderFile,{orders:{}}).orders||{},ns=naverRead(naverSyncFile,{days:{}}).days||{},cs=cafeCache(cafeSyncFile,{days:{}})?.days||{},costs=costRead(),fees=profitFees();
@@ -1447,9 +1456,12 @@ function profitDaily(since,until,options={}){
   row.revenueComplete=row.naver.revenueComplete&&row.cafe24.revenueComplete;
   row.complete=row.naver.complete&&row.cafe24.complete;
   if(includeAds){
-   const ad=profitAdSpend(accounts,date,fx,snapshotCache),naver=naverSpendDay(date,naverSpend);
-   row.metaAdSpend=ad.adSpend;row.naverAdSpend=naver.amounts;row.naverAdSpendTotal=naver.total;row.naverAdSpendEstimated=naver.estimated;
-   row.adSpend=ad.adSpend===null?null:ad.adSpend+naver.total;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
+   const ad=profitAdSpend(accounts,date,fx,snapshotCache),naver=naverSpendDay(date,naverSpend),search=resolveSearchAdSpend(date,naver,apiSearchDays),gfa=naver.amounts.gfa;
+   row.metaAdSpend=ad.adSpend;row.naverAdSpend=naver.amounts;
+   row.gfaAdSpend=gfa;row.searchAdSpend=search.value;row.searchAdSpendSource=search.source;
+   row.naverAdSpendTotal=(gfa??0)+(search.value??0);row.naverAdSpendEstimated=naver.estimated&&search.source!=='api';
+   row.adSpendSourcesPartial=gfa===null||!search.complete;
+   row.adSpend=ad.adSpend===null?null:ad.adSpend+row.naverAdSpendTotal;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
    row.confirmed.profit=row.confirmedAvailable&&ad.adComplete&&row.confirmed.revenue!=null&&row.confirmed.fee!=null&&row.confirmed.cost!=null?row.confirmed.revenue-row.confirmed.fee-row.confirmed.cost-row.adSpend:null;
   }
   row.partial=!row.complete&&row.confirmedAvailable;
