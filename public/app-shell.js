@@ -248,15 +248,15 @@
   else initializeShell();
 })();
 
-/* Read-only Meta spending strip shared by every workspace page and route.
+/* Read-only advertising spending strip shared by every workspace page and route.
    Unlike advertising attribution metrics, these are raw spending totals. */
 (function(){
  'use strict';
- const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'];
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'];
  const labels=Object.freeze({
   spend:'총 광고비',
   smartstoreSpend:'스마트스토어 협력 메타 광고비',
-  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'
+  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버 쇼핑 + 파워링크)'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
  let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;
@@ -325,7 +325,21 @@
    if(metric?.partial){const badge=document.createElement('span');badge.className='roas-shared-spend-partial';badge.textContent='확인분';value.append(badge);}
    const scope=document.createElement('small');scope.className='roas-shared-spend-scope';scope.textContent=metric?.scope||'Meta · 계정 저장 기준';
    const detail=document.createElement('small');detail.className='roas-shared-spend-status';detail.textContent=metric?.detail||'저장 데이터 조회 중…';
-   card.append(name,value,scope,detail);root.append(card);
+   card.append(name,value,scope,detail);
+   if(key==='spend'){
+    const breakdown=document.createElement('details');breakdown.className='roas-spend-details';
+    const toggle=document.createElement('summary');toggle.textContent='광고비 5개 항목 보기';breakdown.append(toggle);
+    const list=document.createElement('div');list.className='roas-spend-popover';
+    for(const part of keys){
+     const row=document.createElement('div');row.className='roas-spend-popover-row';
+     const label=document.createElement('span');label.textContent=labels[part];
+     const amount=document.createElement('strong');amount.textContent=asKRW(data?.scopes?.[part]?.value);
+     row.append(label,amount);list.append(row);
+    }
+    const hint=document.createElement('small');hint.textContent='검색광고 = 쇼핑검색 + 파워링크 · 미수집 금액은 합계에서 제외';list.append(hint);
+    breakdown.append(list);card.append(breakdown);
+   }
+   root.append(card);
   }
  }
  async function refresh(){
@@ -352,8 +366,6 @@
  function requestRefresh(){void refresh();}
  window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh,getSnapshot:()=>lastSnapshot});
  function init(){
-  // The Naver GFA page focuses only on GFA attribution; the shared Meta/Naver spend strip belongs to other workspaces.
-  if (document.body?.dataset.appPage === 'display') return;
   if(!ensure())return;
   requestRefresh();
   document.addEventListener('change',e=>{if(['since','until','fx-rate'].includes(e.target?.id))requestRefresh();});

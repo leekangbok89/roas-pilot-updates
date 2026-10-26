@@ -262,17 +262,20 @@ async function verifyBrowserScenario(){
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
  async function readSharedSpend(context){
-  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===6&&
+  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===5&&
    [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
   const got=await page.locator('#ad-spend-breakdown [data-spend-key]').evaluateAll(nodes=>nodes.map(node=>({
    key:node.dataset.spendKey,label:node.querySelector('.roas-shared-spend-title')?.textContent,
    amount:node.querySelector('strong')?.textContent
   })));
-  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'],context);
-  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
+  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
+  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버 쇼핑 + 파워링크)']);
   return got.map(item=>item.amount);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
+ await page.locator('[data-spend-key="spend"]').hover();
+ assert.equal(await page.locator('.roas-spend-popover').isVisible(),true,'Five-item breakdown opens when the total is hovered');
+ assert.equal(await page.locator('.roas-spend-popover-row').count(),5);
  // Regression: the overview owns the spend block after the date toolbar;
  // shared navigation code must not lift or duplicate it into the page header.
  const overviewPlacement=await page.evaluate(()=>{
@@ -294,7 +297,7 @@ async function verifyBrowserScenario(){
    const root=document.getElementById('ad-spend-breakdown'),cards=[...root.querySelectorAll('[data-spend-key]')];
    return {viewport:document.documentElement.clientWidth,strip:root.getBoundingClientRect().toJSON(),cards:cards.map(x=>x.getBoundingClientRect().toJSON())};
   });
-  assert.equal(geometry.cards.length,6,'All three spend cards stay visible at '+width+'px');
+  assert.equal(geometry.cards.length,5,'All five spend cards stay visible at '+width+'px');
   for(const [index,card] of geometry.cards.entries()){
    assert.ok(card.width>60&&card.height>35,'Card '+index+' has a readable size at '+width+'px');
    assert.ok(card.left>=-1&&card.right<=geometry.viewport+1,'No horizontal spend-card clipping at '+width+'px '+JSON.stringify(card));
@@ -324,7 +327,7 @@ async function verifyBrowserScenario(){
  await go('/#data-source');
  assert.deepEqual(await readSharedSpend('설정 관리'),originalSpend);
  await go('/display-analysis.html');
- assert.equal(await page.locator('#ad-spend-breakdown').count(),0,'GFA workspace hides shared Meta/Naver spend cards');
+ assert.deepEqual(await readSharedSpend('네이버 GFA 분석'),originalSpend,'GFA workspace shares the same five spend cards');
  assert.equal(await page.locator('#naver-cost-panel').count(),0,'GFA workspace hides obsolete manual all-Naver cost form');
  assert.equal(await page.locator('#paste').count(),1,'GFA campaign analysis remains usable');
  await page.setViewportSize({width:1440,height:1100});
