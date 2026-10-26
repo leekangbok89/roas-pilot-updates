@@ -324,7 +324,9 @@ async function verifyBrowserScenario(){
  await go('/#data-source');
  assert.deepEqual(await readSharedSpend('설정 관리'),originalSpend);
  await go('/display-analysis.html');
- await readSharedSpend('네이버 GFA 분석');
+ assert.equal(await page.locator('#ad-spend-breakdown').count(),0,'GFA workspace hides shared Meta/Naver spend cards');
+ assert.equal(await page.locator('#naver-cost-panel').count(),0,'GFA workspace hides obsolete manual all-Naver cost form');
+ assert.equal(await page.locator('#paste').count(),1,'GFA campaign analysis remains usable');
  await page.setViewportSize({width:1440,height:1100});
  for(const mode of ['light','dark']){
   for(const route of routes){
