@@ -252,11 +252,11 @@
    Unlike advertising attribution metrics, these are raw spending totals. */
 (function(){
  'use strict';
- const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'];
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'];
  const labels=Object.freeze({
   spend:'총 광고비',
   smartstoreSpend:'스마트스토어 협력 메타 광고비',
-  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'
+  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
  let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;
@@ -312,21 +312,43 @@
  function draw(data,range){
   if(!root||!heading)return;
   const note=document.getElementById('ad-spend-note');
-  if(note)note.textContent='조회 기간 '+range.since+' ~ '+range.until+' · '+(data?.explanation||'Meta 원본 광고비 · 저장 데이터를 확인하세요.')+
-   (data?.sharedAccount?' · 두 채널 동일 광고계정: 채널별 광고비 구분 불가':'');
+  if(note)note.textContent='조회 기간 '+range.since+' ~ '+range.until+' · '+(data?.explanation||'광고비 저장 데이터를 확인하세요.')+
+   (data?.sharedAccount?' · 동일 Meta 광고계정은 한 번만 합산합니다.':'');
   root.replaceChildren();
+  const total=data?.scopes?.spend||null;
+  const card=document.createElement('article');card.className='roas-spend-rollup';card.dataset.spendKey='spend';
+  const trigger=document.createElement('button');trigger.type='button';trigger.className='roas-spend-rollup-trigger';
+  trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-controls','roas-spend-popover');
+  trigger.setAttribute('aria-label','총 광고비 구성 다섯 가지 보기');
+  const title=document.createElement('small');title.className='roas-shared-spend-title';title.textContent='총 광고비';
+  const value=document.createElement('div');value.className='roas-shared-spend-value';
+  const strong=document.createElement('strong');strong.textContent=asKRW(total?.value);value.append(strong);
+  if(total?.partial){const badge=document.createElement('span');badge.className='roas-shared-spend-partial';badge.textContent='확인분';value.append(badge);}
+  const hint=document.createElement('small');hint.className='roas-spend-rollup-hint';hint.textContent='마우스를 올리거나 클릭하면 5개 광고비가 표시됩니다.';
+  const state=document.createElement('small');state.className='roas-shared-spend-status';state.textContent=total?.detail||'저장 데이터 조회 중…';
+  trigger.append(title,value,hint,state);
+
+  const panel=document.createElement('div');panel.className='roas-spend-popover';panel.id='roas-spend-popover';
+  panel.setAttribute('role','group');panel.setAttribute('aria-label','총 광고비 구성');
+  const headingText=document.createElement('strong');headingText.className='roas-spend-popover-title';headingText.textContent='광고비 구성 · '+range.since+' ~ '+range.until;
+  panel.append(headingText);
+  const list=document.createElement('div');list.className='roas-spend-popover-list';
   for(const key of keys){
    const metric=data?.scopes?.[key]||null;
-   const card=document.createElement('article');card.className='roas-shared-spend-card';card.dataset.spendKey=key;
-   card.title=metric?.detail||'로컬 Meta 저장 데이터 기준';
-   const name=document.createElement('small');name.className='roas-shared-spend-title';name.textContent=labels[key];
-   const value=document.createElement('div');value.className='roas-shared-spend-value';
-   const strong=document.createElement('strong');strong.textContent=asKRW(metric?.value);value.append(strong);
-   if(metric?.partial){const badge=document.createElement('span');badge.className='roas-shared-spend-partial';badge.textContent='확인분';value.append(badge);}
-   const scope=document.createElement('small');scope.className='roas-shared-spend-scope';scope.textContent=metric?.scope||'Meta · 계정 저장 기준';
-   const detail=document.createElement('small');detail.className='roas-shared-spend-status';detail.textContent=metric?.detail||'저장 데이터 조회 중…';
-   card.append(name,value,scope,detail);root.append(card);
+   const row=document.createElement('div');row.className='roas-spend-popover-line';row.dataset.spendLine=key;
+   const label=document.createElement('span');label.className='roas-spend-line-label';label.textContent=labels[key];
+   const amount=document.createElement('strong');amount.className='roas-spend-line-amount';amount.textContent=asKRW(metric?.value);
+   const detail=document.createElement('small');detail.className='roas-spend-line-state';detail.textContent=metric?.detail||'자료 미확인';
+   row.title=metric?.scope||'';row.append(label,amount,detail);list.append(row);
   }
+  panel.append(list);
+  const foot=document.createElement('small');foot.className='roas-spend-popover-footnote';
+  foot.textContent='GFA는 직접 입력값, 검색광고는 API 우선값을 사용합니다. 검색 API가 있는 날짜는 같은 날짜의 수동 검색비를 다시 더하지 않습니다.';
+  panel.append(foot);
+  const setOpen=open=>{card.classList.toggle('is-open',open);trigger.setAttribute('aria-expanded',String(open));};
+  trigger.addEventListener('click',event=>{event.stopPropagation();setOpen(!card.classList.contains('is-open'));});
+  card.addEventListener('keydown',event=>{if(event.key==='Escape'){setOpen(false);trigger.focus();}});
+  card.append(trigger,panel);root.append(card);
  }
  async function refresh(){
   if(!ensure())return;
@@ -350,6 +372,7 @@
   }
  }
  function requestRefresh(){void refresh();}
+ document.addEventListener('pointerdown',event=>{const card=root?.querySelector('.roas-spend-rollup.is-open');if(card&&!card.contains(event.target)){card.classList.remove('is-open');card.querySelector('button')?.setAttribute('aria-expanded','false');}});
  window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh,getSnapshot:()=>lastSnapshot});
  function init(){
   // The Naver GFA page focuses only on GFA attribution; the shared Meta/Naver spend strip belongs to other workspaces.
