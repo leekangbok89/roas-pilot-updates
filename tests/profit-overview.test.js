@@ -87,6 +87,27 @@ test('summary advertising cards distinguish not loaded, verified empty, and a mi
  h.run('summaryAdLoadedAccounts.clear();');assert.equal(h.run("summaryMetric('spend').value"),null);
 });
 
+test('existing total spend KPI reveals canonical five-way hover details and optional other costs without extra cards',()=>{
+ const h=harness();h.node('until').value='2026-09-01';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};canonicalSpendReport={since:'2026-09-01',until:'2026-09-01',fxUsed:1350,_accounts:{naver:'111',cafe:'222'},scopes:{spend:{value:1000,partial:false,scope:'전체 광고비',detail:'확인'},smartstoreSpend:{value:300,detail:'Meta 확인'},mallSpend:{value:200,detail:'Meta 확인'},gfaSpend:{value:100,detail:'GFA 확인'},searchSpend:{value:350,detail:'검색광고 API 확인'},otherAdSpend:{value:50,detail:'협찬 원가 확인'}}};savedSummaryCardKeys=['spend',...Array(11).fill('')];renderSummaryCards();");
+ const [card]=h.node('summary-cards').children;
+ assert.equal(h.node('summary-cards').children.length,1,'Hover is attached to the existing total card only');
+ assert.equal(card.attributes['data-summary-key'],'spend');
+ assert.equal(card.children[1].children[0].textContent,'1,000원','The displayed total shares the canonical server value');
+ const trigger=card.children.find(child=>child.className==='summary-spend-detail-button');
+ const popup=card.children.find(child=>child.className==='summary-spend-popover');
+ assert.ok(trigger&&popup,'Keyboard-accessible control and popup belong to the same KPI');
+ const entries=popup.children.filter(child=>child.attributes['data-spend-line']);
+ assert.deepEqual(entries.map(child=>child.attributes['data-spend-line']),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend','otherAdSpend']);
+ assert.deepEqual(entries.map(child=>child.children[1].textContent),['1,000원','300원','200원','100원','350원','50원']);
+ assert.equal(entries[4].children[0].textContent,'검색광고 (네이버쇼핑 + 파워링크)');
+ trigger.onclick();assert.equal(card.dataset.spendOpen,'yes');assert.equal(trigger.attributes['aria-expanded'],'true');
+ trigger.onclick();assert.equal(card.dataset.spendOpen,'no');assert.equal(trigger.attributes['aria-expanded'],'false');
+ h.run('canonicalSpendReport.scopes.otherAdSpend.value=0;renderSummaryCards();');
+ const reduced=h.node('summary-cards').children[0].children.find(child=>child.className==='summary-spend-popover');
+ assert.equal(reduced.children.filter(child=>child.attributes['data-spend-line']).length,5,'Without other advertising costs, only the requested five lines are displayed');
+});
+
 test('summary purchase ratios include spend from unknown-purchase rows and deduplicate a shared account',()=>{
  const h=harness();h.node('until').value='2026-09-02';
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.naver=[{date:'2026-09-01',spend:100,revenue:500,purchases:2,clicks:10,impressions:1000},{date:'2026-09-02',spend:900,revenue:null,purchases:null,clicks:90,impressions:9000}];data.cafe=data.naver;");
