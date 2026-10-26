@@ -352,6 +352,8 @@
  function requestRefresh(){void refresh();}
  window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh,getSnapshot:()=>lastSnapshot});
  function init(){
+  // The Naver GFA page focuses only on GFA attribution; the shared Meta/Naver spend strip belongs to other workspaces.
+  if (document.body?.dataset.appPage === 'display') return;
   if(!ensure())return;
   requestRefresh();
   document.addEventListener('change',e=>{if(['since','until','fx-rate'].includes(e.target?.id))requestRefresh();});
