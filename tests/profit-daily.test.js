@@ -523,9 +523,9 @@ test('canonical Meta spend endpoint uses one currency conversion and never fabri
   const response=await fetch(base+'/api/meta/spend/summary?'+params);
   assert.equal(response.status,200);return response.json();};
  const distinct=await get('11111','22222');
- assert.deepEqual(Object.fromEntries(Object.entries(distinct.scopes).map(([k,v])=>[k,v.value])),{spend:18500,smartstoreSpend:13500,mallSpend:5000,gfaSpend:null,shoppingSpend:null,powerlinkSpend:null});
+ assert.deepEqual(Object.fromEntries(Object.entries(distinct.scopes).map(([k,v])=>[k,v.value])),{spend:18500,smartstoreSpend:13500,mallSpend:5000,gfaSpend:null,shoppingSpend:null,powerlinkSpend:null,searchSpend:null});
  assert.deepEqual(Object.fromEntries(Object.entries(distinct.scopes).map(([k,v])=>[k,v.label])),{
-  spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'
+  spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)'
  });
  assert.equal(distinct.scopes.spend.partial,false);
  assert.equal(distinct.daily[0].complete.spend,true);
@@ -551,7 +551,7 @@ test('canonical Meta spend endpoint uses one currency conversion and never fabri
  assert.equal(empty.scopes.smartstoreSpend.value,0);
  f.naverSpendSave({since:day,until:day,amounts:{gfa:300,shopping:200,powerlink:100},revision:0});
  const entered=await get('11111','22222');
- assert.equal(entered.scopes.spend.value,600);assert.equal(entered.scopes.gfaSpend.value,300);assert.equal(entered.daily[0].spend,600);
+ assert.equal(entered.scopes.spend.value,600);assert.equal(entered.scopes.gfaSpend.value,300);assert.equal(entered.daily[0].spend,600);assert.equal(entered.scopes.searchSpend.value,300);
  assert.equal(entered.scopes.spend.partial,false,'explicit zero Meta plus all three entered Naver channels is complete');
  const sharedEntered=await get('11111','11111');assert.equal(sharedEntered.scopes.spend.value,600,'shared Meta account never duplicates the Naver inputs');
  const bad=await fetch(base+'/api/meta/spend/summary?'+new URLSearchParams({since:day,until:day,naver:'invalid-name',cafe:'22222',fx:'1350'}));

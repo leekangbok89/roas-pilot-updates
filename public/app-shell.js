@@ -252,11 +252,11 @@
    Unlike advertising attribution metrics, these are raw spending totals. */
 (function(){
  'use strict';
- const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'];
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'];
  const labels=Object.freeze({
   spend:'총 광고비',
   smartstoreSpend:'스마트스토어 협력 메타 광고비',
-  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'
+  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
  let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;
@@ -310,23 +310,32 @@
   return true;
  }
  function draw(data,range){
-  if(!root||!heading)return;
+  if(!root)return;
   const note=document.getElementById('ad-spend-note');
-  if(note)note.textContent='조회 기간 '+range.since+' ~ '+range.until+' · '+(data?.explanation||'Meta 원본 광고비 · 저장 데이터를 확인하세요.')+
-   (data?.sharedAccount?' · 두 채널 동일 광고계정: 채널별 광고비 구분 불가':'');
+  if(note)note.textContent='조회 기간 '+range.since+' ~ '+range.until+' · '+(data?.explanation||'광고비 데이터 조회 중…');
   root.replaceChildren();
+  const metric=data?.scopes?.spend;
+  const card=document.createElement('article');card.className='roas-spend-rollup';card.dataset.spendKey='spend';
+  const trigger=document.createElement('button');trigger.className='roas-spend-rollup-trigger';trigger.type='button';
+  trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-controls','roas-spend-popover');
+  const heading=document.createElement('small');heading.textContent='총 광고비';heading.className='roas-shared-spend-title';
+  const money=document.createElement('strong');money.textContent=asKRW(metric?.value);money.className='roas-spend-total';
+  const hint=document.createElement('small');hint.textContent='마우스를 올리거나 클릭해 내역 보기';hint.className='roas-spend-rollup-hint';
+  trigger.append(heading,money,hint);
+  if(metric?.partial){const partial=document.createElement('small');partial.textContent='확인분 · 일부 항목 미확인';trigger.append(partial);}
+  const panel=document.createElement('div');panel.id='roas-spend-popover';panel.className='roas-spend-popover';panel.setAttribute('aria-label','광고비 상세 내역');
   for(const key of keys){
-   const metric=data?.scopes?.[key]||null;
-   const card=document.createElement('article');card.className='roas-shared-spend-card';card.dataset.spendKey=key;
-   card.title=metric?.detail||'로컬 Meta 저장 데이터 기준';
-   const name=document.createElement('small');name.className='roas-shared-spend-title';name.textContent=labels[key];
-   const value=document.createElement('div');value.className='roas-shared-spend-value';
-   const strong=document.createElement('strong');strong.textContent=asKRW(metric?.value);value.append(strong);
-   if(metric?.partial){const badge=document.createElement('span');badge.className='roas-shared-spend-partial';badge.textContent='확인분';value.append(badge);}
-   const scope=document.createElement('small');scope.className='roas-shared-spend-scope';scope.textContent=metric?.scope||'Meta · 계정 저장 기준';
-   const detail=document.createElement('small');detail.className='roas-shared-spend-status';detail.textContent=metric?.detail||'저장 데이터 조회 중…';
-   card.append(name,value,scope,detail);root.append(card);
+   const detail=data?.scopes?.[key];
+   const line=document.createElement('div');line.className='roas-spend-line';line.dataset.spendLine=key;
+   const name=document.createElement('span');name.textContent=labels[key];name.className='roas-spend-line-label';
+   const amount=document.createElement('strong');amount.textContent=asKRW(detail?.value);amount.className='roas-spend-line-amount';
+   const status=document.createElement('small');status.textContent=detail?.detail||'미확인';status.className='roas-spend-line-status';
+   line.append(name,amount,status);panel.append(line);
   }
+  const setOpen=open=>{card.classList.toggle('is-open',open);trigger.setAttribute('aria-expanded',String(open));};
+  trigger.onclick=()=>setOpen(!card.classList.contains('is-open'));
+  trigger.onkeydown=e=>{if(e.key==='Escape'){setOpen(false);e.stopPropagation();}};
+  card.append(trigger,panel);root.append(card);
  }
  async function refresh(){
   if(!ensure())return;
