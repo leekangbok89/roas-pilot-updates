@@ -7,7 +7,7 @@ const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 
 const project=path.resolve(__dirname,'..');
-const shellFiles=['app-shell.css','app-shell.js'];
+const shellFiles=['app-shell.css','app-shell.js','display-analysis.html'];
 
 function fixture(t,{copyAssets=false}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-bundle-'));
@@ -26,14 +26,14 @@ function fixture(t,{copyAssets=false}={}){
   return {dir,request};
 }
 
-test('legacy upgrade without either shared-shell file serves the exact current CSS and JS with normal static headers',async t=>{
+test('legacy upgrade without shared shell and display files serves exact current CSS, JS and HTML with normal static headers',async t=>{
   const f=fixture(t);
   for(const name of shellFiles){
     assert.equal(fs.existsSync(path.join(f.dir,'public',name)),false);
     const response=await f.request('/'+name+'?v=upgrade-check');
     assert.equal(response.status,200);
     assert.equal(response.body,fs.readFileSync(path.join(project,'public',name),'utf8'));
-    assert.equal(response.headers['Content-Type'],name.endsWith('.css')?'text/css; charset=utf-8':'application/javascript; charset=utf-8');
+    assert.equal(response.headers['Content-Type'],name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.html')?'text/html; charset=utf-8':'application/javascript; charset=utf-8');
     assert.equal(response.headers['Cache-Control'],'no-cache');
     assert.equal(response.headers['X-Content-Type-Options'],'nosniff');
     assert.equal(fs.existsSync(path.join(f.dir,'public',name)),false,'read fallback must not create files or alter the installation');
@@ -51,9 +51,9 @@ test('installed shared-shell assets take precedence over bundled fallback',async
   }
 });
 
-test('fallback is restricted to the two exact paths and ENOENT and preserves other missing-file and method behavior',async t=>{
+test('fallback is restricted to the three exact paths and ENOENT and preserves other missing-file and method behavior',async t=>{
   const f=fixture(t);
-  for(const url of ['/missing.css','/nested/app-shell.css','/app-shell.js/','/App-shell.js','/server.js','/../server.js','/toString.css']){
+  for(const url of ['/missing.css','/nested/app-shell.css','/app-shell.js/','/App-shell.js','/server.js','/../server.js','/toString.css','/nested/display-analysis.html','/Display-analysis.html']){
     const response=await f.request(url);
     assert.equal(response.status,404,url+' must not receive shell data');
     assert.deepEqual(JSON.parse(response.body),{error:'Not found'});
