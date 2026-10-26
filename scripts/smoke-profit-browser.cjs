@@ -1458,7 +1458,18 @@ async function verifyCafeRevenueRecovery(base, requests) {
 }
 
 async function hoverVisibleProfitPoints(label) {
+  await page.waitForFunction(() => {
+    const graph = document.getElementById('graph'), svg = graph.querySelector('svg');
+    return svg && Math.abs(svg.viewBox.baseVal.width - graph.clientWidth) <= 1;
+  });
   await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  const gutters = await page.locator('#graph').evaluate(graph => {
+    const svg = graph.querySelector('svg'), grid = svg.querySelector('line'), matrix = svg.getScreenCTM(), box = graph.getBoundingClientRect();
+    const first = new DOMPoint(grid.x1.baseVal.value, grid.y1.baseVal.value).matrixTransform(matrix);
+    const last = new DOMPoint(grid.x2.baseVal.value, grid.y2.baseVal.value).matrixTransform(matrix);
+    return { left: first.x - box.left, right: box.right - last.x };
+  });
+  assert.ok(gutters.left <= 70 && gutters.right <= 62, label + ': plot fills container with only axis margins: ' + JSON.stringify(gutters));
   const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
   const count = await points.count();
   assert.ok(count >= 3, label + ' has enough date points to verify both edges and the middle');
@@ -1491,12 +1502,12 @@ async function verifyResponsiveHover(requests) {
   const requestStart = requests.length;
   for (const window of ['1', '3', '5', '7']) {
     await page.locator('#chart-window').selectOption(window);
-    for (const width of [1280, 1440, 1920, 1280]) {
+    for (const width of [375, 1280, 1440, 1920, 2560, 1280]) {
       await page.setViewportSize({ width, height: 1100 });
       await hoverVisibleProfitPoints(window + '-day at' + width + 'px');
       if (window === '1' && width === 1920) await metricCardScreenshot('hover-wide-1920');
     }
-    check('hover: ' + window + '-day first/middle/last dates, crosshair and contained tooltip match real screenCTM coordinates through1280→1440→1920→1280px resizing');
+    check('hover: ' + window + '-day first/middle/last dates, crosshair and contained tooltip match real screenCTM coordinates through375→1280→1440→1920→2560→1280px resizing');
   }
   await page.setViewportSize({ width: 1440, height: 1100 });
   try {

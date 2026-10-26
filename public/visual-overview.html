@@ -16,7 +16,7 @@ button.active{background:#e9e7ff;color:#4e42d5;border-color:#c8c3ff}
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:15px}
 .metric{padding:18px;min-height:113px}.metric strong{display:block;font-size:25px;margin:9px 0 0}.metric small{color:#8794a9}.metric.highlight{background:linear-gradient(120deg,#6c60f2,#4c58cd);color:white}.metric.highlight small{color:#e2e3ff}
 .panel{padding:20px;margin-bottom:16px}.panelhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:15px}
-#graph{width:100%;height:310px}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#66758d}
+#graph{width:100%;height:310px}#graph>svg{display:block;width:100%;height:100%}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#66758d}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
 .chartpicker{width:100%;display:grid;gap:9px}.presetbar{display:flex;gap:7px;align-items:end;flex-wrap:wrap}.presetbar button{padding:8px;font-size:12px}.presetbar button.active{background:#e9e7ff;color:#4e42d5}.presetbar label{margin-left:auto}.metric-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.metric-choices select{width:100%;min-width:0}.panelhead:has(.chartpicker){align-items:stretch;flex-direction:column}@media(max-width:950px){.metric-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.metric-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.presetbar label{margin-left:0}}
 .summary{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.summary .panel{margin-bottom:0}
@@ -836,13 +836,17 @@ function metricForBucket(b,k){
   if(k==='ctr'){const impressions=b.items.reduce((t,r)=>t+r.impressions,0);return impressions>0?b.items.reduce((t,r)=>t+r.clicks,0)/impressions*100:null;}
   return vals.reduce((a,b)=>a+b,0)/b.items.length;
 }
+let chartRows=[],chartWidth=0,chartResizeFrame=0;
 function draw(rows){
+ chartRows=rows;
  const keys=activeMetricKeys.filter(k=>!hiddenMetricKeys.has(k));
  const graph=$('graph'),legend=$('legend'),profitStatus=$('profit-chart-status');
+ chartWidth=graph.clientWidth;
  if(profitStatus){profitStatus.textContent='';profitStatus.style.display='none';}
  if(!rows.length){graph.textContent='조회한 날짜의 데이터가 없습니다.';legend.innerHTML='';return;}
  if(!keys.length){graph.textContent='선택된 지표가 없습니다.';legend.innerHTML='';return;}
- const scale=keys.includes('profit')?'absolute':$('chart-scale').value,w=1020,h=300,left=55,right=48,top=25,bottom=45;
+ // Match the SVG coordinates to the container so wide screens have no letterboxing.
+ const scale=keys.includes('profit')?'absolute':$('chart-scale').value,w=Math.max(240,chartWidth||1020),h=310,left=55,right=48,top=25,bottom=45;
  const x=i=>left+(w-left-right)*(plotted.length===1?.5:i/(plotted.length-1));
  const windowSize=Number($('chart-window')?.value||1);
  const buckets=chartBuckets(rows,windowSize,$('since').value,$('until').value);
@@ -912,7 +916,8 @@ function draw(rows){
    svg+='<circle data-metric="'+k+'" data-point-date="'+plotted[i].date+'" data-partial="'+partial[i]+'" cx="'+x(i)+'" cy="'+y(v)+'" r="'+(partial[i]?'4':'2.5')+'" fill="'+(partial[i]?'white':col)+'" stroke="'+col+'" stroke-width="'+(partial[i]?'2':'0')+'"><title>'+plotted[i].label+' · '+metrics[k]+': '+fmt(k,sequences[j][i])+coverage+'</title></circle>';
   });
  });
- plotted.forEach((r,i)=>{if(plotted.length<=14||i%Math.ceil(plotted.length/14)===0)svg+='<text x="'+x(i)+'" y="'+(h-10)+'" text-anchor="middle" fill="#8693a8" font-size="11">'+r.label+'</text>';});
+ const maxLabels=Math.max(2,Math.min(14,Math.floor((w-left-right)/64)));
+ plotted.forEach((r,i)=>{if(plotted.length<=maxLabels||i%Math.ceil(plotted.length/maxLabels)===0)svg+='<text x="'+x(i)+'" y="'+(h-10)+'" text-anchor="middle" fill="#8693a8" font-size="11">'+r.label+'</text>';});
  svg+='</svg>';
  graph.style.position='relative';graph.innerHTML=svg+'<div class="roas-chart-hover" id="roas-chart-hover" role="status" aria-live="off" style="display:none;position:absolute;z-index:3;pointer-events:none;background:#18243beF;color:white;padding:11px 13px;border-radius:10px;box-shadow:0 9px 25px #18243b45;font-size:12px;line-height:1.7;min-width:180px;max-width:280px"></div>';
  const chartSvg=graph.querySelector('svg'),tip=graph.querySelector('#roas-chart-hover');
@@ -920,8 +925,7 @@ function draw(rows){
  const hoverDot=keys.map((k,j)=>{const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');circle.setAttribute('r','5');circle.setAttribute('stroke','#fff');circle.setAttribute('stroke-width','2');circle.setAttribute('fill',chartColors[chartKeys.indexOf(k)]);circle.style.pointerEvents='none';circle.style.display='none';chartSvg.append(circle);return circle;});
  function hideHover(){tip.style.display='none';cross.style.display='none';hoverDot.forEach(d=>d.style.display='none');}
  function moveHover(ev){
- // The SVG can be letterboxed inside its full-width element. Use its actual
- // screen transform so dates stay aligned after resizing or browser zoom.
+ // Use the actual screen transform so dates stay aligned through CSS/browser zoom.
  const matrix=chartSvg.getScreenCTM();if(!matrix||!plotted.length)return hideHover();
  const pointer=chartSvg.createSVGPoint();pointer.x=ev.clientX;pointer.y=ev.clientY;
  let local;try{local=pointer.matrixTransform(matrix.inverse());}catch{return hideHover();}
@@ -945,6 +949,16 @@ function draw(rows){
  chartSvg.addEventListener('mouseleave',hideHover);
  legend.innerHTML=activeMetricKeys.map(k=>'<button type="button" data-legend="'+k+'" style="background:transparent;border:0;color:'+(hiddenMetricKeys.has(k)?'#a9b2c0':'#45536c')+';text-decoration:'+(hiddenMetricKeys.has(k)?'line-through':'none')+'"><i style="background:'+chartColors[chartKeys.indexOf(k)]+'"></i>'+metrics[k]+'</button>').join('')+'<span class="small">'+(scale==='relative'?'각 지표의 첫 유효값=100 · 변화율 비교':'지표별 최대값=100 · 상대적 흐름 비교')+'</span>';
  legend.querySelectorAll('[data-legend]').forEach(button=>button.onclick=()=>{const k=button.dataset.legend;hiddenMetricKeys.has(k)?hiddenMetricKeys.delete(k):hiddenMetricKeys.add(k);draw(rows);});
+}
+if(typeof ResizeObserver==='function'){
+ new ResizeObserver(()=>{
+  const width=$('graph').clientWidth;
+  if(!width||width===chartWidth||chartResizeFrame)return;
+  chartResizeFrame=requestAnimationFrame(()=>{
+   chartResizeFrame=0;
+   if($('graph').clientWidth!==chartWidth)draw(chartRows);
+  });
+ }).observe($('graph'));
 }
 let dataCoverage=null,coverageError='',detailRepairPolling=false,lastDetailRepairJob=null;
 const coverageNumber=value=>Number.isFinite(value)?String(value):'—';
