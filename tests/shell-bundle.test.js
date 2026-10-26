@@ -7,7 +7,7 @@ const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 
 const project=path.resolve(__dirname,'..');
-const shellFiles=['app-shell.css','app-shell.js','display-analysis.html','naver-analysis.js'];
+const shellFiles=['app-shell.css','app-shell.js','display-analysis.html','naver-analysis.js','other-ad-costs.js'];
 
 function fixture(t,{copyAssets=false}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-bundle-'));

@@ -252,11 +252,11 @@
    Unlike advertising attribution metrics, these are raw spending totals. */
 (function(){
  'use strict';
- const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'];
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend','otherAdSpend'];
  const labels=Object.freeze({
   spend:'총 광고비',
   smartstoreSpend:'스마트스토어 협력 메타 광고비',
-  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)'
+  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)',otherAdSpend:'기타 광고비'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
  let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;

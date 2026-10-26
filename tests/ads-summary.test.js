@@ -54,7 +54,7 @@ function setup(){
   assert.ok(start>=0 && end>start,'AdsOverviewSummary must be present in public/app.js');
   vm.runInContext(app.slice(start,end+7)+'\nglobalThis.adapter=AdsOverviewSummary;',context);
   assert.equal(calls.length,0,'module initialization must not fetch');
-  assert.equal(context.adapter.metrics.length,23);
+  assert.equal(context.adapter.metrics.length,24);
   context.document={getElementById:id=>nodes[id],createElement:tag=>new Element(tag)};
   return {adapter:context.adapter,nodes,calls,setData:value=>data=value,setGate:value=>gate=value};
 }
@@ -88,7 +88,7 @@ test('selected summaries preserve full-spend ratios, scopes, financial subtotals
   assert.equal(m.totalStoreRevenue.value,170000);assert.equal(m.totalStoreRevenue.partial,true);
   assert.equal(m.profit.value,8800,'confirmed financial amount is used without redistributing ad spend');
   assert.equal(m.profit.partial,true);assert.equal(m.cost.value,40000);assert.equal(m.fee.value,11200);
-  assert.equal(env.calls.length,4);assert.equal(env.nodes['ads-period-summary-cards'].children.length,23);
+  assert.equal(env.calls.length,4);assert.equal(env.nodes['ads-period-summary-cards'].children.length,24);
   assert.equal(env.nodes['ads-period-summary-cards'].children[0].attributes['data-summary-key'],'smartstoreSpend');
   const again=byKey(await env.adapter.update({...base,keys:['spend','revenue'],channel:'naver'}));
   assert.equal(env.calls.length,4,'channel/key/search rerenders share a snapshot');
@@ -297,4 +297,12 @@ test('selected-period advertising diagnostics include Naver inputs in costs and 
  assert.equal(metrics.gfaSpend.value,300);assert.equal(metrics.gfaSpend.partial,true);assert.equal(metrics.powerlinkSpend.value,100);
  close(metrics.roas.value,25000/110000*100);
  assert.match(metrics.gfaSpend.detail,/균등 배분 추정/);
+});
+
+test('sponsorship costs appear in selected-period totals and daily chart without being attributed to a Meta ad',async()=>{
+ const env=setup(),data=fixtures();data.profit.days[0].otherAdSpend=118000;data.profit.days[1].otherAdSpend=0;env.setData(data);
+ const keys=['spend','otherAdSpend','roas'];const result=await env.adapter.update({...base,keys,seriesKeys:keys,windowSize:1}),metrics=byKey(result);
+ assert.equal(metrics.spend.value,228000);assert.equal(metrics.otherAdSpend.value,118000);assert.equal(metrics.otherAdSpend.partial,false);
+ assert.match(metrics.spend.detail,/기타 광고비/);assert.equal(result.series[0].metrics.otherAdSpend.value,118000);assert.equal(result.series[1].metrics.otherAdSpend.value,0);
+ close(metrics.roas.value,25000/110000*100);
 });

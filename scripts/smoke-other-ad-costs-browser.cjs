@@ -1,0 +1,30 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {spawn}=require('node:child_process'),root=path.resolve(__dirname,'..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'roas-other-costs-browser-'));
+let child,browser;
+const write=(name,value)=>{const file=path.join(temp,'.roas-data',name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,JSON.stringify(value));};
+(async()=>{
+ for(const name of ['server.js','public','package.json','vendor'])fs.cpSync(path.join(root,name),path.join(temp,name),{recursive:true});
+ const date='2026-09-01';for(const ch of ['naver','cafe24']){write(ch+'-orders/orders.json',{orders:{}});write(ch+'-orders/sync.json',{days:{[date]:{checkedAt:date}}});}
+ for(const account of ['11111','22222'])write('daily/'+account+'/'+date+'.json',{account,date,currency:'KRW',rows:[]});
+ child=spawn(process.execPath,['-e',"require('./server').server.listen(3000,'127.0.0.1',()=>console.log('READY'))"],{cwd:temp,env:{...process.env,WEB_PASSWORD:'',META_ACCESS_TOKEN:''},stdio:['ignore','pipe','pipe']});
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Server start timeout')),10000);child.stdout.on('data',data=>{if(String(data).includes('READY')){clearTimeout(timer);resolve();}});child.once('exit',code=>{clearTimeout(timer);reject(Error('Server exited '+code));});});
+ const {chromium}=require(process.env.ROAS_PLAYWRIGHT_MODULE||'playwright');browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
+ const page=await browser.newPage({viewport:{width:1440,height:1000},timezoneId:'Asia/Seoul'}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.addInitScript(()=>localStorage.setItem('roas-account-ids',JSON.stringify({naver:'11111',cafe:'22222'})));
+ const base='http://127.0.0.1:3000';await page.goto(base+'/cost-management.html');await page.mouse.move(1000,80);await page.keyboard.press('Escape');await page.waitForFunction(()=>document.querySelector('#other-cost-save').disabled===false);
+ for(const [key,value] of Object.entries({date,title:'인스타그램 협찬 <테스트>',recipient:'@test',product:'위마망 백도씨',unitCost:'50000',quantity:'2',delivery:'5000',fee:'10000',extra:'3000',memo:'원가 기록'}))await page.locator('#other-cost-'+key).fill(value);
+ assert.equal(await page.locator('#other-cost-preview').textContent(),'118,000원');await page.keyboard.press('Escape');await page.locator('#other-cost-save').click();await page.waitForFunction(()=>document.querySelector('#other-cost-status').textContent.includes('저장 완료'));
+ assert.equal(await page.locator('#other-cost-list tr').count(),1);assert.equal(await page.locator('#other-cost-total').textContent(),'118,000원');assert.equal(await page.locator('#other-cost-list td').nth(1).textContent(),'인스타그램 협찬 <테스트> / @test');
+ await page.reload();await page.waitForFunction(()=>document.querySelector('#other-cost-total').textContent==='118,000원');
+ await page.getByRole('button',{name:'수정',exact:true}).click();await page.locator('#other-cost-quantity').fill('1');await page.keyboard.press('Escape');await page.locator('#other-cost-save').click();await page.waitForFunction(()=>document.querySelector('#other-cost-total').textContent==='68,000원');
+ await page.locator('#other-cost-from').fill('2026-09-02');assert.equal(await page.locator('#other-cost-total').textContent(),'0원');await page.getByRole('button',{name:'전체 기간',exact:true}).click();assert.equal(await page.locator('#other-cost-total').textContent(),'68,000원');
+ if(process.env.ROAS_OTHER_COST_SCREENSHOT)await page.screenshot({path:process.env.ROAS_OTHER_COST_SCREENSHOT,fullPage:true});
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.locator('#other-cost-form').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'mobile form fits viewport');await page.setViewportSize({width:1440,height:1000});
+ await page.goto(base+'/visual-overview.html');await page.waitForFunction(()=>document.querySelector('#reload').disabled===false);await page.evaluate(date=>{document.querySelector('#since').value=date;document.querySelector('#until').value=date;},date);await page.locator('#reload').click();await page.waitForFunction(()=>document.querySelector('#reload').disabled===false);
+ assert.equal(await page.locator('[data-summary-key="spend"] strong').textContent(),'68,000원');assert.equal(await page.locator('[data-summary-key="profit"] strong').textContent(),'-68,000원');
+ await page.locator('.metric-choice').nth(0).selectOption('otherAdSpend');assert.equal(await page.locator('#graph circle[data-metric="otherAdSpend"]').count(),1);
+ const response=await fetch(base+'/api/meta/spend/summary?since='+date+'&until='+date+'&naver=11111&cafe=22222');const summary=await response.json();assert.equal(summary.scopes.spend.value,68000);assert.equal(summary.scopes.otherAdSpend.value,68000);
+ await page.goto(base+'/cost-management.html');await page.mouse.move(1000,80);await page.keyboard.press('Escape');await page.waitForFunction(()=>document.querySelector('#other-cost-save').disabled===false);page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'삭제',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#other-cost-status').textContent.includes('삭제 완료'));assert.equal(await page.locator('#other-cost-total').textContent(),'0원');
+ assert.deepEqual(errors,[]);console.log('Other advertising costs browser verification passed: calculation, safe text, save, reload, edit, date filter, mobile form, overview total/profit/chart and delete.');
+})().catch(error=>{console.error(error.stack);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve));}fs.rmSync(temp,{recursive:true,force:true});});
