@@ -256,6 +256,39 @@ async function verifyBrowserScenario(){
   return got.map(item=>item.amount);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
+ // Regression: the overview owns the spend block after the date toolbar;
+ // shared navigation code must not lift or duplicate it into the page header.
+ const overviewPlacement=await page.evaluate(()=>{
+  const root=document.getElementById('ad-spend-breakdown'),heading=root?.previousElementSibling,alert=document.getElementById('alert');
+  const toolbar=document.getElementById('reload')?.closest('section');
+  return {rootCount:document.querySelectorAll('#ad-spend-breakdown').length,
+   headingClass:heading?.className,afterAlert:heading?.previousElementSibling===alert,
+   afterToolbar:!!toolbar&&Boolean(toolbar.compareDocumentPosition(heading)&Node.DOCUMENT_POSITION_FOLLOWING)};
+ });
+ assert.equal(overviewPlacement.rootCount,1,'Only one spend strip can exist');
+ assert.equal(overviewPlacement.headingClass,'ad-spend-heading');
+ assert.equal(overviewPlacement.afterAlert,true,'The strip stays after the overview toolbar and alert');
+ assert.equal(overviewPlacement.afterToolbar,true);
+ // Screenshot-sized breakpoints including intermediate 720–1100px widths
+ // must not overlap, overflow or cut off any of the three spend cards.
+ for(const width of [390,700,768,920,1024,1280,1440,1920]){
+  await page.setViewportSize({width,height:1000});
+  const geometry=await page.evaluate(()=>{
+   const root=document.getElementById('ad-spend-breakdown'),cards=[...root.querySelectorAll('[data-spend-key]')];
+   return {viewport:document.documentElement.clientWidth,strip:root.getBoundingClientRect().toJSON(),cards:cards.map(x=>x.getBoundingClientRect().toJSON())};
+  });
+  assert.equal(geometry.cards.length,3,'All three spend cards stay visible at '+width+'px');
+  for(const [index,card] of geometry.cards.entries()){
+   assert.ok(card.width>60&&card.height>35,'Card '+index+' has a readable size at '+width+'px');
+   assert.ok(card.left>=-1&&card.right<=geometry.viewport+1,'No horizontal spend-card clipping at '+width+'px '+JSON.stringify(card));
+   for(const previous of geometry.cards.slice(0,index)){
+    const overlapWidth=Math.min(card.right,previous.right)-Math.max(card.left,previous.left);
+    const overlapHeight=Math.min(card.bottom,previous.bottom)-Math.max(card.top,previous.top);
+    assert.ok(overlapWidth<=1||overlapHeight<=1,'Spend cards must not overlap at '+width+'px');
+   }
+  }
+ }
+
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
