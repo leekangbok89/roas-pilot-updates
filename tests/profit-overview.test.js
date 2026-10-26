@@ -215,7 +215,7 @@ test('fixed three-way Meta spend strip is always visible and preserves the saved
  assert.deepEqual(rows.map(row=>row.children[2].textContent),['Meta · 전체 연결 계정','Meta · 스마트스토어 광고','Meta · 자사몰 광고']);
  assert.equal(h.node('summary-cards').children.filter(row=>row.attributes['data-summary-key']).length,0,'Stored empty custom summary slots remain unchanged');
  assert.equal(h.run('savedSummaryCardKeys.every(key=>key==="")'),true);
- assert.match(h.node('ad-spend-note').textContent,/협력 캠페인만 자동 식별한 값은 아님/);
+ assert.match(h.node('ad-spend-note').textContent,/협력 캠페인만 자동 식별한 값은 아닙니다/);
  h.node('channel').value='cafe';h.run('renderSummaryCards();');
  assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['3,000원','1,000원','2,000원'],'Three totals cannot change with the channel filter');
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.cafe=data.naver;");
