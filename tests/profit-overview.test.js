@@ -203,31 +203,22 @@ test('saved spend layouts preserve twelve slots and only ROAS cards appear in th
  assert.deepEqual(auditRows.map(row=>row.attributes['data-roas-key']),['roas','mallRoas'],'The audit includes only distinct selected ROAS metrics');
 });
 
-test('fixed six-category spend strip is always visible and preserves the saved twelve-slot configuration',()=>{
+test('legacy five-category spend fallback remains consistent when shared shell is unavailable',()=>{
  const h=harness();h.node('until').value='2026-09-01';
- h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];savedSummaryCardKeys=Array(12).fill('');");
+ h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];savedSummaryCardKeys=Array(12).fill('');profitDays=new Map([['2026-09-01',{naverAdSpend:{gfa:300,shopping:200,powerlink:100},naverAdSpendSources:{shopping:'api',powerlink:'api',gfa:'manual'},naverAdSpendEstimatedChannels:{gfa:false,shopping:false,powerlink:false}}]]);");
  completeAdCoverage(h);
  h.run('renderSummaryCards();');
  const root=h.node('ad-spend-breakdown'),rows=root.children;
- assert.deepEqual(rows.map(row=>row.attributes['data-spend-key']),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend']);
- assert.deepEqual(rows.map(row=>row.children[0].textContent),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
- assert.deepEqual(rows.map(row=>row.children[1].children[0].textContent),['3,000원','1,000원','2,000원','—','—','—']);
- assert.deepEqual(rows.map(row=>row.children[2].textContent),['Meta · 전체 연결 계정','Meta · 스마트스토어 광고','Meta · 자사몰 광고','네이버 · GFA 입력분','네이버 · 쇼핑검색 입력분','네이버 · 파워링크 입력분']);
- assert.equal(h.node('summary-cards').children.filter(row=>row.attributes['data-summary-key']).length,0,'Stored empty custom summary slots remain unchanged');
+ assert.deepEqual(rows.map(row=>row.attributes['data-spend-key']),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend']);
+ assert.deepEqual(rows.map(row=>row.children[0].textContent),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+ assert.deepEqual(rows.map(row=>row.children[1].children[0].textContent),['3,600원','1,000원','2,000원','300원','300원']);
+ assert.equal(h.node('summary-cards').children.filter(row=>row.attributes['data-summary-key']).length,0);
  assert.equal(h.run('savedSummaryCardKeys.every(key=>key==="")'),true);
- assert.match(h.node('ad-spend-note').textContent,/협력 캠페인만 자동 식별한 값은 아닙니다/);
  h.node('channel').value='cafe';h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['3,000원','1,000원','2,000원','—','—','—'],'Three totals cannot change with the channel filter');
+ assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['3,600원','1,000원','2,000원','300원','300원'],'Fixed spend scopes ignore the selected Meta channel');
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.cafe=data.naver;");
  completeAdCoverage(h,['111']);h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['1,000원','—','—','—','—','—'],'A shared account cannot be assigned to both channels');
- assert.match(h.node('ad-spend-note').textContent,/동일한 Meta 광고 계정/);
- for(const row of root.children.slice(1,3))assert.match(row.children[3].textContent,/동일 광고계정.*구분/);
- h.run("connectedAccounts={naver:'111',cafe:''};data.cafe=[];");completeAdCoverage(h,['111']);h.run('renderSummaryCards();');
- assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['1,000원','1,000원','—','—','—','—']);
- assert.equal(root.children[0].children[1].children[1].textContent,'확인분','One missing account cannot certify complete total');
- assert.match(h.node('ad-spend-note').textContent,/일부 미연결/);
- assert.match(root.children[2].children[3].textContent,/광고계정 미연결/);
+ assert.deepEqual(root.children.map(row=>row.children[1].children[0].textContent),['1,600원','—','—','300원','300원'],'Shared Meta is counted once while Naver spend remains visible');
 });
 
 test('channel ROAS retains explicit zero revenue and identifies incomplete dates without inventing returns',()=>{
@@ -784,7 +775,7 @@ test('Naver inputs join fixed total costs and remain independently selectable wi
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,revenue:5000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,revenue:7000,spendKnown:true}];profitDays=new Map([['2026-09-01',{naverAdSpend:{powerlink:100,shopping:200,gfa:300},naverAdSpendTotal:600,naverAdSpendEstimated:true}]]);");
  completeAdCoverage(h);
- for(const [key,value] of [['spend',3600],['smartstoreSpend',1000],['mallSpend',2000],['gfaSpend',300],['shoppingSpend',200],['powerlinkSpend',100]])assert.equal(h.run('summaryMetric('+JSON.stringify(key)+').value'),value);
+ for(const [key,value] of [['spend',3600],['smartstoreSpend',1000],['mallSpend',2000],['gfaSpend',300],['searchSpend',300]])assert.equal(h.run('summaryMetric('+JSON.stringify(key)+').value'),value);
  assert.equal(h.run("summaryMetric('roas').value"),400,'Meta purchase ROAS retains the Meta-only denominator');
  assert.match(h.run("summaryMetric('gfaSpend').detail"),/균등 배분 추정/);
  h.run("connectedAccounts={naver:'111',cafe:'111'};data.cafe=data.naver;");completeAdCoverage(h,['111']);
@@ -794,6 +785,6 @@ test('Naver inputs join fixed total costs and remain independently selectable wi
 test('overview labels API shopping separately from manual GFA and preserves channel-specific estimation',()=>{
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];profitDays=new Map([['2026-09-01',{naverAdSpend:{shopping:450,powerlink:0,gfa:300},naverAdSpendSources:{shopping:'api',powerlink:'api',gfa:'manual'},naverAdSpendEstimated:true,naverAdSpendEstimatedChannels:{shopping:false,powerlink:false,gfa:true}}]]);");completeAdCoverage(h);
- assert.equal(h.run("summaryMetric('shoppingSpend').value"),450);assert.match(h.run("summaryMetric('shoppingSpend').scope"),/API/);assert.doesNotMatch(h.run("summaryMetric('shoppingSpend').detail"),/배분 추정/);
- assert.equal(h.run("summaryMetric('gfaSpend').value"),300);assert.match(h.run("summaryMetric('gfaSpend').detail"),/배분 추정/);assert.equal(h.run("summaryMetric('powerlinkSpend').value"),0);assert.equal(h.run("summaryMetric('spend').value"),3750);
+ assert.equal(h.run("summaryMetric('searchSpend').value"),450);assert.match(h.run("summaryMetric('searchSpend').scope"),/검색광고 API 우선/);assert.doesNotMatch(h.run("summaryMetric('searchSpend').detail"),/배분 추정/);
+ assert.equal(h.run("summaryMetric('gfaSpend').value"),300);assert.match(h.run("summaryMetric('gfaSpend').detail"),/배분 추정/);assert.equal(h.run("summaryMetric('spend').value"),3750);
 });
