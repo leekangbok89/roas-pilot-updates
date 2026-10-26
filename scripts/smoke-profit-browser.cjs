@@ -968,7 +968,7 @@ async function verifySplitSpend(requests) {
   const storageKey = 'roas-overview-summary-cards-v1';
   const keys = ['smartstoreSpend', 'mallSpend', 'spend'];
   const labels = ['스마트스토어 협력 메타 광고비', '자사몰 메타 광고비', '총 광고비'];
-  const scopes = ['Meta · 스마트스토어 광고', 'Meta · 자사몰 광고', 'Meta · 전체 연결 계정'];
+  const scopes = ['Meta · 스마트스토어 광고', 'Meta · 자사몰 광고', 'Meta + GFA + 검색광고'];
   const roasKeys = ['smartstoreRoas', 'mallRoas', 'roas'];
   const configured = [...keys, ...roasKeys, ...Array(6).fill('')];
   const card = key => page.locator('#summary-cards .summary-card[data-summary-key="' + key + '"]');
@@ -981,11 +981,15 @@ async function verifySplitSpend(requests) {
     }
   };
   const fixedSplit = page.locator('#ad-spend-breakdown [data-spend-key]');
-  assert.equal(await fixedSplit.count(),6,'The overview shows three advertising spend totals independently of configurable KPI slots');
-  await page.waitForFunction(()=>[...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].length===6&&
-   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(node=>node.textContent.endsWith('원')&&node.textContent!=='—'));
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-title')?.textContent)),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-value strong')?.textContent)),[money(30000),money(20000),money(10000),'—','—','—']);
+  assert.equal(await fixedSplit.count(),1,'One total spend card replaces multiple separate cards');
+  await page.waitForFunction(()=>document.querySelector('#ad-spend-breakdown .roas-spend-rollup-trigger strong')?.textContent===new Intl.NumberFormat('ko-KR').format(30000)+'원');
+  const breakdown=page.locator('#ad-spend-breakdown [data-spend-line]');
+  assert.deepEqual(await breakdown.evaluateAll(lines=>lines.map(line=>line.dataset.spendLine)),
+   ['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend']);
+  assert.deepEqual(await breakdown.evaluateAll(lines=>lines.map(line=>line.querySelector('.roas-spend-line-label').textContent)),
+   ['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+  assert.deepEqual(await breakdown.evaluateAll(lines=>lines.map(line=>line.querySelector('.roas-spend-line-amount').textContent)),
+   [money(30000),money(20000),money(10000),'—','—']);
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
   const requestStart = requests.length;
@@ -996,11 +1000,11 @@ async function verifySplitSpend(requests) {
   await page.locator('#summary-save').click();
   assert.deepEqual(await summaryKeys(), configured.filter(Boolean));
   assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured, 'Three spend and three ROAS selections preserve twelve stored positions including empty slots');
-  assert.equal(await fixedSplit.count(),6,'Configuring the editable twelve-card region does not remove the fixed spend breakdown');
+  assert.equal(await fixedSplit.count(),1,'Configuring KPI cards does not remove the single spend rollup');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
   assert.deepEqual(await Promise.all(keys.map(async key=>({
-   fixed:await page.locator('#ad-spend-breakdown [data-spend-key="'+key+'"] strong').innerText(),
+   fixed:await page.locator('#ad-spend-breakdown [data-spend-line="'+key+'"] .roas-spend-line-amount').innerText(),
    selected:await card(key).locator('strong').innerText()
   }))),keys.map((key,index)=>({fixed:money([20000,10000,30000][index]),selected:money([20000,10000,30000][index])})),
   'Fixed global strip and configurable overview must display exactly the same Meta spending values');
