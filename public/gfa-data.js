@@ -19,14 +19,14 @@
     name:['캠페인이름','캠페인명','캠페인'],id:['캠페인id','캠페인번호'],status:['상태'],
     spend:['총비용','광고비','총광고비','광고비용','비용','집행금액'],purchases:['구매완료수','구매완료','구매수','구매전환수'],
     revenue:['구매완료전환매출액','구매완료전환매출','구매전환매출액','구매전환매출','구매매출액','구매매출'],
-    reported:['구매완료광고수익률','구매광고수익률','구매완료roas','구매roas'],impressions:['노출수','노출'],clicks:['클릭수','클릭'],cpc:['평균cpc','cpc'],ctr:['클릭률','ctr'],
+    reported:['구매완료광고수익률','구매광고수익률','구매완료roas','구매roas'],budget:['캠페인예산','설정예산','일예산'],impressions:['노출수','노출'],clicks:['클릭수','클릭'],cpc:['평균cpc','cpc'],ctr:['클릭률','ctr'],
     path1:['경로(1단계)','경로1단계','경로1'],path2:['경로(2단계)','경로2단계','경로2'],path3:['경로(3단계)','경로3단계','경로3'],
-    date:['날짜','기간','일자','기준일'],visits:['방문수','유입수'],orders:['상품결제건수','결제건수'],sales:['판매금액(총)','판매금액총','판매금액','결제금액'],
+    date:['날짜','기간','일자','기준일','유입일'],visits:['방문수','유입수'],orders:['상품결제건수','결제건수','결제수(마지막클릭)'],sales:['판매금액(총)','판매금액총','판매금액','결제금액','결제금액(마지막클릭)'],
   };
   function column(header,key){const list=aliases[key];return header.findIndex(v=>list.includes(clean(v).replace(/\(vat포함\)|\(원\)|\(%\)|\(회\)|\(건\)/g,'')));}
   function adsFromGrid(grid){
     const h=grid.findIndex(r=>column(r,'name')>=0&&column(r,'spend')>=0);if(h<0)return [];
-    const header=grid[h],keys=['name','id','status','spend','purchases','revenue','reported','impressions','clicks','cpc','ctr'],cols=Object.fromEntries(keys.map(k=>[k,column(header,k)]));
+    const header=grid[h],keys=['name','id','status','spend','purchases','revenue','reported','budget','impressions','clicks','cpc','ctr'],cols=Object.fromEntries(keys.map(k=>[k,column(header,k)]));
     return grid.slice(h+1).filter(r=>r[cols.name]&&!/^(전체|합계|총합계|총계)$/.test(String(r[cols.name]).trim())&&number(r[cols.spend])!==null).map(r=>{
       const out=Object.fromEntries(keys.map(k=>[k,['name','id','status'].includes(k)?String(r[cols[k]]??'').trim():number(r[cols[k]])]));
       if(out.revenue===null&&out.reported!==null&&out.spend!==null){out.revenue=out.spend*out.reported/100;out.revenueEstimated=true;}else out.revenueEstimated=false;
@@ -37,22 +37,32 @@
     let rows=adsFromGrid(delimited(text));if(rows.length)return rows;
     const flat=text.split(/\r?\n|\t/).map(s=>s.trim()).filter(Boolean),starts=[];
     for(let i=1;i<flat.length;i++)if(/^\d{6,12}$/.test(flat[i])&&/^(운영가능|운영중|중지|일시중지|종료|삭제)/.test(flat[i+1]||''))starts.push(i);
-    rows=starts.map((i,j)=>{const end=j+1<starts.length?starts[j+1]-1:flat.length,tail=flat.slice(i+2,end),spend=number(tail[0]),reported=number(tail[2]),explicit=number(tail[11]);return {name:flat[i-1],id:flat[i],status:flat[i+1],spend,purchases:number(tail[1]),reported,cpc:number(tail[3]),impressions:number(tail[5]),clicks:number(tail[7]),ctr:number(tail[8]),revenue:explicit??(spend!==null&&reported!==null?spend*reported/100:null),revenueEstimated:explicit===null&&reported!==null};}).filter(r=>r.name&&r.spend!==null);
+    rows=starts.map((i,j)=>{const end=j+1<starts.length?starts[j+1]-1:flat.length,tail=flat.slice(i+2,end),spend=number(tail[0]),reported=number(tail[2]),explicit=number(tail[11]);return {name:flat[i-1],id:flat[i],status:flat[i+1],spend,purchases:number(tail[1]),reported,cpc:number(tail[3]),budget:number(tail[4]),impressions:number(tail[5]),clicks:number(tail[7]),ctr:number(tail[8]),revenue:explicit??(spend!==null&&reported!==null?spend*reported/100:null),revenueEstimated:explicit===null&&reported!==null};}).filter(r=>r.name&&r.spend!==null);
     return rows;
   }
   function parseChannels(grid,filename=''){
-    const h=grid.findIndex(r=>column(r,'path1')>=0&&column(r,'visits')>=0&&column(r,'sales')>=0);if(h<0)throw Error('전체채널 표의 경로(1단계)·방문수·판매금액 열을 찾지 못했습니다. 네이버 마케팅 분석의 전체채널 엑셀을 선택하세요.');
+    let h=grid.findIndex(r=>column(r,'path1')>=0&&column(r,'visits')>=0&&column(r,'sales')>=0);
+    let biz=false;
+    if(h<0){h=grid.findIndex(r=>r.some(c=>clean(c)==='채널명')&&r.some(c=>clean(c)==='채널속성')&&column(r,'visits')>=0&&column(r,'sales')>=0);biz=h>=0;}
+    if(h<0)throw Error('전체채널 표의 유입 경로·유입수·결제금액 열을 찾지 못했습니다. 네이버 비즈어드바이저 전체채널 보고서 파일을 선택하세요.');
     const keys=['path1','path2','path3','date','visits','orders','sales'],cols=Object.fromEntries(keys.map(k=>[k,column(grid[h],k)]));
+    const titleIndex=label=>grid[h].findIndex(v=>clean(v)===clean(label));
+    const attr=biz?titleIndex('채널속성'):-1,group=biz?titleIndex('채널그룹'):-1,name=biz?titleIndex('채널명'):-1,detail=biz?titleIndex('채널상세'):-1;
     let detected=dates(filename);if(detected.length<2)detected=dates(grid.slice(0,h).flat().join(' '));
     const rows=[],seen=new Map();let skipped=0;
     for(const cells of grid.slice(h+1)){
-      const paths=['path1','path2','path3'].map(k=>String(cells[cols[k]]??'').trim());
+      let paths=biz?[attr,group,name].map(i=>i>=0?String(cells[i]??'').trim():''):['path1','path2','path3'].map(k=>cols[k]>=0?String(cells[cols[k]]??'').trim():'');
+      if(biz&&detail>=0&&String(cells[detail]??'').trim())paths[2]+=' / '+String(cells[detail]).trim();
       if(!paths[0]||paths.some(p=>/^(합계|총합계|전체|총계|소계)$/.test(p))){skipped++;continue;}
-      const visits=number(cells[cols.visits]),orders=number(cells[cols.orders]),sales=number(cells[cols.sales]);if(visits===null&&orders===null&&sales===null)continue;
-      const ds=dates(cells[cols.date]);if(cols.date>=0&&String(cells[cols.date]??'').trim()&&!ds.length)throw Error('날짜 열을 읽지 못했습니다. 날짜가 표시된 전체채널 파일을 사용하세요.');
+      const visits=number(cells[cols.visits]),orders=cols.orders>=0?number(cells[cols.orders]):null,sales=number(cells[cols.sales]);
+      if(visits===null&&orders===null&&sales===null)continue;
+      const dateCell=cols.date>=0?String(cells[cols.date]??'').trim():'',ds=dates(dateCell);
+      if(dateCell&&!ds.length)throw Error('날짜 열을 읽지 못했습니다. 날짜가 표시된 전체채널 파일을 사용하세요.');
       const since=ds[0]||null,until=ds[1]||since;
       const row={path1:paths[0],path2:paths[1],path3:paths[2],since,until,visits,orders,sales,gfa:/gfa|성과형\s*디스플레이|디스플레이\s*광고/i.test(paths.join(' '))};
-      const key=JSON.stringify([since,until,...paths]);if(seen.has(key)){if(JSON.stringify(seen.get(key))!==JSON.stringify(row))throw Error('같은 날짜와 경로에 서로 다른 값이 있습니다. 일별 보기와 기간 합계가 섞이지 않은 파일을 사용하세요.');skipped++;continue;}seen.set(key,row);rows.push(row);
+      const key=JSON.stringify([since,until,...paths]);
+      if(seen.has(key)){if(JSON.stringify(seen.get(key))!==JSON.stringify(row))throw Error('같은 날짜와 경로에 서로 다른 값이 있습니다. 일별 보기와 기간 합계가 섞이지 않은 파일을 사용하세요.');skipped++;continue;}
+      seen.set(key,row);rows.push(row);
     }
     if(!rows.length)throw Error('저장할 유입 경로 행을 찾지 못했습니다.');
     const rowDates=rows.flatMap(r=>[r.since,r.until]).filter(Boolean).sort();
@@ -61,13 +71,31 @@
   function metrics(rows){const spend=sum(rows,'spend'),revenue=sum(rows,'revenue'),purchases=sum(rows,'purchases'),clicks=sum(rows,'clicks'),impressions=sum(rows,'impressions');return {spend,revenue,purchases,clicks,impressions,roas:rate(revenue,spend),cpc:rate(spend,clicks,1),ctr:rate(clicks,impressions),cpa:rate(spend,purchases,1),conversionRate:rate(purchases,clicks)};}
   function analyze(entries,since,until){
     range(since,until);
-    const included=entries.filter(e=>e.since>=since&&e.until<=until),partial=entries.filter(e=>e.since<=until&&e.until>=since&&!included.includes(e));
-    function source(kind){const records=included.filter(e=>e.kind===kind),covered=new Set();for(const e of records)for(let t=at(e.since);t<=at(e.until);t+=day)covered.add(t);return {records,covered:covered.size,complete:covered.size===(at(until)-at(since))/day+1};}
-    const ads=source('ads'),channels=source('channels'),adRows=ads.records.flatMap(e=>e.rows),channelRows=channels.records.flatMap(e=>e.rows),gfaRows=channelRows.filter(r=>r.gfa);
+    const partial=[];
+    function source(kind){
+      const covered=new Set(),records=[];
+      for(const e of entries.filter(e=>e.kind===kind)){
+        const matched=kind==='channels'?
+          e.rows.filter(r=>r.since>=since&&r.until<=until):
+          (e.since>=since&&e.until<=until?e.rows:[]);
+        if(matched.length){
+          records.push({...e,rows:matched});
+          if(kind==='ads')for(let t=at(e.since);t<=at(e.until);t+=day)covered.add(t);
+          else for(const row of matched)for(let t=at(row.since);t<=at(row.until);t+=day)covered.add(t);
+        }
+        const hasPartial=kind==='ads'?(e.since<=until&&e.until>=since&&!matched.length):
+          e.rows.some(r=>r.since<=until&&r.until>=since&&!(r.since>=since&&r.until<=until));
+        if(hasPartial)partial.push(e);
+      }
+      return {records,covered:covered.size,complete:covered.size===(at(until)-at(since))/day+1};
+    }
+    const ads=source('ads'),channels=source('channels');
+    const adRows=ads.records.flatMap(e=>e.rows),channelRows=channels.records.flatMap(e=>e.rows),gfaRows=channelRows.filter(r=>r.gfa);
     const ad=metrics(adRows),store={visits:sum(gfaRows,'visits'),orders:sum(gfaRows,'orders'),sales:sum(gfaRows,'sales')};
-    store.conversionRate=rate(store.orders,store.visits);const ready=ads.complete&&channels.complete&&gfaRows.length>0&&ad.spend!==null&&store.sales!==null;
-    const campaigns=Object.values(adRows.reduce((map,row)=>{const key=row.id||row.name;(map[key]??=[]).push(row);return map;},{})).map(rows=>({name:rows[0].name,id:rows[0].id,...metrics(rows),estimated:rows.some(r=>r.revenueEstimated)}));
+    store.conversionRate=rate(store.orders,store.visits);
+    const ready=ads.complete&&channels.complete&&gfaRows.length>0&&ad.spend!==null&&store.sales!==null;
+    const campaigns=Object.values(adRows.reduce((map,row)=>{const key=row.id||row.name;(map[key]??=[]).push(row);return map;},{})).map(rows=>({name:rows[0].name,id:rows[0].id,budget:rows.at(-1).budget??null,...metrics(rows),estimated:rows.some(r=>r.revenueEstimated)}));
     return {since,until,ads,channels,ad,store,ready,partial:partial.length,campaigns,channelRows,estimated:adRows.some(r=>r.revenueEstimated),lastRoas:ready?rate(store.sales,ad.spend):null,revenueGap:ready&&ad.revenue!==null&&store.sales!==null?ad.revenue-store.sales:null};
   }
-  return {number,sum,rate,dates,range,validDate,delimited,parseAds,parseChannels,metrics,analyze};
+  return {number,sum,rate,dates,range,validDate,delimited,parseAds,adsFromGrid,parseChannels,metrics,analyze};
 });

@@ -11,7 +11,7 @@ function createStore({baseDir,model}){
     const amount=(v,integer=false)=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>1e14||(integer&&!Number.isSafeInteger(v)))fail('파일의 숫자 값을 확인하세요.');return v;};
     const rows=input.rows.map(r=>{
       if(!r||typeof r!=='object')fail('파일 행의 형식을 확인하세요.');
-      if(input.kind==='ads'){const row={name:text(r.name),id:text(r.id||''),status:text(r.status||''),revenueEstimated:r.revenueEstimated===true};if(!row.name)fail('캠페인 이름이 없습니다.');for(const k of ['spend','purchases','revenue','reported','impressions','clicks','cpc','ctr'])row[k]=amount(r[k],['spend','purchases','impressions','clicks'].includes(k));if(row.spend===null)fail('광고비가 없는 캠페인은 저장할 수 없습니다.');return row;}
+      if(input.kind==='ads'){const row={name:text(r.name),id:text(r.id||''),status:text(r.status||''),revenueEstimated:r.revenueEstimated===true};if(!row.name)fail('캠페인 이름이 없습니다.');for(const k of ['spend','purchases','revenue','reported','budget','impressions','clicks','cpc','ctr'])row[k]=amount(r[k],['spend','purchases','impressions','clicks'].includes(k));if(row.spend===null)fail('광고비가 없는 캠페인은 저장할 수 없습니다.');return row;}
       const row={path1:text(r.path1),path2:text(r.path2||''),path3:text(r.path3||''),gfa:r.gfa===true,since:r.since||input.since,until:r.until||input.until};
       if(!row.path1)fail('유입 경로가 없습니다.');model.range(row.since,row.until);if(row.since<input.since||row.until>input.until)fail('파일의 날짜가 선택한 저장 기간 밖에 있습니다.');
       for(const k of ['visits','orders','sales'])row[k]=amount(r[k],true);return row;
@@ -28,7 +28,39 @@ function createStore({baseDir,model}){
     catch(error){if(typeof rollback==='function')rollback();throw error;}
     finally{fs.rmSync(tmp,{force:true});}return store;
   }
-  function save(input,beforeWrite){const entry=validate(input),store=read();if(input.revision!==store.revision)fail('다른 화면에서 자료가 변경됐습니다. 새로고침 후 다시 저장하세요.',409);if(store.entries.some(e=>e.kind===entry.kind&&e.id!==entry.id&&e.since<=entry.until&&e.until>=entry.since))fail('겹치는 저장 기간이 있습니다. 같은 기간으로 다시 저장하거나 기존 자료를 삭제한 뒤 넣으세요.',409);return write({...store,revision:store.revision+1,entries:[...store.entries.filter(e=>e.id!==entry.id),entry].sort((a,b)=>b.since.localeCompare(a.since))},beforeWrite?()=>beforeWrite(entry):undefined);}
+  function save(input,beforeWrite){
+    let entry=validate(input),store=read();
+    if(input.revision!==store.revision)fail('다른 화면에서 자료가 변경됐습니다. 새로고침 후 다시 저장하세요.',409);
+    if(entry.kind==='ads'){
+      if(store.entries.some(e=>e.kind==='ads'&&e.id!==entry.id&&e.since<=entry.until&&e.until>=entry.since))fail('겹치는 GFA 광고비 기간이 있습니다. 광고비를 중복 합산할 수 없어 기존 기간을 정리해야 합니다.',409);
+      return write({...store,revision:store.revision+1,entries:[...store.entries.filter(e=>e.id!==entry.id),entry].sort((a,b)=>b.since.localeCompare(a.since))},beforeWrite?()=>beforeWrite(entry):undefined);
+    }
+    const same=store.entries.find(e=>e.id===entry.id);
+    // An explicit manual save can replace an exact stored period. Automatic uploads
+    // only append novel day + route data and never sum an existing row twice.
+    const replaceSame=input.replaceExisting===true&&!!same;
+    const existing=store.entries.filter(e=>e.kind==='channels'&&(!replaceSame||e.id!==entry.id)).flatMap(e=>e.rows);
+    const overlaps=(a,b)=>a.since<=b.until&&a.until>=b.since;
+    const pathKey=r=>JSON.stringify([r.path1,r.path2,r.path3]);
+    const accepted=[];const stats={received:entry.rows.length,added:0,duplicates:0,conflicts:0,ambiguous:0};
+    for(const row of entry.rows){
+      const prior=existing.find(r=>pathKey(r)===pathKey(row)&&overlaps(r,row));
+      if(prior){
+        const exact=prior.since===row.since&&prior.until===row.until;
+        if(!exact){stats.ambiguous++;continue;}
+        if(['visits','orders','sales','gfa'].every(k=>prior[k]===row[k]))stats.duplicates++;
+        else stats.conflicts++;
+        continue;
+      }
+      accepted.push(row);stats.added++;
+    }
+    if(!accepted.length)return {...store,importStats:stats};
+    if(same&&!replaceSame){
+      entry={...same,rows:[...same.rows,...accepted],updatedAt:new Date().toISOString()};
+    }else entry={...entry,rows:accepted};
+    const newStore={...store,revision:store.revision+1,entries:[...store.entries.filter(e=>e.id!==entry.id),entry].sort((a,b)=>b.since.localeCompare(a.since))};
+    return {...write(newStore,beforeWrite?()=>beforeWrite(entry):undefined),importStats:stats};
+  }
   function remove(input,beforeWrite){const store=read();if(input.revision!==store.revision)fail('다른 화면에서 자료가 변경됐습니다. 새로고침하세요.',409);const entry=store.entries.find(e=>e.id===input.id);if(!entry)fail('삭제할 자료가 없습니다.',404);return write({...store,revision:store.revision+1,entries:store.entries.filter(e=>e.id!==input.id)},beforeWrite?()=>beforeWrite(entry):undefined);}
   return {read,save,remove,validate};
 }
