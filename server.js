@@ -172,7 +172,7 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
    known:{spend:total.known,smartstoreSpend:naver.known,mallSpend:cafe.known}};
  });
  const labels={spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비'};
- const scopes={spend:'Meta · 전체 연결 계정',smartstoreSpend:'Meta · 스마트스토어 광고',mallSpend:'Meta · 자사몰 광고'};
+ const scopes={spend:'Meta + GFA + 검색광고',smartstoreSpend:'Meta · 스마트스토어 광고',mallSpend:'Meta · 자사몰 광고'};
  const metrics={};
  for(const key of Object.keys(labels)){
   const known=daily.filter(row=>row.known[key]),complete=daily.filter(row=>row.complete[key]);
@@ -226,6 +226,17 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
   for(let i=0;i<daily.length;i++){const day=daily[i],cost=enteredCosts[i];if(cost.entered){day.spend=(day.spend??0)+cost.total;day.known.spend=true;}day.complete.spend&&=Object.values(cost.amounts).every(Number.isFinite);}
   total.knownDays=daily.filter(day=>day.known.spend).length;total.completeDays=daily.filter(day=>day.complete.spend).length;
  }
+ // GFA and Search Ads are separate categories even before the first data
+ // upload. Do not silently certify a Meta-only subtotal as all-channel spend.
+ const total=metrics.spend;
+ const missingSources=enteredCosts.some(day=>Object.values(day.amounts).some(amount=>amount===null));
+ if(missingSources){
+  if(Number.isFinite(total.value))total.partial=true;
+  total.detail+=' · GFA 또는 검색광고 일부 미입력/미수집 · 확인분';
+ }
+ for(let i=0;i<daily.length;i++)daily[i].complete.spend&&=Object.values(enteredCosts[i].amounts).every(Number.isFinite);
+ total.scope='Meta + GFA + 검색광고';
+ total.completeDays=daily.filter(day=>day.complete.spend).length;
  return {since,until,fxUsed:rate,scopes:metrics,daily,sharedAccount:shared,allAccountsConnected:!!accounts.naver&&!!accounts.cafe,
   explanation:'총 광고비는 저장된 Meta 원본 광고비와 위마망으로 선택한 검색광고 API 수집분과 네이버 광고비 입력분을 합산합니다. 같은 항목·날짜는 API 값을 우선 사용하며 중복 합산하지 않습니다. 미입력 네이버 항목은 포함하지 않습니다. 스마트스토어용 계정 지출은 협력광고 캠페인만 자동 판별한 값이 아닙니다.'};
 }
