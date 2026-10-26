@@ -259,7 +259,7 @@
   mallSpend:'자사몰 메타 광고비'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
- let refreshToken=0,scheduled=null,mainNode=null,root=null,heading=null;
+ let refreshToken=0,mainNode=null,root=null,heading=null;
  const validDate=date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date+'T00:00:00Z'));
  const asKRW=value=>Number.isFinite(value)?fmt.format(value)+'원':'—';
  function storedPeriod(){try{const x=JSON.parse(localStorage.getItem(rangeKey)||'null');if(validDate(x?.since)&&validDate(x?.until)&&x.since<=x.until)return x;}catch{}return null;}
@@ -332,7 +332,7 @@
    if(request===refreshToken){draw(null,range);const note=document.getElementById('ad-spend-note');if(note)note.textContent=range.since+' ~ '+range.until+' · 광고비 확인 실패: '+error.message;root.setAttribute('aria-busy','false');}
   }
  }
- function requestRefresh(){if(scheduled!==null)clearTimeout(scheduled);scheduled=setTimeout(()=>{scheduled=null;void refresh();},50);}
+ function requestRefresh(){void refresh();}
  window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh});
  function init(){
   if(!ensure())return;
