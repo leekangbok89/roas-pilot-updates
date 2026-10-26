@@ -192,3 +192,57 @@ body .app-theme-drawer-toggle [data-theme-icon] { font-size:20px; }
 @media(pointer:coarse){body .app-drawer .app-nav-link{min-height:44px;padding:9px}}
 @media(prefers-reduced-motion:reduce) { body .app-drawer { transition:none; } }
 
+/* Low-saturation section surfaces separate tasks without competing with data. */
+:root {
+  --app-tone-blue-bg:#f2f6fc; --app-tone-blue-line:#dce5f0; --app-tone-blue-mark:#b4c7df;
+  --app-tone-violet-bg:#f7f4fc; --app-tone-violet-line:#e5dff0; --app-tone-violet-mark:#c7b9dd;
+  --app-tone-mint-bg:#f1f8f5; --app-tone-mint-line:#dbe9e2; --app-tone-mint-mark:#b0cfbf;
+  --app-tone-sand-bg:#fbf7ef; --app-tone-sand-line:#ece3d4; --app-tone-sand-mark:#dac9a8;
+  --app-tone-rose-bg:#fcf4f6; --app-tone-rose-line:#eddee4; --app-tone-rose-mark:#dfbbc9;
+}
+:root[data-theme="dark"] {
+  --app-tone-blue-bg:#19283c; --app-tone-blue-line:#3d4e68; --app-tone-blue-mark:#607897;
+  --app-tone-violet-bg:#25263b; --app-tone-violet-line:#4a4865; --app-tone-violet-mark:#807397;
+  --app-tone-mint-bg:#1b2d32; --app-tone-mint-line:#3e5559; --app-tone-mint-mark:#62877e;
+  --app-tone-sand-bg:#2b2a30; --app-tone-sand-line:#555049; --app-tone-sand-mark:#93856e;
+  --app-tone-rose-bg:#2d2635; --app-tone-rose-line:#574653; --app-tone-rose-mark:#937485;
+}
+body[data-app-page] .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section {
+  --app-section-bg:var(--app-tone-blue-bg); --app-section-line:var(--app-tone-blue-line); --app-section-mark:var(--app-tone-blue-mark);
+  background:var(--app-section-bg); border-color:var(--app-section-line);
+  box-shadow:inset 3px 0 0 var(--app-section-mark),var(--app-shadow);
+}
+/* Unnamed sections receive a restrained sequence; named tasks keep one color. */
+body[data-app-page] .app-main :is(.panel,.control-panel):nth-of-type(3n+2) {
+  --app-section-bg:var(--app-tone-violet-bg); --app-section-line:var(--app-tone-violet-line); --app-section-mark:var(--app-tone-violet-mark);
+}
+body[data-app-page] .app-main :is(.panel,.control-panel):nth-of-type(3n) {
+  --app-section-bg:var(--app-tone-mint-bg); --app-section-line:var(--app-tone-mint-line); --app-section-mark:var(--app-tone-mint-mark);
+}
+body .app-main :is(#other-ad-costs,#ads-section,#content-catalog) {
+  --app-section-bg:var(--app-tone-violet-bg); --app-section-line:var(--app-tone-violet-line); --app-section-mark:var(--app-tone-violet-mark);
+}
+body .app-main :is(#brand-verify-section,#data-coverage,#history-audit,#update-manager,#detail-reference),
+body[data-app-page] .app-main :is(.panel.guide,.ga4-guide) {
+  --app-section-bg:var(--app-tone-sand-bg); --app-section-line:var(--app-tone-sand-line); --app-section-mark:var(--app-tone-sand-mark);
+}
+body .app-main :is(#profit-panel,#sales-impact,#comparison),
+body[data-app-page="cost"] .app-main>section:has(#items) {
+  --app-section-bg:var(--app-tone-mint-bg); --app-section-line:var(--app-tone-mint-line); --app-section-mark:var(--app-tone-mint-mark);
+}
+body .app-main :is(#data-source,#cafe24-oauth,#naver-commerce,#search-connection,#ga4-connection,#detail-setup),
+body[data-app-page="cost"] .app-main>section:has(#refresh) {
+  --app-section-bg:var(--app-tone-blue-bg); --app-section-line:var(--app-tone-blue-line); --app-section-mark:var(--app-tone-blue-mark);
+}
+body .app-main :is(#budget-efficiency,#search-history),
+body[data-app-page="cost"] .app-main>section:has(#manual) {
+  --app-section-bg:var(--app-tone-rose-bg); --app-section-line:var(--app-tone-rose-line); --app-section-mark:var(--app-tone-rose-mark);
+}
+body[data-app-page] .app-main :is(details.panel,details.control-panel) { border-color:var(--app-section-line)!important; }
+body[data-app-page] .app-main :is(.panel,.control-panel)>.toolbar,
+body[data-app-page="cost"] .app-main>section>.toolbar { background:transparent; box-shadow:none; }
+body[data-app-page] .app-main :is(.panel,.control-panel) th,
+body[data-app-page="cost"] .app-main>section th {
+  background:color-mix(in srgb,var(--app-section-bg) 65%,var(--app-surface-soft));
+}
+
