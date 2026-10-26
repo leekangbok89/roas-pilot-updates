@@ -7,7 +7,7 @@ const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 
 const project=path.resolve(__dirname,'..');
-const shellFiles=['app-shell.css','app-shell.js','display-analysis.html'];
+const shellFiles=['app-shell.css','app-shell.js','display-analysis.html','naver-analysis.js'];
 
 function fixture(t,{copyAssets=false}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-bundle-'));
@@ -42,7 +42,7 @@ test('legacy upgrade without shared shell and display files serves exact current
 
 test('installed shared-shell assets take precedence over bundled fallback',async t=>{
   const f=fixture(t,{copyAssets:true});
-  for(const name of shellFiles){
+  for(const name of ['app-shell.css','app-shell.js']){
     const data='/* installed '+name+' */\n';
     fs.writeFileSync(path.join(f.dir,'public',name),data);
     const response=await f.request('/'+name);

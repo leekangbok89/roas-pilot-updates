@@ -978,11 +978,11 @@ async function verifySplitSpend(requests) {
     }
   };
   const fixedSplit = page.locator('#ad-spend-breakdown [data-spend-key]');
-  assert.equal(await fixedSplit.count(),3,'The overview shows three advertising spend totals independently of configurable KPI slots');
-  await page.waitForFunction(()=>[...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].length===3&&
-   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].every(node=>node.textContent.endsWith('원')&&node.textContent!=='—'));
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-title')?.textContent)),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비']);
-  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-value strong')?.textContent)),[money(30000),money(20000),money(10000)]);
+  assert.equal(await fixedSplit.count(),6,'The overview shows three advertising spend totals independently of configurable KPI slots');
+  await page.waitForFunction(()=>[...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].length===6&&
+   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(node=>node.textContent.endsWith('원')&&node.textContent!=='—'));
+  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-title')?.textContent)),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
+  assert.deepEqual(await fixedSplit.evaluateAll(cards=>cards.map(card=>card.querySelector('.roas-shared-spend-value strong')?.textContent)),[money(30000),money(20000),money(10000),'—','—','—']);
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
   const requestStart = requests.length;
@@ -993,7 +993,7 @@ async function verifySplitSpend(requests) {
   await page.locator('#summary-save').click();
   assert.deepEqual(await summaryKeys(), configured.filter(Boolean));
   assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured, 'Three spend and three ROAS selections preserve twelve stored positions including empty slots');
-  assert.equal(await fixedSplit.count(),3,'Configuring the editable twelve-card region does not remove the fixed spend breakdown');
+  assert.equal(await fixedSplit.count(),6,'Configuring the editable twelve-card region does not remove the fixed spend breakdown');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
   assert.deepEqual(await Promise.all(keys.map(async key=>({

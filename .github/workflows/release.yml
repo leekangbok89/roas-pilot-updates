@@ -64,6 +64,7 @@ jobs:
           node scripts/bundle-experiments.cjs --check
           node --check server.js
           node --check public/app.js
+          node --check public/naver-analysis.js
           node --check public/app-shell.js
           node --check public/naver-settings.js
           node --check public/ga4.js
@@ -95,6 +96,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-detail-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ad-changes-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-search-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-browser.cjs
 
       - name: Package ROAS Pilot
         run: |
