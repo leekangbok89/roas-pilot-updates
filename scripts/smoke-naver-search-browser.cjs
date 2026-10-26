@@ -10,6 +10,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-search-browser-'));
 const base = 'http://127.0.0.1:3000';
 const { chromium } = require(process.env.ROAS_PLAYWRIGHT_MODULE || 'playwright');
 let child, browser, page, connected = false, scopeChosen = false, auto = true, failSave = false, stale = false, missing = false;
+let mapping = { customerId: '123456', scopeKey: 'scope-wemamang-a', revision: 0, mappings: { 'cmp-a': 'auto' } }, failMapping = false;
 let history = null;
 const errors = [], external = [], posted = [];
 const status = () => ({ configured: connected, customerId: connected ? '123456' : '', scopeConfigured: connected && scopeChosen, scopeKey: scopeChosen ? 'scope-wemamang-a' : '', scopeCampaignIds: scopeChosen ? ['cmp-a'] : [], enabled: auto, running: history?.running || false, history, lastSuccessAt: '2026-10-25T03:00:00Z', nextAutomaticAt: '2026-10-25T04:00:00Z' });
@@ -17,7 +18,7 @@ const metrics = { spend: 4400, impressions: 2000, clicks: 20, purchases: 4, purc
 function result(url) {
   const range = new URL(url).searchParams;
   const values = { ...metrics, ...(missing ? { purchases: null, purchaseRevenue: null, purchaseRoas: null } : {}) };
-  return { scopeKey: 'scope-wemamang-a', customerId: '123456', since: range.get('since'), until: range.get('until'), fetchedAt: '2026-10-25T03:00:00Z', cached: stale, stale,
+  return { scopeKey: 'scope-wemamang-a', customerId: '123456', spendMapping: mapping, since: range.get('since'), until: range.get('until'), fetchedAt: '2026-10-25T03:00:00Z', cached: stale, stale,
     ...(stale ? { refreshError: '호출 한도: 저장 자료 유지' } : {}), summary: values,
     campaigns: [{ id: 'cmp-a', name: '<img data-injected src=x onerror="window.__injected=1"> 위마망', type: 'WEB_SITE', status: 'ELIGIBLE', ...values }],
     daily: [{ date: range.get('since'), ...values }], warnings: ['광고비 VAT 포함 · 구매 기여 기준'] };
@@ -49,6 +50,14 @@ async function main() {
     }
     if (endpoint === 'campaigns') return route.fulfill({ json: { campaignIds: scopeChosen ? ['cmp-a'] : [], campaigns: [{ id: 'cmp-a', name: '위마망 백도씨', type: 'WEB_SITE' }, { id: 'cmp-truver', name: '트루버 버너', type: 'SHOPPING' }, { id: 'cmp-unknown', name: '알 수 없는 캠페인', type: 'WEB_SITE' }] } });
     if (endpoint === 'scope') { assert.deepEqual(request.postDataJSON().campaignIds, ['cmp-a']); scopeChosen = true; }
+    if (endpoint === 'spend-mapping') {
+      if (request.method() === 'POST') {
+        if (failMapping) return route.fulfill({ status: 409, json: { error: '다른 화면에서 광고비 연결이 변경되었습니다. 저장값으로 되돌린 뒤 다시 선택해 주세요.' } });
+        const input = request.postDataJSON(); assert.equal(input.customerId, mapping.customerId); assert.equal(input.scopeKey, mapping.scopeKey); assert.equal(input.revision, mapping.revision); assert.deepEqual(Object.keys(input.mappings), ['cmp-a']);
+        mapping = { ...mapping, revision: mapping.revision + 1, mappings: input.mappings };
+      }
+      return route.fulfill({ json: mapping });
+    }
     if(endpoint==='history'){
       const input=request.postDataJSON();assert.equal(input.since,'2026-06-01');
       history={...input,status:'running',running:true,completedRanges:0,totalRanges:5,confirmedDays:0,currentRange:'2026-06-01 ~ 2026-06-30'};
@@ -86,6 +95,22 @@ async function main() {
   assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);
   console.log('PASS explicit Wemamang-only scope persists across reload; Truver and unknown campaigns stay unchecked');
   console.log('PASS legacy upgrade: connect/save/clear keys, purchase metrics, safe campaign text, no browser secret storage');
+  const choice = page.locator('[data-spend-campaign="cmp-a"]');
+  assert.equal(await choice.inputValue(), 'auto'); assert.match(await choice.locator('option:checked').innerText(), /자동.*파워링크/);
+  assert.equal(await page.locator('#search-spend-save').isDisabled(), true);
+  await choice.selectOption('shopping'); assert.equal(mapping.mappings['cmp-a'], 'auto', 'Draft categories never change statistical routing');
+  await page.locator('#search-spend-save').click(); await page.waitForFunction(() => document.getElementById('search-spend-status').textContent.includes('저장 완료') && document.getElementById('search-spend-save').disabled);
+  assert.equal(mapping.mappings['cmp-a'], 'shopping'); assert.match(await page.locator('#search-metrics').innerText(), /4,400원/);
+  await page.reload(); await page.waitForFunction(() => !document.getElementById('search-load').disabled && document.querySelector('[data-spend-campaign]')?.value === 'shopping');
+  await choice.selectOption('gfa'); failMapping = true; await page.locator('#search-spend-save').click();
+  await page.waitForFunction(() => document.getElementById('search-spend-status').dataset.tone === 'error' && !document.getElementById('search-spend-save').disabled);
+  assert.equal(await choice.inputValue(), 'gfa'); assert.equal(mapping.mappings['cmp-a'], 'shopping', 'A rejected save preserves both the draft and the saved mapping');
+  failMapping = false; await page.locator('#search-spend-reset').click(); await page.waitForFunction(() => document.querySelector('[data-spend-campaign]')?.value === 'shopping' && !document.getElementById('search-spend-reset').disabled);
+  for (const target of ['gfa', 'exclude', 'auto']) {
+    await choice.selectOption(target); await page.locator('#search-spend-save').click(); await page.waitForFunction(() => document.getElementById('search-spend-status').textContent.includes('저장 완료') && document.getElementById('search-spend-save').disabled);
+    assert.equal(mapping.mappings['cmp-a'], target); assert.match(await page.locator('#search-metrics').innerText(), /4,400원/, 'Routing and exclusion retain campaign performance');
+  }
+  console.log('PASS campaign spend choices: explicit save, reload persistence, failed-save draft, reset, GFA/exclusion/automatic and unchanged performance');
   assert.equal(await page.locator('#search-history-since').inputValue(),'2026-06-01');
   await page.locator('#search-history-start').click();
   await page.waitForFunction(()=>document.getElementById('search-history-status').textContent.includes('수집 중'));

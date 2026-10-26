@@ -8,6 +8,8 @@ const crypto = require('node:crypto');
 const FIELDS = ['impCnt', 'clkCnt', 'salesAmt', 'ccnt', 'convAmt', 'purchaseCcnt', 'purchaseConvAmt'];
 const KEYS = { impressions: 'impCnt', clicks: 'clkCnt', spend: 'salesAmt', conversions: 'ccnt', conversionRevenue: 'convAmt', purchases: 'purchaseCcnt', purchaseRevenue: 'purchaseConvAmt' };
 const HOUR = 3600000;
+const SPEND_CHANNELS = ['shopping', 'powerlink', 'gfa'];
+const SPEND_TARGETS = ['auto', ...SPEND_CHANNELS, 'exclude'];
 const fail = (status, message) => Object.assign(Error(message), { status });
 const kstDate = ms => new Date(ms + 9 * HOUR).toISOString().slice(0, 10);
 const validDate = x => typeof x === 'string' && /^\d{4}-\d\d-\d\d$/.test(x) && Number.isFinite(Date.parse(x)) && new Date(x).toISOString().slice(0, 10) === x;
@@ -70,6 +72,35 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     if (!selected) throw fail(409, '먼저 집계할 위마망 캠페인을 선택하고 저장해 주세요. 전체 계정 자료는 표시하지 않습니다.');
     return selected;
   }
+  function readSpendMapping(config) {
+    const filename = path.join(dataDir, config.customerId, 'spend-mapping.json');
+    if (!fs.existsSync(filename)) return { revision: 0, mappings: {} };
+    const value = readJson(filename);
+    if (value?.customerId !== config.customerId || !Number.isSafeInteger(value.revision) || value.revision < 0 || !value.mappings || typeof value.mappings !== 'object' || Array.isArray(value.mappings) || Object.entries(value.mappings).some(([id, target]) => !/^[\w-]{1,100}$/.test(id) || !SPEND_TARGETS.includes(target)))
+      throw fail(500, '저장된 광고비 연결 설정을 읽을 수 없습니다. 백업한 설정을 확인해 주세요.');
+    return value;
+  }
+  function spendMapping(config = requireConfig()) {
+    const selected = requireScope(config), saved = readSpendMapping(config);
+    return { customerId: config.customerId, scopeKey: selected.key, revision: saved.revision,
+      mappings: Object.fromEntries(selected.campaignIds.map(id => [id, Object.hasOwn(saved.mappings, id) ? saved.mappings[id] : 'auto'])) };
+  }
+  function spendTarget(row, mappings) {
+    const target = Object.hasOwn(mappings, row.id) ? mappings[row.id] : 'auto';
+    return target === 'auto' ? row.type === 'SHOPPING' ? 'shopping' : row.type === 'WEB_SITE' ? 'powerlink' : null : target;
+  }
+  function saveSpendMapping(input) {
+    if (active) throw fail(409, '검색광고 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.');
+    const config = requireConfig(), selected = requireScope(config), saved = readSpendMapping(config);
+    if (input?.customerId !== config.customerId || input?.scopeKey !== selected.key || input?.revision !== saved.revision)
+      throw fail(409, '다른 화면에서 고객·캠페인 선택 또는 광고비 연결이 변경되었습니다. 저장값으로 되돌린 뒤 다시 선택해 주세요.');
+    const mappings = input.mappings;
+    if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings) || !Object.keys(mappings).length || Object.keys(mappings).length > 500 || Object.entries(mappings).some(([id, target]) => !selected.campaignIds.includes(id) || !SPEND_TARGETS.includes(target)))
+      throw fail(400, '선택한 위마망 캠페인과 광고비 반영 항목을 확인해 주세요.');
+    atomic(path.join(dataDir, config.customerId, 'spend-mapping.json'), JSON.stringify({ customerId: config.customerId, revision: saved.revision + 1, mappings: { ...saved.mappings, ...mappings } }));
+    return spendMapping(config);
+  }
+  const withSpendMapping = (config, value) => ({ ...value, spendMapping: spendMapping(config) });
   function read() {
     if (!fs.existsSync(privateFile)) { memo = null; memoStamp = null; return null; }
     const stat = fs.statSync(privateFile), stamp = stat.mtimeMs + ':' + stat.size;
@@ -191,17 +222,17 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     const range = dateRange(since, until, now()), config = requireConfig(), saved = cached(config, range);
     if (cacheOnly || (!refresh && saved && now() - Date.parse(saved.fetchedAt) < 5 * 60000)) {
       if (!saved) throw fail(404, '이 기간의 저장된 검색광고 성과가 없습니다. 기간 조회를 눌러주세요.');
-      return { ...saved, cached: true, stale: now() - Date.parse(saved.fetchedAt) >= 5 * 60000 };
+      return withSpendMapping(config, { ...saved, cached: true, stale: now() - Date.parse(saved.fetchedAt) >= 5 * 60000 });
     }
     return exclusive(async () => {
       try {
         if (since === kstDate(now() - 6 * 86400000) && until === kstDate(now())) setState({ lastAttemptAt: new Date(now()).toISOString() });
         const value = await collect(config, range);
         setState({ lastSuccessAt: value.fetchedAt, error: null });
-        return { ...value, cached: false, stale: false };
+        return withSpendMapping(config, { ...value, cached: false, stale: false });
       } catch (error) {
         setState({ error: error.message });
-        if (saved) return { ...saved, cached: true, stale: true, refreshError: error.message };
+        if (saved) return withSpendMapping(config, { ...saved, cached: true, stale: true, refreshError: error.message });
         throw error;
       }
     });
@@ -241,7 +272,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     const incomplete = reports.length !== job.totalRanges || daily.filter(day => day.complete).length < totalDays;
     const warnings = [...new Set(reports.flatMap(report => report.warnings))];
     if (incomplete) warnings.push('일부 기간 또는 캠페인 날짜가 미확인입니다. 아래 합계는 저장된 자료의 확인분이며 전체 기간 확정 합계가 아닙니다.');
-    return { customerId: config.customerId, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, since: job.since, until: job.until,
+    return { customerId: config.customerId, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, spendMapping: spendMapping(config), since: job.since, until: job.until,
       fetchedAt, currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings,
       noData: !daily.length, cached: true, stale: true, history: true, partial: incomplete, completedRanges: reports.length, totalRanges: job.totalRanges, jobStatus: job.status };
   }
@@ -295,6 +326,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     let config; try { config = read(); } catch { return { days: {}, issue: '검색광고 연결 확인 필요' }; }
     const selected = scope(config);
     if (!config || !selected) return { days: {}, issue: '위마망 검색광고 캠페인 선택 필요' };
+    let mappings; try { mappings = readSpendMapping(config).mappings; } catch (error) { return { days: {}, issue: error.message }; }
     const dir = path.join(dataDir, config.customerId, selected.key);
     if (!fs.existsSync(dir)) return { days: {}, issue: '선택 기간 검색광고 수집 필요' };
     const reports = fs.readdirSync(dir).filter(name => /^\d{4}-\d\d-\d\d_\d{4}-\d\d-\d\d\.json$/.test(name) && name.slice(0, 10) <= until && name.slice(11, 21) >= since)
@@ -302,31 +334,32 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
       .filter(r => r?.schema === 2 && validDate(r.since) && validDate(r.until) && r.since <= r.until && r.customerId === config.customerId && r.scopeKey === selected.key && Number.isFinite(Date.parse(r.fetchedAt)) && Array.isArray(r.campaigns) && r.campaigns.length === selected.campaignIds.length && new Set(r.campaigns.map(c => c.id)).size === selected.campaignIds.length && r.campaigns.every(c => selected.campaignIds.includes(c.id)) && Array.isArray(r.daily))
       .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt));
     const days = {};
-    const channel = type => type === 'SHOPPING' ? 'shopping' : type === 'WEB_SITE' ? 'powerlink' : null;
+    const channel = row => spendTarget(row, mappings);
+    const unknown = fetchedAt => ({ ...Object.fromEntries(SPEND_CHANNELS.map(key => [key, null])), fetchedAt });
     for (const r of reports) {
       for (const day of r.daily) {
         if (!validDate(day.date) || day.date < since || day.date > until || day.date < r.since || day.date > r.until) continue;
         let rows = Array.isArray(r.campaignDaily) ? r.campaignDaily.filter(row => row.date === day.date) : null;
         // Old one-day and single-product reports can be split without guessing.
         if (!rows && r.since === r.until) rows = r.campaigns;
-        if (!rows && day.complete === true && r.campaigns.every(c => channel(c.type) === channel(r.campaigns[0].type)) && channel(r.campaigns[0].type) && metric(day.spend) !== null) {
-          const key = channel(r.campaigns[0].type);
-          days[day.date] = { shopping: key === 'shopping' ? Number(day.spend) : null, powerlink: key === 'powerlink' ? Number(day.spend) : null, fetchedAt: r.fetchedAt };
+        if (!rows && day.complete === true && r.campaigns.every(c => channel(c) === channel(r.campaigns[0])) && SPEND_CHANNELS.includes(channel(r.campaigns[0])) && metric(day.spend) !== null) {
+          const key = channel(r.campaigns[0]);
+          days[day.date] = { ...unknown(r.fetchedAt), [key]: Number(day.spend) };
           continue;
         }
-        if (!rows) continue;
-        const validRows = rows.length === selected.campaignIds.length && new Set(rows.map(row => row.id)).size === selected.campaignIds.length && rows.every(row => selected.campaignIds.includes(row.id) && metric(row.spend) !== null && row.type === r.campaigns.find(c => c.id === row.id)?.type);
-        if (!validRows) { days[day.date] = { shopping: null, powerlink: null, fetchedAt: r.fetchedAt }; continue; }
-        const amounts = { shopping: rows.some(row => channel(row.type) === 'shopping') ? 0 : null, powerlink: rows.some(row => channel(row.type) === 'powerlink') ? 0 : null };
-        for (const row of rows) { const key = channel(row.type); if (key) amounts[key] += Number(row.spend); }
-        // Unsupported types must not masquerade as known zero spend.
-        if (rows.some(row => !channel(row.type))) { days[day.date] = { shopping: null, powerlink: null, fetchedAt: r.fetchedAt }; continue; }
+        if (!rows) { days[day.date] = unknown(r.fetchedAt); continue; }
+        const required = r.campaigns.filter(row => channel(row) !== 'exclude');
+        rows = rows.filter(row => channel(row) !== 'exclude');
+        const validRows = rows.length === required.length && new Set(rows.map(row => row.id)).size === required.length && rows.every(row => required.some(c => c.id === row.id && c.type === row.type) && metric(row.spend) !== null && SPEND_CHANNELS.includes(channel(row)));
+        if (!validRows) { days[day.date] = unknown(r.fetchedAt); continue; }
+        const amounts = Object.fromEntries(SPEND_CHANNELS.map(key => [key, rows.some(row => channel(row) === key) ? 0 : null]));
+        for (const row of rows) amounts[channel(row)] += Number(row.spend);
         days[day.date] = { ...amounts, fetchedAt: r.fetchedAt };
       }
     }
     return { customerId: config.customerId, scopeKey: selected.key, days };
   }
-  return { status, save, report, automatic, spendSnapshot, startHistory, historyReport,
+  return { status, save, report, automatic, spendSnapshot, spendMapping, saveSpendMapping, startHistory, historyReport,
     campaignOptions: () => exclusive(async () => {
       const config = requireConfig(), selected = scope(config);
       return { customerId: config.customerId, campaignIds: selected?.campaignIds || [], campaigns: (await campaigns(config)).map(row => ({ id: row.nccCampaignId, name: String(row.name || row.nccCampaignId).slice(0, 300), type: String(row.campaignTp || ''), status: String(row.status || '') })) };

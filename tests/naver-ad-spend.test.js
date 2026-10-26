@@ -70,3 +70,11 @@ test('selected search API costs override matching manual dates once, preserve GF
  f.write('daily/11111/'+date+'.json',{date,account:'11111',currency:'KRW',rows:[{spend:'1000',account_currency:'KRW'}]});
  const row=f.profitDaily(date,date,{accounts:['11111'],searchSpendSnapshot:snapshot}).days[0];assert.equal(row.adSpend,1600);assert.equal(row.profit,-1600);assert.equal(row.confirmed.profit,-1600);assert.equal(row.naverAdSpendSources.shopping,'api');
 });
+
+test('campaigns routed to GFA replace same-day manual GFA exactly once in full and confirmed profit',t=>{
+ const f=fixture(t),date='2026-09-01';f.save({shopping:200,powerlink:100,gfa:300});
+ for(const ch of ['naver','cafe24']){f.write(ch+'-orders/orders.json',{orders:{}});f.write(ch+'-orders/sync.json',{days:{[date]:{checkedAt:'2026-09-02'}}});}
+ f.write('daily/11111/'+date+'.json',{date,account:'11111',currency:'KRW',rows:[{spend:'1000',account_currency:'KRW'}]});
+ const row=f.profitDaily(date,date,{accounts:['11111'],searchSpendSnapshot:{days:{[date]:{gfa:750,shopping:0,powerlink:null}}}}).days[0];
+ assert.equal(row.naverAdSpend.gfa,750);assert.equal(row.naverAdSpend.shopping,0);assert.equal(row.naverAdSpend.powerlink,100);assert.equal(row.adSpend,1850);assert.equal(row.profit,-1850);assert.equal(row.confirmed.profit,-1850);assert.equal(row.naverAdSpendSources.gfa,'api');
+});

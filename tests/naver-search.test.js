@@ -58,6 +58,11 @@ test('June history runs in monthly chunks and saves scoped daily data and exact 
   assert.equal(f.requests.length, count, 'history viewing reads saved data without new API calls');
   const snapshot=f.service.spendSnapshot('2026-06-01','2026-10-25');assert.equal(Object.keys(snapshot.days).length,147);assert.equal(Object.values(snapshot.days).reduce((sum,day)=>sum+day.powerlink,0),29400,'saved monthly history feeds daily advertising statistics exactly once');
   assert.equal(f.restart().historyReport().summary.spend, 29400, 'the saved report survives service restart');
+  f.service.saveSpendMapping({ ...f.service.spendMapping(), mappings: { 'cmp-a': 'gfa', 'cmp-b': 'gfa' } });
+  const routed = f.service.spendSnapshot('2026-06-01', '2026-10-25');
+  assert.equal(Object.values(routed.days).reduce((sum, day) => sum + day.gfa, 0), 29400, 'saved June history immediately uses the chosen GFA category');
+  assert.equal(f.restart().historyReport().spendMapping.mappings['cmp-a'], 'gfa');
+  assert.equal(f.requests.length, count, 'reclassifying historical data never refetches it');
 });
 
 test('failed historical month preserves earlier data and retry skips already saved months', async t => {
@@ -331,6 +336,53 @@ test('legacy mixed multi-day search caches require refresh and incomplete daily 
  f.setHandler(url=>url.pathname==='/ncc/campaigns'?[{...campaign('cmp-a'),campaignTp:'SHOPPING'},campaign('cmp-b')]:{data:[day('2026-10-23',100,1,1000),day('2026-10-24',200,1,1000)]});
  await f.service.report({since:'2026-10-23',until:'2026-10-24'});
  const file=path.join(f.dir,'.roas-data/naver-search/123456',f.service.status().scopeKey,'2026-10-23_2026-10-24.json'),r=JSON.parse(fs.readFileSync(file));
- const rows=r.campaignDaily;delete r.campaignDaily;fs.writeFileSync(file,JSON.stringify(r));assert.deepEqual(f.service.spendSnapshot('2026-10-23','2026-10-24').days,{});
+ const rows=r.campaignDaily;delete r.campaignDaily;fs.writeFileSync(file,JSON.stringify(r));assert.equal(f.service.spendSnapshot('2026-10-23','2026-10-24').days['2026-10-23'].shopping,null);
  r.campaignDaily=rows.filter(row=>row.id==='cmp-a');fs.writeFileSync(file,JSON.stringify(r));const s=f.service.spendSnapshot('2026-10-23','2026-10-24');assert.equal(s.days['2026-10-23'].shopping,null);assert.equal(s.days['2026-10-23'].powerlink,null);
+});
+
+test('campaign spend mapping immediately reclassifies saved costs, groups each campaign once, persists and leaves performance unchanged',async t=>{
+ const f=fixture(t);await f.connect();const range={since:'2026-10-24',until:'2026-10-24'};
+ const original=await f.service.report(range),scope=f.service.status().scopeKey,count=f.requests.length;
+ let mapping=f.service.spendMapping();assert.deepEqual(mapping.mappings,{'cmp-a':'auto','cmp-b':'auto'});
+ mapping=f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'shopping','cmp-b':'gfa'}});
+ let costs=f.service.spendSnapshot(range.since,range.until).days[range.since];assert.equal(costs.shopping,1100);assert.equal(costs.gfa,3300);assert.equal(costs.powerlink,null);
+ assert.equal(f.requests.length,count,'mapping saved costs does not collect from Naver');assert.equal(f.service.status().scopeKey,scope,'mapping does not invalidate selected campaign caches');
+ let report=await f.service.report({...range,cacheOnly:true});assert.deepEqual(report.summary,original.summary);assert.equal(report.spendMapping.mappings['cmp-b'],'gfa');
+ assert.deepEqual(f.restart().spendMapping(),mapping);
+ mapping=f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'gfa'}});costs=f.service.spendSnapshot(range.since,range.until).days[range.since];assert.equal(costs.gfa,4400);assert.equal(costs.shopping,null);
+ mapping=f.service.saveSpendMapping({...mapping,mappings:{'cmp-b':'exclude'}});costs=f.service.spendSnapshot(range.since,range.until).days[range.since];assert.equal(costs.gfa,1100);
+ mapping=f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'exclude'}});costs=f.service.spendSnapshot(range.since,range.until).days[range.since];assert.equal(costs.gfa,null);assert.equal(costs.shopping,null);assert.equal(costs.powerlink,null);
+ assert.equal((await f.service.report({...range,cacheOnly:true})).summary.spend,4400,'excluding statistical costs retains the original campaign performance');
+ f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'auto','cmp-b':'auto'}});assert.equal(f.service.spendSnapshot(range.since,range.until).days[range.since].powerlink,4400);
+});
+
+test('mapping rejects stale customer, scope and revision, validates targets atomically and preserves mappings across campaign selection changes',async t=>{
+ const f=fixture(t);await f.connect();const mapping=f.service.spendMapping();
+ for(const patch of [{customerId:'654321'},{scopeKey:'other'},{revision:99}])assert.throws(()=>f.service.saveSpendMapping({...mapping,...patch}),{status:409});
+ for(const mappings of [{},{'unselected':'gfa'},{'cmp-a':'meta'},{'cmp-a':null},{'cmp-a':'shopping','cmp-b':'invalid'},[]]){assert.throws(()=>f.service.saveSpendMapping({...mapping,mappings}),{status:400});assert.deepEqual(f.service.spendMapping(),mapping);}
+ const saved=f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'shopping','cmp-b':'gfa'}});assert.throws(()=>f.service.saveSpendMapping({...mapping,mappings:{'cmp-a':'powerlink'}}),{status:409});assert.deepEqual(f.service.spendMapping(),saved);
+ await f.service.saveScope({campaignIds:['cmp-a']});assert.throws(()=>f.service.saveSpendMapping(saved),{status:409});let smaller=f.service.spendMapping();f.service.saveSpendMapping({...smaller,mappings:{'cmp-a':'powerlink'}});
+ await f.service.saveScope({campaignIds:['cmp-a','cmp-b']});assert.deepEqual(f.service.spendMapping().mappings,{'cmp-a':'powerlink','cmp-b':'gfa'});
+ await f.service.save({...config,customerId:'654321'});await f.service.saveScope({campaignIds:['cmp-a','cmp-b']});assert.deepEqual(f.service.spendMapping().mappings,{'cmp-a':'auto','cmp-b':'auto'});
+});
+
+test('legacy and unknown campaign types are routed only when saved detail supports the chosen mapping',async t=>{
+ const f=fixture(t);await f.connect();const range={since:'2026-10-23',until:'2026-10-24'};
+ f.setHandler(url=>url.pathname==='/ncc/campaigns'?[campaign('cmp-a'),campaign('cmp-b')]:{data:[day(range.since,100,1,1000),day(range.until,0,0,0)]});await f.service.report(range);
+ const file=path.join(f.dir,'.roas-data/naver-search/123456',f.service.status().scopeKey,range.since+'_'+range.until+'.json'),cached=JSON.parse(fs.readFileSync(file));delete cached.campaignDaily;fs.writeFileSync(file,JSON.stringify(cached));
+ f.service.saveSpendMapping({...f.service.spendMapping(),mappings:{'cmp-a':'gfa','cmp-b':'gfa'}});let s=f.service.spendSnapshot(range.since,range.until);assert.equal(s.days[range.since].gfa,200);assert.equal(s.days[range.until].gfa,0);
+ f.service.saveSpendMapping({...f.service.spendMapping(),mappings:{'cmp-a':'shopping'}});s=f.service.spendSnapshot(range.since,range.until);assert.equal(s.days[range.since].shopping,null);assert.equal(s.days[range.since].gfa,null,'mixed legacy totals must not be guessed');
+ await f.service.saveScope({campaignIds:['cmp-a']});f.setHandler(url=>url.pathname==='/ncc/campaigns'?[{...campaign('cmp-a'),campaignTp:'UNKNOWN'}]:{data:[day(range.until,700,1,1000)]});await f.service.report({since:range.until,until:range.until});f.service.saveSpendMapping({...f.service.spendMapping(),mappings:{'cmp-a':'auto'}});assert.equal(f.service.spendSnapshot(range.until,range.until).days[range.until].gfa,null);
+ f.service.saveSpendMapping({...f.service.spendMapping(),mappings:{'cmp-a':'gfa'}});assert.equal(f.service.spendSnapshot(range.until,range.until).days[range.until].gfa,700);
+ fs.writeFileSync(path.join(f.dir,'.roas-data/naver-search/123456/spend-mapping.json'),'broken');assert.deepEqual(f.service.spendSnapshot(range.until,range.until).days,{},'damaged mapping must not silently restore automatic categories');assert.throws(()=>f.service.spendMapping(),{status:500});
+});
+
+test('spend mapping API protects writes and limits payloads while allowing only GET and POST',async t=>{
+ const f=serverFixture(t),url='/api/naver-search/spend-mapping';
+ assert.equal((await f.request(url)).status,400,'no connected account');
+ for(const method of ['PUT','DELETE'])assert.equal((await f.request(url,{method})).status,405);
+ for(const headers of [{},{'x-roas-local-action':'yes',origin:'https://evil.invalid'},{'x-roas-local-action':'yes',host:'evil.invalid:3000'}])assert.equal((await f.request(url,{method:'POST',headers,body:'{}'})).status,403);
+ assert.equal((await f.request(url,{headers:{host:'evil.invalid:3000'}})).status,403);
+ const headers={'x-roas-local-action':'yes'};for(const body of ['["PRIVATE"]','{broken'])assert.equal((await f.request(url,{method:'POST',headers,body})).status,400);
+ assert.equal((await f.request(url,{method:'POST',headers,body:JSON.stringify({mappings:{a:'x'.repeat(65536)}})})).status,413);
 });

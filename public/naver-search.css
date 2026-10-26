@@ -21,6 +21,8 @@ body[data-app-page="search"] .app-main { max-width:none; }
 .search-scroll th,.search-scroll td { padding:9px; border-bottom:1px solid var(--app-border); text-align:right; white-space:nowrap; }
 .search-scroll th:first-child,.search-scroll td:first-child { text-align:left; min-width:180px; white-space:normal; overflow-wrap:anywhere; }
 .search-scroll td:first-child small { display:block; margin-top:3px; }
+.search-spend-choice { min-width:190px; max-width:240px; width:100%; background:var(--app-surface); color:var(--app-text); border:1px solid var(--app-border); border-radius:7px; padding:7px; }
+#search-spend-status[data-tone="error"] { color:var(--app-negative); }
 .search-report-head { justify-content:space-between; }
 body[data-app-page="search"] summary { cursor:pointer; font-weight:600; }
 body[data-app-page="search"] summary .small { margin-left:12px; font-weight:400; }

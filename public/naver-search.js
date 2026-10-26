@@ -4,6 +4,8 @@
   let scopeReady = false, scopeKey = '', reportScope = '';
   let historyRunning = false, historyPoll = null;
   let configured = false, busy = false, enabled = true, lastLoaded = 0, reportCustomer = '';
+  let spendMapping = null, spendDirty = false;
+  const spendLabels = { shopping: '네이버 쇼핑검색', powerlink: '네이버 파워링크', gfa: 'GFA 광고비', exclude: '광고비 합계에서 제외' };
   const kstDate = time => new Date(time + 9 * 3600000).toISOString().slice(0, 10);
   const fmt = x => x == null ? '미확인' : Number(x).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
   const won = x => x == null ? '미확인' : Math.round(x).toLocaleString('ko-KR') + '원';
@@ -17,6 +19,9 @@
     ['search-test', 'search-disconnect', 'search-scope-reload', 'search-scope-save'].forEach(id => { $(id).disabled = locked || !configured; });
     ['search-load', 'search-refresh'].forEach(id => { $(id).disabled = locked || !configured || !scopeReady; });
     document.querySelectorAll('#search-history-form input,#search-history-form button').forEach(el => { el.disabled = locked || !configured || !scopeReady; });
+    document.querySelectorAll('#search-spend-form select').forEach(el => { el.disabled = locked || !configured || !scopeReady || !spendMapping; });
+    $('search-spend-save').disabled = locked || !configured || !scopeReady || !spendMapping || !spendDirty;
+    $('search-spend-reset').disabled = locked || !configured || !scopeReady || !spendMapping;
     $('search-report').setAttribute('aria-busy', String(value));
   }
   async function request(url, body) {
@@ -46,7 +51,7 @@
       if((historyRunning||history.status==='paused')&&!historyPoll)historyPoll=setInterval(()=>status().catch(()=>{}),2000);
       if(!historyRunning&&history.status!=='paused'&&historyPoll){clearInterval(historyPoll);historyPoll=null;}
     }else $('search-history-status').textContent = scopeReady?'2026년 6월 1일부터 수집·저장을 눌러주세요.':'위마망 캠페인을 선택한 뒤 수집할 수 있습니다.';
-    if (reportCustomer && (reportCustomer !== value.customerId || !scopeReady || reportScope !== scopeKey)) { $('search-report').hidden = true; $('search-empty').hidden = false; reportCustomer = ''; }
+    if (reportCustomer && (reportCustomer !== value.customerId || !scopeReady || reportScope !== scopeKey)) { $('search-report').hidden = true; $('search-empty').hidden = false; reportCustomer = ''; spendMapping = null; spendDirty = false; }
     return value;
   }
   function dates(days) { const end = Date.now(); $('search-until').value = kstDate(end); $('search-since').value = kstDate(end - (days - 1) * 86400000); }
@@ -57,6 +62,21 @@
     tr.appendChild(td);
     for (const text of [won(row.spend), fmt(row.purchases), won(row.purchaseRevenue), pct(row.purchaseRoas), fmt(row.impressions), fmt(row.clicks), pct(row.ctr), won(row.cpc), won(row.cpm)]) { const cell = document.createElement('td'); cell.textContent = text; tr.appendChild(cell); }
     return tr;
+  }
+  function campaignCells(row) {
+    const tr = cells(row, row.name, [row.type, row.id, row.status].filter(Boolean).join(' · ')), td = document.createElement('td'), select = document.createElement('select');
+    const automatic = row.type === 'SHOPPING' ? 'shopping' : row.type === 'WEB_SITE' ? 'powerlink' : null;
+    select.className = 'search-spend-choice'; select.dataset.spendCampaign = row.id;
+    select.setAttribute('aria-label', row.name + ' 광고비 반영 항목'); select.setAttribute('aria-describedby', 'search-spend-help');
+    for (const [value, label] of [['auto', '자동 · ' + (spendLabels[automatic] || '미분류')], ...Object.entries(spendLabels)]) { const option = document.createElement('option'); option.value = value; option.textContent = label; select.appendChild(option); }
+    td.appendChild(select); tr.insertBefore(td, tr.children[1]); return tr;
+  }
+  function spendStatus(text, tone = 'info') { $('search-spend-status').textContent = text; $('search-spend-status').dataset.tone = tone; }
+  function applySpendMapping(value, text = '저장된 광고비 연결 · 변경 후 저장하세요.') {
+    if (!value || value.customerId !== reportCustomer || value.scopeKey !== reportScope || !Number.isSafeInteger(value.revision) || !value.mappings || typeof value.mappings !== 'object') throw Error('광고비 연결 범위가 변경되었습니다. 캠페인을 다시 조회해 주세요.');
+    spendMapping = value; spendDirty = false;
+    document.querySelectorAll('[data-spend-campaign]').forEach(select => { select.value = value.mappings[select.dataset.spendCampaign] || 'auto'; });
+    spendStatus(text); setBusy(busy);
   }
   function render(value) {
     if (!scopeReady || value.scopeKey !== scopeKey) throw Error('집계 범위가 변경되었습니다. 위마망 캠페인 선택을 확인하고 다시 조회해 주세요.');
@@ -73,21 +93,46 @@
       const strong = document.createElement('strong'); strong.textContent = text;
       card.append(title, strong); $('search-metrics').appendChild(card);
     }
-    $('search-campaigns').replaceChildren(...value.campaigns.map(row => cells(row, row.name, [row.type, row.id, row.status].filter(Boolean).join(' · '))));
+    spendMapping = null; spendDirty = false;
+    $('search-campaigns').replaceChildren(...value.campaigns.map(campaignCells));
+    applySpendMapping(value.spendMapping);
     $('search-daily').replaceChildren(...value.daily.map(row => cells(row, row.date)));
-    for (const id of ['search-campaigns', 'search-daily']) if (!$(id).children.length) { const tr = document.createElement('tr'), td = document.createElement('td'); td.colSpan = 10; td.textContent = '선택 기간에 반환된 성과가 없습니다.'; tr.appendChild(td); $(id).appendChild(tr); }
+    for (const id of ['search-campaigns', 'search-daily']) if (!$(id).children.length) { const tr = document.createElement('tr'), td = document.createElement('td'); td.colSpan = id === 'search-campaigns' ? 11 : 10; td.textContent = '선택 기간에 반환된 성과가 없습니다.'; tr.appendChild(td); $(id).appendChild(tr); }
     $('search-warnings').replaceChildren(...value.warnings.map(text => { const li = document.createElement('li'); li.textContent = text; return li; }));
     const notice = value.history ? (value.partial ? '과거 자료 확인분입니다. 미수집 기간·캠페인 날짜는 전체 합계에서 빠져 있을 수 있습니다.' : '과거 수집 저장 자료입니다. 선택한 전체 기간을 합산했습니다.') : value.refreshError ? '갱신 실패: ' + value.refreshError + '\n위 수치는 ' + time(value.fetchedAt) + '에 저장된 자료입니다.' : value.noData ? '선택 기간에 반환된 성과가 없습니다. 캠페인 운영 기간과 API 지원 범위를 확인해 주세요.' : value.stale ? '이전에 저장한 자료입니다. 새로 가져오기를 누르면 API로 갱신합니다.' : '';
     $('search-report-notice').textContent = notice; $('search-report-notice').hidden = !notice; $('search-report-notice').dataset.tone = 'warning';
   }
   async function load(refresh, cacheOnly = false) {
     if (busy || historyRunning || !configured || !scopeReady) return;
+    if (spendDirty) { message('광고비 연결 변경을 저장하거나 저장값으로 되돌린 뒤 조회하세요.', 'warning'); return; }
     setBusy(true); message(cacheOnly ? '저장 자료를 불러오는 중…' : '캠페인별 성과 조회 중…');
     const query = new URLSearchParams({ since: $('search-since').value, until: $('search-until').value, refresh: refresh ? '1' : '0', cacheOnly: cacheOnly ? '1' : '0' });
     try { const value = await request('/api/naver-search/report?' + query); render(value); message(value.refreshError ? '갱신에 실패하여 이전 저장 자료를 표시합니다.' : '성과 조회 완료', value.refreshError ? 'warning' : 'info'); }
     catch (error) { message(error.message, 'error'); }
     finally { setBusy(false); status().catch(() => {}); }
   }
+  $('search-spend-form').addEventListener('change', () => {
+    if (!spendMapping) return;
+    spendDirty = Array.from(document.querySelectorAll('[data-spend-campaign]')).some(select => select.value !== (spendMapping.mappings[select.dataset.spendCampaign] || 'auto'));
+    spendStatus(spendDirty ? '변경사항 미저장 · 광고비 연결 저장을 누르세요.' : '저장된 광고비 연결'); setBusy(busy);
+  });
+  $('search-spend-form').addEventListener('submit', async event => {
+    event.preventDefault(); if (busy || historyRunning || !spendMapping || !spendDirty) return;
+    const mappings = Object.fromEntries(Array.from(document.querySelectorAll('[data-spend-campaign]')).map(select => [select.dataset.spendCampaign, select.value]));
+    setBusy(true); spendStatus('광고비 연결 저장 중…');
+    try {
+      applySpendMapping(await request('/api/naver-search/spend-mapping', { customerId: spendMapping.customerId, scopeKey: spendMapping.scopeKey, revision: spendMapping.revision, mappings }), '저장 완료 · 한눈에 보기·통합 이익을 다시 조회하면 반영됩니다.');
+      window.ROASMetaSpend?.refresh?.();
+    } catch (error) { spendStatus(error.message, 'error'); }
+    finally { setBusy(false); }
+  });
+  $('search-spend-reset').addEventListener('click', async () => {
+    if (busy || historyRunning || !configured || !scopeReady) return;
+    setBusy(true);
+    try { applySpendMapping(await request('/api/naver-search/spend-mapping'), '저장된 광고비 연결로 되돌렸습니다.'); }
+    catch (error) { spendStatus(error.message, 'error'); await status().catch(() => {}); }
+    finally { setBusy(false); }
+  });
   async function loadScope() {
     if (busy || historyRunning || !configured) return;
     setBusy(true);
@@ -122,7 +167,7 @@
     let saved = false;
     try {
       await request('/api/naver-search/scope', { campaignIds });
-      $('search-report').hidden = true; reportCustomer = ''; reportScope = '';
+      $('search-report').hidden = true; reportCustomer = ''; reportScope = ''; spendMapping = null; spendDirty = false;
       await status(); $('search-scope').open = false; saved = true;
       message('위마망 캠페인 ' + campaignIds.length + '개를 집계 대상으로 저장했습니다.');
     } catch (error) { message(error.message, 'error'); }
@@ -137,7 +182,7 @@
     try {
       const value = await request('/api/naver-search/credentials', input);
       configured = true; saved = true; $('search-key').value = ''; $('search-secret').value = '';
-      $('search-report').hidden = true; reportCustomer = ''; $('search-connection').open = false;
+      $('search-report').hidden = true; reportCustomer = ''; spendMapping = null; spendDirty = false; $('search-connection').open = false;
       message('연결 완료 · ' + value.campaignCount + '개 캠페인 확인');
     } catch (error) { $('search-key').value = ''; $('search-secret').value = ''; message(error.message, 'error'); }
     finally { setBusy(false); }
@@ -151,7 +196,7 @@
   $('search-disconnect').addEventListener('click', async () => {
     if (busy || !confirm('이 PC에 저장한 검색광고 인증정보를 삭제하고 자동 갱신을 중지할까요?')) return;
     setBusy(true);
-    try { await request('/api/naver-search/disconnect', {}); configured = false; reportCustomer = ''; $('search-report').hidden = true; $('search-empty').hidden = false; $('search-connection').open = true; $('search-connect').reset(); await status(); message('검색광고 연결을 해제했습니다.'); }
+    try { await request('/api/naver-search/disconnect', {}); configured = false; reportCustomer = ''; spendMapping = null; spendDirty = false; $('search-report').hidden = true; $('search-empty').hidden = false; $('search-connection').open = true; $('search-connect').reset(); await status(); message('검색광고 연결을 해제했습니다.'); }
     catch (error) { message(error.message, 'error'); } finally { setBusy(false); }
   });
   $('search-auto').addEventListener('change', async () => {
@@ -169,6 +214,6 @@
   status().then(async value => { if (value.configured) { $('search-connection').open = false; await loadScope(); if (scopeReady) load(false); } }).catch(error => message(error.message, 'error'));
   setInterval(() => {
     if (busy || document.hidden) return;
-    status().then(value => { if (value.configured && enabled && Date.now() - lastLoaded >= 3600000) load(false); }).catch(() => {});
+    status().then(value => { if (value.configured && enabled && !spendDirty && Date.now() - lastLoaded >= 3600000) load(false); }).catch(() => {});
   }, 60000);
 })();
