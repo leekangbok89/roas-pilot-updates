@@ -195,8 +195,30 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
    detail:known.length?(apiDays?'API 수집 '+apiDays+'일 · 확인 ':'입력 ')+known.length+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):(channel==='gfa'?'미입력 · 네이버 GFA 분석에서 광고비를 저장하세요.':'미수집 · 위마망 검색광고 선택 후 새로 가져오기를 실행하세요.')};
   for(let i=0;i<daily.length;i++){daily[i][key]=enteredCosts[i].amounts[channel];daily[i].known[key]=daily[i][key]!==null;daily[i].complete[key]=daily[i].known[key];}
  }
+ // Public reporting groups Shopping Search + Powerlink into one Search Ads category.
+ // These values are already included in day.total, so this is display-only and is never added twice.
+ const searchRows=enteredCosts.map(day=>{
+  const shopping=day.amounts.shopping,powerlink=day.amounts.powerlink;
+  return {value:shopping===null&&powerlink===null?null:(shopping??0)+(powerlink??0),
+    complete:shopping!==null&&powerlink!==null,
+    api:day.sources?.shopping==='api'||day.sources?.powerlink==='api',
+    estimated:!!day.estimatedChannels?.shopping||!!day.estimatedChannels?.powerlink};
+ });
+ const searchKnown=searchRows.filter(row=>row.value!==null),searchComplete=searchRows.filter(row=>row.complete);
+ const searchApiDays=searchRows.filter(row=>row.api).length,searchEstimated=searchKnown.some(row=>row.estimated);
+ metrics.searchSpend={label:'검색광고 (네이버쇼핑 + 파워링크)',scope:'네이버 검색광고 API 우선 · 수동 보충',
+  value:searchKnown.length?searchKnown.reduce((sum,row)=>sum+row.value,0):null,
+  knownDays:searchKnown.length,completeDays:searchComplete.length,totalDays:dates.length,
+  partial:searchKnown.length>0&&searchComplete.length<dates.length,
+  detail:searchKnown.length?'검색 API '+searchApiDays+'일 · 확인 '+searchKnown.length+'/'+dates.length+'일'+(searchEstimated?' · 기간 합계 균등 배분 추정':''):
+   '미수집 · 검색광고 분석에서 위마망 캠페인을 선택하고 데이터를 수집하세요.'};
+ for(let i=0;i<daily.length;i++){
+  daily[i].searchSpend=searchRows[i].value;
+  daily[i].known.searchSpend=searchRows[i].value!==null;
+  daily[i].complete.searchSpend=searchRows[i].complete;
+ }
  if(enteredCosts.some(day=>day.entered)){
-  const total=metrics.spend;total.value=(total.value??0)+enteredCosts.reduce((sum,day)=>sum+day.total,0);total.scope='Meta + 네이버 광고비';
+  const total=metrics.spend;total.value=(total.value??0)+enteredCosts.reduce((sum,day)=>sum+day.total,0);total.scope='Meta + GFA + 검색광고';
   const manualComplete=enteredCosts.every(day=>Object.values(day.amounts).every(Number.isFinite));
   total.partial=total.partial||!total.knownDays||!manualComplete;
   total.detail+=' · 네이버 광고비 포함 (검색 API 우선 · 중복 제외)'+(!manualComplete?' · 미입력 항목/날짜 제외':'')+(enteredCosts.some(day=>day.estimated)?' · 일별 균등 배분 추정':'');
@@ -204,7 +226,7 @@ function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
   total.knownDays=daily.filter(day=>day.known.spend).length;total.completeDays=daily.filter(day=>day.complete.spend).length;
  }
  return {since,until,fxUsed:rate,scopes:metrics,daily,sharedAccount:shared,allAccountsConnected:!!accounts.naver&&!!accounts.cafe,
-  explanation:'총 광고비는 저장된 Meta 원본 광고비와 위마망으로 선택한 검색광고 API 수집분과 네이버 광고비 입력분을 합산합니다. 같은 항목·날짜는 API 값을 우선 사용하며 중복 합산하지 않습니다. 미입력 네이버 항목은 포함하지 않습니다. 스마트스토어용 계정 지출은 협력광고 캠페인만 자동 판별한 값이 아닙니다.'};
+  explanation:'총 광고비는 스마트스토어 Meta + 자사몰 Meta + GFA + 검색광고(네이버쇼핑+파워링크)의 합계입니다. GFA는 네이버 GFA 분석에 직접 저장한 값만 사용하고, 검색광고는 API 값을 우선 사용해 같은 날짜의 수동 검색비와 중복 합산하지 않습니다. 미확인 항목은 확인분으로 표시합니다.'};
 }
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
 function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
@@ -1279,7 +1301,8 @@ function naverSpendDay(date,saved,searchSnapshot=null){
   amounts[e.channel]=Math.floor(e.amount/count)+(index<e.amount%count?1:0);estimated||=count>1;estimatedChannels[e.channel]=count>1;
  }
  const sources=Object.fromEntries(naverSpendChannels.map(c=>[c,amounts[c]===null?null:'manual']));
- for(const channel of naverSpendChannels){const api=searchSnapshot?.days?.[date]?.[channel];if(Number.isFinite(api)&&api>=0){amounts[channel]=api;sources[channel]='api';estimatedChannels[channel]=false;}}
+ // GFA is intentionally manual-only. Search Ads API may replace only shopping/powerlink.
+ for(const channel of ['shopping','powerlink']){const api=searchSnapshot?.days?.[date]?.[channel];if(Number.isFinite(api)&&api>=0){amounts[channel]=api;sources[channel]='api';estimatedChannels[channel]=false;}}
  if(searchSnapshot)estimated=Object.values(estimatedChannels).some(Boolean);
  return {...(searchSnapshot?{sources,estimatedChannels}:{}),amounts,total:Object.values(amounts).reduce((s,v)=>s+(v??0),0),entered:Object.values(amounts).some(v=>v!==null),estimated};
 }
@@ -1452,7 +1475,7 @@ function profitDaily(since,until,options={}){
   row.complete=row.naver.complete&&row.cafe24.complete;
   if(includeAds){
    const ad=profitAdSpend(accounts,date,fx,snapshotCache),naver=naverSpendDay(date,naverSpend,searchSpend);
-   row.metaAdSpend=ad.adSpend;row.naverAdSpend=naver.amounts;row.naverAdSpendTotal=naver.total;row.naverAdSpendEstimated=naver.estimated;row.naverAdSpendSources=naver.sources;row.naverAdSpendEstimatedChannels=naver.estimatedChannels;
+   row.metaAdSpend=ad.adSpend;row.naverAdSpend=naver.amounts;row.searchAdSpend=naver.amounts.shopping===null&&naver.amounts.powerlink===null?null:(naver.amounts.shopping??0)+(naver.amounts.powerlink??0);row.gfaAdSpend=naver.amounts.gfa;row.naverAdSpendTotal=naver.total;row.naverAdSpendEstimated=naver.estimated;row.naverAdSpendSources=naver.sources;row.naverAdSpendEstimatedChannels=naver.estimatedChannels;
    row.adSpend=ad.adSpend===null?null:ad.adSpend+naver.total;row.adComplete=ad.adComplete;row.reasons.push(...ad.reasons);row.complete=row.complete&&ad.adComplete;row.profit=row.complete?row.revenue-row.fee-row.cost-row.adSpend:null;
    row.confirmed.profit=row.confirmedAvailable&&ad.adComplete&&row.confirmed.revenue!=null&&row.confirmed.fee!=null&&row.confirmed.cost!=null?row.confirmed.revenue-row.confirmed.fee-row.confirmed.cost-row.adSpend:null;
   }
