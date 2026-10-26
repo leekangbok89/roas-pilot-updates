@@ -996,6 +996,11 @@ async function verifySplitSpend(requests) {
   assert.equal(await fixedSplit.count(),3,'Configuring the editable twelve-card region does not remove the fixed spend breakdown');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
+  assert.deepEqual(await Promise.all(keys.map(async key=>({
+   fixed:await page.locator('#ad-spend-breakdown [data-spend-key="'+key+'"] strong').innerText(),
+   selected:await card(key).locator('strong').innerText()
+  }))),keys.map((key,index)=>({fixed:money([20000,10000,30000][index]),selected:money([20000,10000,30000][index])})),
+  'Fixed global strip and configurable overview must display exactly the same Meta spending values');
   assert.deepEqual(await page.locator('#summary-roas-audit-body [data-roas-key]').evaluateAll(rows => rows.map(row => row.dataset.roasKey).sort()), roasKeys.slice().sort(), 'ROAS evidence contains only ROAS rows, never the three spend metrics');
   const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
     const box = card.getBoundingClientRect();
