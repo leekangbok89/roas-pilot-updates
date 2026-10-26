@@ -262,15 +262,14 @@ async function verifyBrowserScenario(){
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
  async function readSharedSpend(context){
-  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===6&&
-   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
-  const got=await page.locator('#ad-spend-breakdown [data-spend-key]').evaluateAll(nodes=>nodes.map(node=>({
-   key:node.dataset.spendKey,label:node.querySelector('.roas-shared-spend-title')?.textContent,
-   amount:node.querySelector('strong')?.textContent
+  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown .roas-spend-rollup-trigger').length===1 &&
+    document.querySelector('#ad-spend-breakdown .roas-spend-rollup-trigger strong')?.textContent.endsWith('원'));
+  const lines=await page.locator('#ad-spend-breakdown [data-spend-line]').evaluateAll(nodes=>nodes.map(n=>({
+   key:n.dataset.spendLine,label:n.querySelector('.roas-spend-line-label')?.textContent,value:n.querySelector('.roas-spend-line-amount')?.textContent
   })));
-  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'],context);
-  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
-  return got.map(item=>item.amount);
+  assert.deepEqual(lines.map(x=>x.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
+  assert.deepEqual(lines.map(x=>x.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+  return lines.map(x=>x.value);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
  // Regression: the overview owns the spend block after the date toolbar;
@@ -286,31 +285,25 @@ async function verifyBrowserScenario(){
  assert.equal(overviewPlacement.headingClass,'ad-spend-heading');
  assert.equal(overviewPlacement.afterAlert,true,'The strip stays after the overview toolbar and alert');
  assert.equal(overviewPlacement.afterToolbar,true);
- // Screenshot-sized breakpoints including intermediate 720–1100px widths
- // must not overlap, overflow or cut off any of the three spend cards.
+ const rollup=page.locator('#ad-spend-breakdown .roas-spend-rollup'),trigger=rollup.locator('button'),popover=rollup.locator('.roas-spend-popover');
+ assert.equal(await popover.isVisible(),false);
+ await trigger.hover();assert.equal(await popover.isVisible(),true,'Mouse hover opens the five-item breakdown');
+ assert.equal(await rollup.locator('[data-spend-line]').count(),5);
+ await page.mouse.move(900,700);assert.equal(await popover.isVisible(),false);
+ await trigger.click();assert.equal(await trigger.getAttribute('aria-expanded'),'true');
+ await trigger.focus();await page.keyboard.press('Escape');assert.equal(await trigger.getAttribute('aria-expanded'),'false');
  for(const width of [390,700,768,920,1024,1280,1440,1920]){
   await page.setViewportSize({width,height:1000});
-  const geometry=await page.evaluate(()=>{
-   const root=document.getElementById('ad-spend-breakdown'),cards=[...root.querySelectorAll('[data-spend-key]')];
-   return {viewport:document.documentElement.clientWidth,strip:root.getBoundingClientRect().toJSON(),cards:cards.map(x=>x.getBoundingClientRect().toJSON())};
-  });
-  assert.equal(geometry.cards.length,6,'All three spend cards stay visible at '+width+'px');
-  for(const [index,card] of geometry.cards.entries()){
-   assert.ok(card.width>60&&card.height>35,'Card '+index+' has a readable size at '+width+'px');
-   assert.ok(card.left>=-1&&card.right<=geometry.viewport+1,'No horizontal spend-card clipping at '+width+'px '+JSON.stringify(card));
-   for(const previous of geometry.cards.slice(0,index)){
-    const overlapWidth=Math.min(card.right,previous.right)-Math.max(card.left,previous.left);
-    const overlapHeight=Math.min(card.bottom,previous.bottom)-Math.max(card.top,previous.top);
-    assert.ok(overlapWidth<=1||overlapHeight<=1,'Spend cards must not overlap at '+width+'px');
-   }
-  }
+  const box=await rollup.boundingBox();
+  assert.ok(box&&box.width>120&&box.height>50,'Total advertising spend card is legible at '+width+'px');
+  assert.ok(box.x>=-1&&box.x+box.width<=width+2,'Total advertising spend card stays inside viewport at '+width+'px');
  }
 
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
    await go(route.url);assert.deepEqual(await labelList(),expectedLabels,'Shared navigation labels/order on '+route.url);
-   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Three spend values must be identical on overview, diagnosis and cost pages over the same period');
+   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Five spend values must be identical on overview, diagnosis and cost pages over the same period');
    assert.deepEqual(await activeLabel(),[route.active]);
    const current=await typography();
    for(const key of ['body','title','button','input','select','table'])assert.ok(current[key],key+' must have a visible sample on '+route.url);
