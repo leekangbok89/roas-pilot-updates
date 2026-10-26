@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html','public/detail-analysis.html','public/detail-analysis.js','public/detail-tracker.js','public/ad-changes.html','public/ad-changes.js','public/ad-changes.css','public/naver-search.html','public/naver-search.js','public/naver-search.css'];
-const appVersion='2.8.108';
+const appVersion='2.8.109';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -127,6 +127,63 @@ function loadDay(account,date,readCache=null){
  }catch{}
  if(readCache)readCache.set(cacheKey,result||null);
  return result||null;
+}
+// Canonical, cache-only Meta spending used unchanged in every workspace tab.
+// A saved empty day is 0; missing/invalid snapshots are never treated as 0.
+// The total reads every unique connected account exactly once, while channel
+// amounts require distinct accounts to avoid fabricated allocations.
+function metaSpendSummary(since,until,naverId='',cafeId='',fx=1350){
+ if(!isDate(since)||!isDate(until)||since>until||(dayUTC(until)-dayUTC(since))/86400000>731)
+  throw Object.assign(Error('유효한 조회 기간을 선택하세요(최대 732일).'),{status:400});
+ const accounts={naver:String(naverId??'').trim().replace(/^act_/,''),cafe:String(cafeId??'').trim().replace(/^act_/,'')};
+ if(Object.values(accounts).some(id=>id&&!/^[0-9]{5,30}$/.test(id)))
+  throw Object.assign(Error('Meta 광고 계정 ID를 확인하세요.'),{status:400});
+ const rate=Number(fx);
+ if(!Number.isFinite(rate)||rate<=0)throw Object.assign(Error('환율값을 확인하세요.'),{status:400});
+ const ids=[...new Set(Object.values(accounts).filter(Boolean))],shared=!!accounts.naver&&accounts.naver===accounts.cafe;
+ const snapshots=new Map(),dates=[];
+ for(let ts=dayUTC(since);ts<=dayUTC(until);ts+=86400000)dates.push(dayString(ts));
+ const read=(id,date)=>{
+  if(!id)return {value:null,known:false,complete:false};
+  const snap=loadDay(id,date,snapshots);
+  if(!snap)return {value:null,known:false,complete:false};
+  let amount=0,accepted=0,complete=true;
+  for(const row of snap.rows){
+   const cost=row?.spend==null||row.spend===''?NaN:Number(row.spend);
+   const currency=String(row?.account_currency||snap.currency||'').toUpperCase();
+   if(!Number.isFinite(cost)||cost<0||!['USD','KRW'].includes(currency)){complete=false;continue;}
+   amount+=cost*(currency==='USD'?rate:1);accepted++;
+  }
+  const known=!snap.rows.length||accepted>0;
+  return {value:known?amount:null,known,complete:complete&&known};
+ };
+ const daily=dates.map(date=>{
+  const states=new Map(ids.map(id=>[id,read(id,date)]));
+  const totalKnown=ids.some(id=>states.get(id).known);
+  const totalComplete=ids.length>0&&ids.every(id=>states.get(id).complete)&&!!accounts.naver&&!!accounts.cafe||shared&&states.get(accounts.naver)?.complete;
+  const total={value:totalKnown?ids.reduce((sum,id)=>sum+(states.get(id).value??0),0):null,known:totalKnown,complete:!!totalComplete};
+  const naver=shared?{value:null,known:false,complete:false}:accounts.naver?states.get(accounts.naver):{value:null,known:false,complete:false};
+  const cafe=shared?{value:null,known:false,complete:false}:accounts.cafe?states.get(accounts.cafe):{value:null,known:false,complete:false};
+  return {date,spend:total.value,smartstoreSpend:naver.value,mallSpend:cafe.value,
+   complete:{spend:total.complete,smartstoreSpend:naver.complete,mallSpend:cafe.complete},
+   known:{spend:total.known,smartstoreSpend:naver.known,mallSpend:cafe.known}};
+ });
+ const labels={spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비'};
+ const scopes={spend:'Meta · 전체 연결 계정',smartstoreSpend:'Meta · 스마트스토어 광고',mallSpend:'Meta · 자사몰 광고'};
+ const metrics={};
+ for(const key of Object.keys(labels)){
+  const known=daily.filter(row=>row.known[key]),complete=daily.filter(row=>row.complete[key]);
+  const value=known.length?known.reduce((sum,row)=>sum+row[key],0):null;
+  const cause=key!=='spend'&&shared?'동일 광고계정 · 채널 구분 필요':
+   key!=='spend'&&!accounts[key==='smartstoreSpend'?'naver':'cafe']?'광고계정 미연결':
+   key==='spend'&&ids.length===0?'광고계정 미연결':
+   key==='spend'&&(!accounts.naver||!accounts.cafe)?'다른 채널 광고계정 미연결 · 연결 계정만 포함':null;
+  const partial=value!==null&&complete.length<daily.length;
+  metrics[key]={label:labels[key],scope:scopes[key],value,knownDays:known.length,completeDays:complete.length,totalDays:daily.length,
+   partial,detail:cause||((value===null?'미수집 · ':'')+'확인 '+known.length+'/'+daily.length+'일'+(partial?' · 광고비 일부 미확인':''))};
+ }
+ return {since,until,fxUsed:rate,scopes:metrics,daily,sharedAccount:shared,allAccountsConnected:!!accounts.naver&&!!accounts.cafe,
+  explanation:'금액은 같은 조회 기간·환율로 저장된 Meta 원본 광고비에서 계산합니다. 스마트스토어용 계정 지출은 협력광고 캠페인만 자동 판별한 값이 아닙니다.'};
 }
 function saveDay(account,date,rows,currency){const dir=safeAccountFolder(account);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,date+'.json'),tmp=file+'.tmp-'+process.pid;fs.writeFileSync(tmp,JSON.stringify({account,date,rows,currency,savedAt:new Date().toISOString()}));fs.renameSync(tmp,file);}
 function needsRefresh(snapshot,date,today){if(!snapshot)return true;const ageDays=Math.round((dayUTC(today)-dayUTC(date))/86400000);if(ageDays<0||ageDays>6)return false;const lastSaved=Date.parse(snapshot.savedAt||'');if(!Number.isFinite(lastSaved))return true;const savedSeoul=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(lastSaved));return savedSeoul!==today;}
@@ -2555,6 +2612,7 @@ const server=http.createServer(async (req,res)=> {
       if(['/api/ga4/status','/api/ga4/report'].includes(u.pathname))return json(res,405,{error:'Method not allowed'});
       return json(res,404,{error:'Not found'});
     }
+    if(u.pathname==='/api/meta/spend/summary'&&req.method==='GET')return json(res,200,metaSpendSummary(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.get('naver')??'',u.searchParams.get('cafe')??'',u.searchParams.get('fx')??1350));
     if(u.pathname==='/api/overview/snapshot'&&req.method==='GET')return json(res,200,overviewSnapshot(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.get('accounts')??'',u.searchParams.get('fx')??1350));
     if(u.pathname==='/api/profit/daily'&&req.method==='GET')return json(res,200,profitDaily(u.searchParams.get('since'),u.searchParams.get('until'),u.searchParams.has('accounts')?{accounts:u.searchParams.get('accounts'),fx:u.searchParams.get('fx')??1350}:{}));
     if(u.pathname==='/api/profit/fees'&&req.method==='POST'){
