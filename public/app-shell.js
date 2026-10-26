@@ -259,7 +259,7 @@
   mallSpend:'자사몰 메타 광고비'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
- let refreshToken=0,mainNode=null,root=null,heading=null;
+ let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;
  const validDate=date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date+'T00:00:00Z'));
  const asKRW=value=>Number.isFinite(value)?fmt.format(value)+'원':'—';
  function storedPeriod(){try{const x=JSON.parse(localStorage.getItem(rangeKey)||'null');if(validDate(x?.since)&&validDate(x?.until)&&x.since<=x.until)return x;}catch{}return null;}
@@ -277,6 +277,8 @@
   let fx=Number(document.getElementById('fx-rate')?.value);
   if(!Number.isFinite(fx)||fx<=0){try{fx=Number(localStorage.getItem('roas-meta-spend-fx-v1'));}catch{}}
   if(!Number.isFinite(fx)||fx<=0)fx=1350;
+  // Retain one selected exchange rate across workspace pages.
+  if(document.getElementById('fx-rate'))try{localStorage.setItem('roas-meta-spend-fx-v1',String(fx));}catch{}
   let accounts={naver:'',cafe:''};
   try{
    const raw=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};
@@ -292,8 +294,14 @@
   heading=mainNode.querySelector('.ad-spend-heading');
   if(!heading){heading=document.createElement('div');heading.className='ad-spend-heading';const h=document.createElement('h2');h.id='ad-spend-heading';h.textContent='메타 광고비 구분';const note=document.createElement('p');note.id='ad-spend-note';note.className='small';heading.append(h,note);}
   if(!root){root=document.createElement('section');root.id='ad-spend-breakdown';root.className='metrics';root.setAttribute('aria-labelledby','ad-spend-heading');root.setAttribute('aria-live','polite');}
-  if(!heading.parentNode||heading.previousElementSibling!==header)header.after(heading);
-  if(!root.parentNode||root.previousElementSibling!==heading)heading.after(root);
+  // Overview already has this block in its chosen reading order after the
+  // date/filter toolbar. Moving it to the header caused an unexpected layout
+  // jump and collided with the page-specific grid rules.
+  const existingPair=heading.parentElement===mainNode&&root.parentElement===mainNode&&root.previousElementSibling===heading;
+  if(!existingPair){
+   if(heading.previousElementSibling!==header)header.after(heading);
+   if(root.previousElementSibling!==heading)heading.after(root);
+  }
   root.dataset.sharedSpendRoot='yes';
   return true;
  }
@@ -319,6 +327,7 @@
  async function refresh(){
   if(!ensure())return;
   const request=++refreshToken,range=selection();
+  lastSnapshot=null;
   if((Date.parse(range.until)-Date.parse(range.since))/86400000>731){draw(null,range);document.getElementById('ad-spend-note').textContent='조회 기간이 732일을 초과합니다.';return;}
   if(!root.querySelector('[data-spend-key]'))draw(null,range);
   root.setAttribute('aria-busy','true');
@@ -327,13 +336,17 @@
    const response=await fetch('/api/meta/spend/summary?'+q,{cache:'no-store',signal:AbortSignal.timeout(25000)});
    const result=await response.json();
    if(!response.ok||!result.scopes)throw Error(result.error||'Meta 광고비 응답 확인 필요');
-   if(request===refreshToken){draw(result,range);root.setAttribute('aria-busy','false');}
+   if(request===refreshToken){
+    lastSnapshot={...range,scopes:result.scopes};
+    draw(result,range);root.setAttribute('aria-busy','false');
+    window.dispatchEvent(new Event('roas:meta-spend-ready'));
+   }
   }catch(error){
    if(request===refreshToken){draw(null,range);const note=document.getElementById('ad-spend-note');if(note)note.textContent=range.since+' ~ '+range.until+' · 광고비 확인 실패: '+error.message;root.setAttribute('aria-busy','false');}
   }
  }
  function requestRefresh(){void refresh();}
- window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh});
+ window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh,getSnapshot:()=>lastSnapshot});
  function init(){
   if(!ensure())return;
   requestRefresh();
