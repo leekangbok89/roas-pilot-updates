@@ -130,6 +130,7 @@ function displayedCombinedRevenue(day){
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
+ searchSpend:{label:'검색광고 (네이버쇼핑 + 파워링크)',format:'won',scope:'네이버 검색광고 · API 우선',description:'위마망으로 선택한 쇼핑검색·파워링크 캠페인 API 금액의 합계이며 수동 입력은 중복 합산하지 않습니다.'},
  otherAdSpend:{label:'기타 광고비',format:'won',otherAdCost:true,scope:'원가관리 · 협찬 등 등록 비용',description:'발생일 기준으로 등록한 협찬 제품 원가 × 수량 + 배송비 + 협찬료 + 기타 비용입니다. 총 광고비와 통합 예상 이익에 반영합니다.'},
  gfaSpend:{label:'GFA 광고비',format:'won',naverSpendChannel:'gfa',scope:'네이버 · GFA 입력분',description:'네이버 GFA 분석에 저장한 GFA 광고비입니다. 기간 합계 입력은 일별 균등 배분 추정치입니다.'},
  shoppingSpend:{label:'네이버 쇼핑검색',format:'won',naverSpendChannel:'shopping',scope:'네이버 · 쇼핑검색 입력분',description:'네이버 GFA 분석에 저장한 쇼핑검색 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
@@ -150,7 +151,12 @@ const summaryCardMetrics={
 };
 let savedSummaryCardKeys=summaryDefaultCardKeys.slice(),draftSummaryCardKeys=summaryDefaultCardKeys.slice(),summaryCardsEditing=false,summarySettingsMessage='',summarySettingsError=false;
 let summaryDraggingSlot=null,summaryDragBlocked=false;
-let summaryLoading=false,summaryAdLoadedAccounts=new Set(),summaryAdCoverage=new Map();
+let summaryLoading=false,summaryAdLoadedAccounts=new Set(),summaryAdCoverage=new Map(),canonicalSpendReport=null;
+function validCanonicalSpendReport(){
+ const report=canonicalSpendReport;
+ return report&&report.since===$('since').value&&report.until===$('until').value&&Number(report.fxUsed)===Number(rates)&&
+  report._accounts?.naver===String(connectedAccounts.naver||'')&&report._accounts?.cafe===String(connectedAccounts.cafe||'')?report:null;
+}
 function normalizeSummaryCardKeys(value){
  const keys=Array.isArray(value)?value:[];
  return summaryDefaultCardKeys.map((fallback,index)=>keys[index]===''||typeof keys[index]==='string'&&Object.prototype.hasOwnProperty.call(summaryCardMetrics,keys[index])?keys[index]:fallback);
@@ -192,6 +198,10 @@ function naverCostMetric(channel,dates,days){
 }
 function summaryMetric(key,context=summaryMetricContext()){
  const definition=summaryCardMetrics[key];
+ const grouped=validCanonicalSpendReport();
+ if(!summaryLoading&&grouped?.scopes?.[key]&&['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend','otherAdSpend'].includes(key)){
+  return {...grouped.scopes[key]};
+ }
  // Use the same server-calculated Meta spend totals as other workspaces.
  // Until its request completes, preserve the existing local calculation.
  if(definition?.adMetric==='spend'&&typeof window!=='undefined'&&context.dates.length===summarySelectedDates().length){
@@ -209,6 +219,13 @@ function summaryMetric(key,context=summaryMetricContext()){
  const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend',scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
  if(summaryLoading||!totalDays)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:summaryLoading?'기간 데이터 조회 중…':'조회 기간을 선택해 주세요.'};
  if(definition.otherAdCost)return otherCostMetric(context.dates,profitDays);
+ if(key==='searchSpend'){
+  const values=context.dates.map(date=>profitDays.get(date)?.naverAdSpend);
+  const known=values.filter(row=>row&&(Number.isFinite(row.shopping)||Number.isFinite(row.powerlink)));
+  return {value:known.length?known.reduce((sum,row)=>sum+(Number.isFinite(row.shopping)?row.shopping:0)+(Number.isFinite(row.powerlink)?row.powerlink:0),0):null,
+    partial:known.length<context.dates.length,knownDays:known.length,completeDays:known.filter(row=>Number.isFinite(row.shopping)&&Number.isFinite(row.powerlink)).length,
+    totalDays:context.dates.length,scope:definition.scope,detail:'검색광고 API/저장 금액 확인 '+known.length+'/'+context.dates.length+'일'};
+ }
  if(definition.naverSpendChannel){const cost=naverCostMetric(definition.naverSpendChannel,context.dates,profitDays);return {...cost,scope:cost.apiDays?cost.scope:definition.scope};}
  if(definition.adScope){
   const connected=definition.adScope==='all'?connectedAccounts.naver||connectedAccounts.cafe:connectedAccounts[definition.adScope];
@@ -456,6 +473,49 @@ function setupSummaryCardDrag(){
   if(target>=0&&target<slots.length)moveSummaryCard(from,slots[target],true);
  };
 }
+// The fixed six-card strip was intentionally removed in v2.8.125.
+// Show five named categories inside the existing total-spend KPI instead.
+function appendSummarySpendPopover(card,slot,context){
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'];
+ const report=validCanonicalSpendReport();
+ const title=document.createElement('button');title.type='button';title.className='summary-spend-detail-button';
+ title.textContent='내역 보기 · 마우스를 올리거나 클릭';
+ title.setAttribute('aria-label','총 광고비 항목별 내역');
+ title.setAttribute('aria-expanded','false');
+ title.setAttribute('aria-controls','summary-spend-popover-'+slot);
+ const panel=document.createElement('div');panel.className='summary-spend-popover';panel.id='summary-spend-popover-'+slot;
+ panel.setAttribute('role','group');panel.setAttribute('aria-label','광고비 구성 내역');
+ const heading=document.createElement('strong');heading.className='summary-spend-popover-heading';
+ heading.textContent='광고비 구성 · '+$('since').value+' ~ '+$('until').value;
+ panel.append(heading);
+ for(const key of keys){
+  const definition=summaryCardMetrics[key],metric=report?.scopes?.[key]||summaryMetric(key,context);
+  const row=document.createElement('div');row.className='summary-spend-popover-row';row.setAttribute('data-spend-line',key);
+  const label=document.createElement('span');label.textContent=definition.label;label.className='summary-spend-popover-label';
+  const value=document.createElement('strong');value.textContent=won(metric.value);value.className='summary-spend-popover-amount';
+  const note=document.createElement('small');note.textContent=metric.detail||'광고비 미확인';note.className='summary-spend-popover-note';
+  row.append(label,value,note);panel.append(row);
+ }
+ // Extra sponsorship costs became part of the actual total in v2.8.127.
+ // Surface an extra sixth line only when present so the sum reconciles.
+ const other=report?.scopes?.otherAdSpend;
+ if(Number.isFinite(other?.value)&&other.value>0){
+  const row=document.createElement('div');row.className='summary-spend-popover-row';row.setAttribute('data-spend-line','otherAdSpend');
+  const label=document.createElement('span');label.className='summary-spend-popover-label';label.textContent='기타 광고비 · 협찬 등';
+  const value=document.createElement('strong');value.className='summary-spend-popover-amount';value.textContent=won(other.value);
+  const note=document.createElement('small');note.className='summary-spend-popover-note';note.textContent='원가관리에서 등록한 추가 비용 · 총액에 포함';
+  row.append(label,value,note);panel.append(row);
+ }
+ const footer=document.createElement('small');footer.className='summary-spend-popover-footer';
+ footer.textContent='검색광고 API 우선 · 수동 입력 중복 제외. 미수집 금액은 0으로 간주하지 않습니다.';
+ panel.append(footer);
+ const setOpen=open=>{card.dataset.spendOpen=open?'yes':'no';if(open)card.dataset.spendDismissed='no';title.setAttribute('aria-expanded',String(open));};
+ title.onclick=()=>setOpen(card.dataset.spendOpen!=='yes');
+ title.onkeydown=event=>{if(event.key==='Escape'){setOpen(false);card.dataset.spendDismissed='yes';event.stopPropagation();title.blur?.();}};
+ card.onmouseleave=()=>{card.dataset.spendDismissed='no';};
+ card.className+=' summary-spend-has-breakdown';
+ card.append(title,panel);
+}
 function renderSummaryCards(){
  renderSpendBreakdown();
  const root=$('summary-cards');if(!root)return;
@@ -493,6 +553,7 @@ function renderSummaryCards(){
   if(definition.field)detail.title='이 지표에서 금액을 확인한 날짜만 합산합니다. 지표마다 확인 가능한 날짜와 주문 범위가 다를 수 있습니다.';
   if(definition.adMetric==='spend')detail.title='환율 1 USD = '+format.format(rates)+' KRW · USD 계정에만 적용';
   card.append(heading,valueLine,scope,detail);
+  if(key==='spend'&&!summaryCardsEditing)appendSummarySpendPopover(card,index,context);
   if(key==='mallRevenue'&&!summaryLoading&&(metric.value===0||metric.value===null)&&cafeRevenueDiagnostic()){
    const diagnostic=cafeRevenueDiagnostic();
    const counts=document.createElement('small');counts.className='summary-card-state';
@@ -1149,6 +1210,17 @@ async function run(){
   const ids=Object.fromEntries(['naver','cafe'].map(key=>[key,String(savedIds[key]||'').replace(/\D/g,'')]));
   const accountIds=[...new Set(Object.values(ids).filter(Boolean))];
   const q=new URLSearchParams({since,until,accounts:accountIds.join(','),fx:String(rates)});
+  // Read only locally cached Meta/GFA/Naver/Search/other costs; never refresh an
+  // external advertising platform just to open the overview.
+  const spendRequest=(async()=>{
+   try{
+    const qp=new URLSearchParams({since,until,naver:ids.naver,cafe:ids.cafe,fx:String(rates)});
+    const response=await fetch('/api/meta/spend/summary?'+qp,{cache:'no-store',signal:AbortSignal.timeout(20000)});
+    const payload=await response.json();
+    if(!response.ok||!payload.scopes?.spend)throw Error(payload.error||'광고비 상세 없음');
+    return {...payload,_accounts:ids};
+   }catch{return null;}
+  })();
   // Start the single-pass accounting report alongside cached Meta reads. The
   // old endpoints are a compatibility fallback only, not three extra requests.
   const snapshotRequest=(async()=>{
@@ -1168,6 +1240,7 @@ async function run(){
   }));
   const snapshot=await snapshotRequest;
   await metaRequest;
+  const spendSummary=await spendRequest;
   if(snapshot){
    nextSales=new Map(snapshot.sales.days.map(day=>[day.date,day]));
    nextCoverage=snapshot.coverage;
@@ -1188,6 +1261,7 @@ async function run(){
   if(version!==requestVersion)return;
   for(const key of Object.keys(ids))if(!ids[key])warnings.push((key==='naver'?'스마트스토어':'카페24')+' 광고 계정 ID 없음');
   data.naver=nextData.naver;data.cafe=nextData.cafe;currency.naver=nextCurrency.naver;currency.cafe=nextCurrency.cafe;connectedAccounts=ids;
+  canonicalSpendReport=spendSummary;
   storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;savedBrandAssignments=[];storeRevenueDiagnostics=nextStoreRevenueDiagnostics;dataCoverage=nextCoverage;coverageError=nextCoverageError;summaryAdLoadedAccounts=nextSummaryAdLoadedAccounts;summaryAdCoverage=nextSummaryAdCoverage;summaryLoading=false;
   $('profit-naver-fee').value=profitFees.naver;$('profit-cafe-fee').value=profitFees.cafe24;
   if(!available&&!storeSales.size&&!profitDays.size)warnings.push('수집된 데이터가 없습니다.');
@@ -1222,12 +1296,20 @@ async function run(){
   if(nextCafeRecoveryJob){renderCafeRevenueRecoveryJob(nextCafeRecoveryJob);if(nextCafeRecoveryJob.running&&!cafeRevenueRecoveryPolling)void observeCafeRevenueRecovery(nextCafeRecoveryJob);}
  }catch(e){
   if(version!==requestVersion)return;
-  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];savedBrandAssignments=[];storeRevenueDiagnostics={};profitLoadError=e.message;dataCoverage=null;coverageError=e.message;summaryAdLoadedAccounts=new Set();summaryAdCoverage=new Map();summaryLoading=false;render();
+  data.naver=[];data.cafe=[];canonicalSpendReport=null;storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];savedBrandAssignments=[];storeRevenueDiagnostics={};profitLoadError=e.message;dataCoverage=null;coverageError=e.message;summaryAdLoadedAccounts=new Set();summaryAdCoverage=new Map();summaryLoading=false;render();
   $('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';
  }finally{if(version===requestVersion)$('reload').disabled=false;}
 }
 let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
 setupSummaryCards();
+if(document.addEventListener)document.addEventListener('pointerdown',event=>{
+ document.querySelectorAll('.summary-spend-has-breakdown[data-spend-open="yes"]').forEach(card=>{
+  if(!card.contains(event.target)){
+   card.dataset.spendOpen='no';
+   card.querySelector('.summary-spend-detail-button')?.setAttribute('aria-expanded','false');
+  }
+ });
+});
 if(typeof window!=='undefined')window.addEventListener('roas:meta-spend-ready',()=>{if(!summaryLoading)renderSummaryCards();});
 document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-period]').forEach(t=>t.classList.toggle('active',t===b));const {start,end}=overviewPeriodRange(b.dataset.period);$('since').value=iso(start);$('until').value=iso(end);run()});
 async function showCafeRepairDiagnosis(){
