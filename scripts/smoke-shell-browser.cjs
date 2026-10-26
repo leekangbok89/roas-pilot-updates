@@ -184,6 +184,20 @@ async function hoverOverlay(){
  for(const icon of icons)assert.ok(Math.abs(icon.width-17)<0.1&&Math.abs(icon.height-17)<0.1,'Navigation icons must be17px, never the hundreds of pixels seen with missing shell CSS: '+JSON.stringify(icon));
  const labelSizes=await page.locator(selectors.links).evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).fontSize));
  assert.deepEqual(labelSizes,expectedLabels.map(()=> '12px'),'All sidebar labels are 12px');
+ const spacing=await page.locator(selectors.links).evaluateAll(links=>{
+  const nav=links[0]?.parentElement,navStyle=getComputedStyle(nav);
+  return {gap:parseFloat(navStyle.rowGap),links:links.map(link=>{
+   const box=link.getBoundingClientRect(),style=getComputedStyle(link);
+   return {top:box.top,bottom:box.bottom,height:box.height,paddingTop:parseFloat(style.paddingTop),paddingBottom:parseFloat(style.paddingBottom)};
+  })};
+ });
+ assert.equal(spacing.gap,2,'Desktop sidebar items use only a 2px gap');
+ for(const [index,item] of spacing.links.entries()){
+  assert.ok(item.height>=35&&item.height<=38,'Desktop sidebar link stays compact (36px): '+JSON.stringify(item));
+  assert.ok(item.paddingTop<=7&&item.paddingBottom<=7,'Avoid oversized vertical link padding');
+  if(index)assert.ok(spacing.links[index-1].bottom<=item.top&&item.top-spacing.links[index-1].bottom<=3,
+   'Menu links are tightly stacked without overlap or excessive blank space');
+ }
  sameBox(initial,await mainBox(),'Hovered navigation overlay');
  await page.mouse.move(900,650);await shellState(false);
  sameBox(initial,await mainBox(),'Closed navigation overlay');
@@ -421,6 +435,8 @@ async function verifyBrowserScenario(){
  await page.mouse.move(600,700);
  await page.goto(base+'/cost-management.html');await page.locator(selectors.toggle).waitFor();await shellState(false);
  const touchBefore=await mainBox();await page.locator(selectors.toggle).tap();await shellState(true);sameBox(touchBefore,await mainBox(),'Touch menu overlay');
+ const touchLinkHeight=await page.locator(selectors.links).first().evaluate(link=>link.getBoundingClientRect().height);
+ assert.ok(touchLinkHeight>=43,'Touch menu maintains 44px interaction targets');
  await page.locator(selectors.toggle).tap();await shellState(false);sameBox(touchBefore,await mainBox(),'Touch menu closure');
  pass('touch toggle remains accessible and opens/closes the overlay without layout changes');
  await touch.close();page=desktop;
