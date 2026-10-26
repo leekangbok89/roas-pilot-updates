@@ -327,6 +327,9 @@ async function copyCafeRevenueDiagnostic(){
 }
 function renderSpendBreakdown(){
  const root=$('ad-spend-breakdown');if(!root)return;
+ // The shared shell now owns the visible spend strip in every workspace.
+ // Keep the legacy renderer only for older installs and isolated tests.
+ if(root.dataset?.sharedSpendRoot==='yes')return;
  root.replaceChildren();root.setAttribute('aria-busy',String(summaryLoading));
  const bothConnected=!!connectedAccounts.naver&&!!connectedAccounts.cafe;
  const sameAccount=bothConnected&&connectedAccounts.naver===connectedAccounts.cafe;
