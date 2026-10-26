@@ -246,3 +246,27 @@ body[data-app-page="cost"] .app-main>section th {
   background:color-mix(in srgb,var(--app-section-bg) 65%,var(--app-surface-soft));
 }
 
+
+
+/* Five-source spend disclosure lives inside the EXISTING customizable
+   overview total spend KPI; the removed fixed spend strip stays removed. */
+body .app-main #summary-cards .summary-spend-has-breakdown{position:relative;overflow:visible;isolation:auto}
+body .app-main #summary-cards .summary-spend-has-breakdown:is(:hover,:focus-within,[data-spend-open="yes"]){z-index:75}
+body .app-main .summary-spend-detail-button{display:inline-flex;align-items:center;align-self:flex-start;justify-content:center;margin-top:7px;padding:4px 7px;font:600 11px/1.4 inherit;border:1px solid var(--app-border);border-radius:6px;background:var(--app-surface-soft);color:var(--app-link);cursor:pointer;min-height:0}
+body .app-main .summary-spend-popover{display:none;position:absolute;left:0;top:calc(100% - 2px);width:min(470px,calc(100vw - 72px));min-width:260px;max-height:min(72vh,620px);overflow-y:auto;padding:13px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:0 16px 44px #0003;z-index:76}
+body .app-main .summary-spend-has-breakdown:hover .summary-spend-popover,
+body .app-main .summary-spend-has-breakdown:focus-within .summary-spend-popover,
+body .app-main .summary-spend-has-breakdown[data-spend-open="yes"] .summary-spend-popover{display:block}
+body .app-main .summary-spend-popover-heading{display:block;margin:0 0 8px;color:var(--app-text);font-size:13px;line-height:1.5}
+body .app-main .summary-spend-popover-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--app-border)}
+body .app-main .summary-spend-popover-row:first-of-type{font-weight:700}
+body .app-main .summary-spend-popover-label{font-size:12px;line-height:1.5;color:var(--app-text);overflow-wrap:anywhere}
+body .app-main .summary-spend-popover-amount{font-size:13px;text-align:right;color:var(--app-text);font-variant-numeric:tabular-nums;white-space:nowrap}
+body .app-main .summary-spend-popover-note{grid-column:1/-1;color:var(--app-muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+body .app-main .summary-spend-popover-footer{display:block;margin-top:10px;color:var(--app-muted);font-size:11px;line-height:1.5}
+@media(min-width:1100px){body .app-main #summary-cards>.summary-spend-has-breakdown:nth-child(6n+4) .summary-spend-popover,
+ body .app-main #summary-cards>.summary-spend-has-breakdown:nth-child(6n+5) .summary-spend-popover,
+ body .app-main #summary-cards>.summary-spend-has-breakdown:nth-child(6n+6) .summary-spend-popover{left:auto;right:0}}
+@media(min-width:650px) and (max-width:1099px){body .app-main #summary-cards>.summary-spend-has-breakdown:nth-child(3n+3) .summary-spend-popover{left:auto;right:0}}
+@media(max-width:649px){body .app-main #summary-cards>.summary-spend-has-breakdown:nth-child(2n) .summary-spend-popover{left:auto;right:0}
+ body .app-main .summary-spend-popover{width:min(430px,calc(100vw - 45px));min-width:0}}
