@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','광고 변경 기록','검색광고 분석','디스플레이 분석','원가관리','상세페이지 분석','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','광고 변경 기록','검색광고 분석','네이버 데이터 분석','원가관리','상세페이지 분석','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
@@ -262,14 +262,14 @@ async function verifyBrowserScenario(){
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
  async function readSharedSpend(context){
-  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===3&&
-   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
+  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===6&&
+   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].slice(0,3).every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
   const got=await page.locator('#ad-spend-breakdown [data-spend-key]').evaluateAll(nodes=>nodes.map(node=>({
    key:node.dataset.spendKey,label:node.querySelector('.roas-shared-spend-title')?.textContent,
    amount:node.querySelector('strong')?.textContent
   })));
-  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend'],context);
-  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비']);
+  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'],context);
+  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','네이버 쇼핑검색','네이버 파워링크']);
   return got.map(item=>item.amount);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
@@ -294,7 +294,7 @@ async function verifyBrowserScenario(){
    const root=document.getElementById('ad-spend-breakdown'),cards=[...root.querySelectorAll('[data-spend-key]')];
    return {viewport:document.documentElement.clientWidth,strip:root.getBoundingClientRect().toJSON(),cards:cards.map(x=>x.getBoundingClientRect().toJSON())};
   });
-  assert.equal(geometry.cards.length,3,'All three spend cards stay visible at '+width+'px');
+  assert.equal(geometry.cards.length,6,'All three spend cards stay visible at '+width+'px');
   for(const [index,card] of geometry.cards.entries()){
    assert.ok(card.width>60&&card.height>35,'Card '+index+' has a readable size at '+width+'px');
    assert.ok(card.left>=-1&&card.right<=geometry.viewport+1,'No horizontal spend-card clipping at '+width+'px '+JSON.stringify(card));
@@ -324,7 +324,7 @@ async function verifyBrowserScenario(){
  await go('/#data-source');
  assert.deepEqual(await readSharedSpend('설정 관리'),originalSpend);
  await go('/display-analysis.html');
- await readSharedSpend('디스플레이 분석');
+ await readSharedSpend('네이버 데이터 분석');
  await page.setViewportSize({width:1440,height:1100});
  for(const mode of ['light','dark']){
   for(const route of routes){

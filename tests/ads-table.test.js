@@ -27,12 +27,12 @@ test('saved overview selections become actual table columns, including scope-spe
  assert.equal(columns.find(column=>column.key==='overview-roas').sourceKey,'roas');
 });
 
-test('all twenty existing overview selections are retained and visible without resetting browser settings',()=>{
+test('all existing overview selections plus Naver spend are retained and visible without resetting browser settings',()=>{
  const h=harness();
  const result=JSON.parse(h.run("JSON.stringify((()=>{const saved=normalizeAdsDisplaySettings({version:1,columns:adsColumnMetrics.map(metric=>metric.key),summary:AdsOverviewSummary.metrics.map(metric=>metric.key)});const columns=adsTableColumns(saved);return {saved,keys:columns.map(column=>column.overviewKey).filter(Boolean),count:columns.length};})())"));
- assert.equal(result.saved.summary.length,20);
- assert.equal(result.count,29,'17 ad columns plus 20 overview keys minus eight shared columns');
- assert.equal(new Set(result.keys).size,20);
+ assert.equal(result.saved.summary.length,23);
+ assert.equal(result.count,32,'17 ad columns plus 20 overview keys minus eight shared columns');
+ assert.equal(new Set(result.keys).size,23);
  assert.deepEqual(result.keys.slice().sort(),result.saved.summary.slice().sort());
 });
 

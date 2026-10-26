@@ -124,7 +124,7 @@
       displayLink.className = 'app-nav-link';
       displayLink.dataset.appRoute = 'display';
       displayLink.href = '/display-analysis.html';
-      displayLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 13l3-3 3 2 4-5"/></svg><span>디스플레이 분석</span>';
+      displayLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 13l3-3 3 2 4-5"/></svg><span>네이버 데이터 분석</span>';
       var costLink = nav.querySelector('[data-app-route="cost"]');
       if (costLink) nav.insertBefore(displayLink, costLink);
       else nav.appendChild(displayLink);
@@ -252,11 +252,11 @@
    Unlike advertising attribution metrics, these are raw spending totals. */
 (function(){
  'use strict';
- const keys=['spend','smartstoreSpend','mallSpend'];
+ const keys=['spend','smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend'];
  const labels=Object.freeze({
   spend:'총 광고비',
   smartstoreSpend:'스마트스토어 협력 메타 광고비',
-  mallSpend:'자사몰 메타 광고비'
+  mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크'
  });
  const rangeKey='roas-meta-spend-period-v1',fmt=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
  let refreshToken=0,mainNode=null,root=null,heading=null,lastSnapshot=null;
@@ -292,7 +292,7 @@
   if(!header)return false;
   root=document.getElementById('ad-spend-breakdown');
   heading=mainNode.querySelector('.ad-spend-heading');
-  if(!heading){heading=document.createElement('div');heading.className='ad-spend-heading';const h=document.createElement('h2');h.id='ad-spend-heading';h.textContent='메타 광고비 구분';const note=document.createElement('p');note.id='ad-spend-note';note.className='small';heading.append(h,note);}
+  if(!heading){heading=document.createElement('div');heading.className='ad-spend-heading';const h=document.createElement('h2');h.id='ad-spend-heading';h.textContent='광고비 구분';const note=document.createElement('p');note.id='ad-spend-note';note.className='small';heading.append(h,note);}
   if(!root){root=document.createElement('section');root.id='ad-spend-breakdown';root.className='metrics';root.setAttribute('aria-labelledby','ad-spend-heading');root.setAttribute('aria-live','polite');}
   // Overview already has this block in its chosen reading order after the
   // date/filter toolbar. Moving it to the header caused an unexpected layout
