@@ -59,7 +59,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     pass('visible video playback completes once; autoplay offscreen and seek-to-end do not');
     await page.close();
     const ui=await browser.newPage({viewport:{width:1440,height:1000},locale:'ko-KR',timezoneId:'Asia/Seoul'});
-    ui.on('pageerror',e=>errors.push(e.message));let saved={...DETAIL_DEFAULTS},mode='ready';
+    ui.on('pageerror',e=>errors.push(e.message));let saved={...DETAIL_DEFAULTS},mode='ready',catalog={productId:'458',contentVersion:'v1',items:[],importedAt:null};
     const raw={dimensionHeaders:['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name=>({name})),metricHeaders:['eventCount','customEvent:rp_visible_ms'].map(name=>({name})),rows:[['rp_detail_view','page','page','100','0'],['rp_content_view','image_001_p01','image','80','0'],['rp_content_time','image_001_p01','image','3','400000']].map(r=>({dimensionValues:r.slice(0,3).map(value=>({value})),metricValues:r.slice(3).map(value=>({value}))}))};
     const report=assembleDetailReport(raw,{since:'2026-10-19',until:'2026-10-25',productId:'458',contentVersion:'v1'},true);
     await ui.route('**/*',async route=>{
@@ -67,6 +67,14 @@ const pass=label=>{checks++;console.log('PASS '+label);};
       if(url.hostname!=='127.0.0.1')return route.abort();
       if(p==='/api/ga4/status')return route.fulfill({json:{configured:true}});
       if(p==='/api/ga4/detail-settings'){if(route.request().method()==='POST')saved=route.request().postDataJSON();return route.fulfill({json:saved});}
+      if(p==='/api/ga4/detail-catalog'){
+        if(route.request().method()==='POST'){
+          const input=route.request().postDataJSON();
+          if(input.action==='import')catalog.items=[{id:'image_001',type:'image',url:'https://wemamang.mycafe24.com/detail/dp01.jpg',filename:'dp01.jpg',alt:'상세 이미지',name:''},{id:'video_001',type:'video',url:'https://wemamang.mycafe24.com/detail/dp02.mp4',filename:'dp02.mp4',name:''}];
+          else for(const n of input.names)catalog.items.find(item=>item.id===n.id).name=n.name;
+        }
+        return route.fulfill({json:catalog});
+      }
       if(p==='/api/ga4/detail-report')return mode==='error'?route.fulfill({status:502,json:{error:'합성 오류 <img src=x onerror="window.injected=1">'}}):route.fulfill({json:mode==='setup'?{state:'setup_required',missing:['rp_content_id']}:mode==='zero'?{state:'no_data',rows:[]}:report});
       const file=path.join(base,'public',p.slice(1));if(fs.existsSync(file))return route.fulfill({path:file});return route.fulfill({status:404,body:'missing'});
     });
@@ -74,8 +82,16 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     const snippet=await ui.locator('#install-code').inputValue();assert.ok(snippet.includes('G-RZF6S41CF0'));assert.ok(!snippet.includes('127.0.0.1'));new Function(snippet.slice(9,-9));
     await ui.locator('#detail-clarity').fill('abc123456');await ui.locator('#settings-save').click();await ui.waitForFunction(()=>document.querySelector('#install-code').value.includes('abc123456'));
     assert.match(await ui.locator('#clarity-dashboard').getAttribute('href'),/abc123456/);
+    await ui.locator('#catalog-import').click();await ui.locator('.catalog-name').first().waitFor();
+    assert.equal(await ui.locator('#catalog-body img').getAttribute('src'),'https://wemamang.mycafe24.com/detail/dp01.jpg');
+    assert.equal(await ui.locator('#catalog-body video').getAttribute('preload'),'none');
+    await ui.locator('.catalog-name').first().fill('100℃ 가열 설명 <b>테스트</b>');await ui.locator('#catalog-save').click();
+    await ui.waitForFunction(()=>document.querySelector('#catalog-message').textContent.includes('이름을 저장했습니다'));
     await ui.locator('#detail-setup summary').click();await ui.locator('#detail-query').click();await ui.locator('#detail-results').waitFor({state:'visible'});
     assert.equal(await ui.locator('#detail-views').innerText(),'100');assert.match(await ui.locator('#detail-content-body').innerText(),/80%/);assert.match(await ui.locator('#detail-content-body').innerText(),/5초/);
+    assert.match(await ui.locator('#detail-content-body').innerText(),/100℃ 가열 설명 <b>테스트<\/b>/);
+    assert.match(await ui.locator('#detail-content-body').innerText(),/dp01.jpg/);assert.equal(await ui.locator('#detail-content-body b').count(),0);
+    assert.equal(await ui.locator('#detail-content-body img').count(),1);pass('catalog previews, filenames and safe saved aliases map split image rows to their original asset');
     await ui.screenshot({path:path.join(base,'..','detail-analysis-qa.png'),fullPage:true});
     assert.equal(await ui.locator('#app-nav [data-app-route="detail"]').getAttribute('aria-current'),'page');
     await ui.locator('#app-theme-toggle').click();assert.equal(await ui.locator('html').getAttribute('data-theme'),'light');

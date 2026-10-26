@@ -19,6 +19,48 @@ const ACQUISITION_KEYS = Object.freeze(['source', 'medium', 'campaign', 'campaig
 const DETAIL_DIMENSIONS = Object.freeze(['rp_product_id', 'rp_content_version', 'rp_content_id', 'rp_content_type']);
 const DETAIL_DEFAULTS = Object.freeze({ productId: '458', contentVersion: 'v1', measurementId: 'G-RZF6S41CF0', clarityProjectId: '', rootSelector: '#prdDetail', requireConsent: false });
 
+function detailMediaUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const u = new URL(value, 'https://wemamang.com/');
+    if (u.protocol !== 'https:' || u.username || u.password || u.port) return '';
+    if (!['wemamang.com','www.wemamang.com','m.wemamang.com','wemamang.mycafe24.com','www.youtube.com','www.youtube-nocookie.com'].includes(u.hostname) && !u.hostname.endsWith('.cafe24img.com')) return '';
+    return u.href;
+  } catch (_) { return ''; }
+}
+function parseDetailMedia(html) {
+  const decode = value => value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[0-9a-f]+);/gi, token => {
+    const entities = { '&amp;':'&','&quot;':'"','&apos;':"'",'&lt;':'<','&gt;':'>' };
+    if (entities[token.toLowerCase()]) return entities[token.toLowerCase()];
+    const number = token[2].toLowerCase() === 'x' ? parseInt(token.slice(3,-1),16) : Number(token.slice(2,-1));
+    return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : '';
+  });
+  const attrs = text => {
+    const result = {};
+    for (const m of text.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) result[m[1].toLowerCase()] = decode(m[2] ?? m[3] ?? m[4]);
+    return result;
+  };
+  const source = String(html).replace(/<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
+  let depth = 0, found = false, video = null;
+  const counts = { img:0, video:0, iframe:0 }, items = [];
+  for (const match of source.matchAll(/<\/?[a-z][^>]*>/gi)) {
+    const token = match[0], closing = /^<\//.test(token), tag = (token.match(/^<\/?([\w-]+)/) || [,''])[1].toLowerCase();
+    const a = attrs(token);
+    if (!depth) { if (!found && !closing && a.id === 'prdDetail') { depth = 1; found = true; } continue; }
+    if (tag === 'div') { depth += closing ? -1 : 1; if (!depth) break; }
+    if (closing) { if (tag === 'video') video = null; continue; }
+    if (tag === 'source' && video && !video.url) video.url = detailMediaUrl(a.src || '');
+    if (!Object.hasOwn(counts, tag)) continue;
+    const index = ++counts[tag], type = { img:'image',video:'video',iframe:'embed' }[tag];
+    const item = { id:type + '_' + String(index).padStart(3,'0'), type, url:detailMediaUrl(a['ec-data-src'] || a['data-src'] || a.src || ''), alt:(a.alt || '').slice(0,150), name:'' };
+    items.push(item); if (tag === 'video') video = item;
+    if (items.length > 500) throw failure(400, '상세 콘텐츠가 너무 많습니다.', 'DETAIL_CATALOG_SIZE');
+  }
+  if (!found || !items.length) throw failure(422, '상세영역(#prdDetail)의 이미지·영상을 찾지 못했습니다.', 'DETAIL_CATALOG_EMPTY');
+  for (const item of items) { try { item.filename = decodeURIComponent(new URL(item.url).pathname.split('/').pop()).slice(0,200); } catch (_) { item.filename = ''; } }
+  return items;
+}
+
 function validateDetailSettings(input = {}) {
   const value = { productId: String(input.productId || ''), contentVersion: String(input.contentVersion || '').trim(),
     measurementId: String(input.measurementId || '').trim(), clarityProjectId: String(input.clarityProjectId || '').trim(), rootSelector: '#prdDetail', requireConsent: input.requireConsent === true };
@@ -300,6 +342,7 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
   // Constructor is deliberately lazy: Linux tests and existing installations can load the app without DPAPI.
   const filename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'ga4.dpapi');
   const detailFilename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'detail-settings.json');
+  const catalogFilename = path.join(path.dirname(detailFilename), 'detail-catalog.json');
   const tokens = new Map(), reports = new Map(), inFlight = new Map();
   let stored = null, saveSequence = 0;
   const currentTime = () => { const value = Number(now()); if (!Number.isFinite(value)) throw failure(500, '현재 시간을 확인할 수 없습니다.', 'GA4_CLOCK'); return value; };
@@ -534,8 +577,52 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     inFlight.set(key, work);
     try { return structuredClone(await work); } finally { if (inFlight.get(key) === work) inFlight.delete(key); }
   }
-  return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport };
+  function catalogStore() {
+    try { const value = JSON.parse(fs.readFileSync(catalogFilename,'utf8')); if (!value || value.schemaVersion !== 1 || !value.versions) throw Error(); return value; }
+    catch (error) { if (error.code === 'ENOENT') return { schemaVersion:1, versions:{} }; throw failure(503,'저장된 콘텐츠 목록을 읽을 수 없습니다.','DETAIL_CATALOG_READ'); }
+  }
+  function catalogWrite(value) {
+    fs.mkdirSync(path.dirname(catalogFilename),{recursive:true,mode:0o700});
+    const temp = catalogFilename + '.tmp-' + crypto.randomBytes(8).toString('hex');
+    try { fs.writeFileSync(temp,JSON.stringify(value),{mode:0o600}); fs.renameSync(temp,catalogFilename); }
+    finally { try { fs.unlinkSync(temp); } catch (_) {} }
+  }
+  function catalogContext() { const s = detailSettings(); return { key:s.productId + ':' + s.contentVersion, productId:s.productId, contentVersion:s.contentVersion }; }
+  async function detailCatalog(input) {
+    const context = catalogContext(), initial = catalogStore(), previous = initial.versions[context.key];
+    if (input === undefined) return previous || { productId:context.productId, contentVersion:context.contentVersion, items:[], importedAt:null };
+    if (input.productId !== context.productId || input.contentVersion !== context.contentVersion) throw failure(409,'상품 또는 상세 버전이 변경됐습니다. 새로고침 후 다시 시도하세요.','DETAIL_CATALOG_CHANGED');
+    let value;
+    if (input.action === 'import') {
+      const response = await request('https://wemamang.com/product/detail.html?product_no=' + context.productId, { headers:{'User-Agent':'ROAS-Pilot-Content-Catalog/1.0'} }, '상세 콘텐츠 목록');
+      if (!response.ok) throw failure(502,'상세페이지를 불러오지 못했습니다.','DETAIL_CATALOG_FETCH');
+      let html = '', bytes = 0;
+      if (response.body && response.body[Symbol.asyncIterator]) {
+        const chunks=[];
+        for await (const chunk of response.body) { bytes += chunk.length; if (bytes > 3*1024*1024) throw failure(413,'상세페이지 크기가 너무 큽니다.','DETAIL_CATALOG_SIZE'); chunks.push(Buffer.from(chunk)); }
+        html = Buffer.concat(chunks).toString('utf8');
+      } else { html = await response.text(); if (Buffer.byteLength(html) > 3*1024*1024) throw failure(413,'상세페이지 크기가 너무 큽니다.','DETAIL_CATALOG_SIZE'); }
+      const items = parseDetailMedia(html);
+      const signature = list => JSON.stringify(list.map(item=>[item.id,item.url]));
+      if (previous && signature(previous.items) !== signature(items)) throw failure(409,'현재 페이지의 순서·파일이 저장된 목록과 다릅니다. 기존 통계를 보존하려면 상세 버전을 변경하고 자사몰 설치코드도 교체한 후 불러오세요.','DETAIL_CATALOG_VERSION');
+      value = {productId:context.productId,contentVersion:context.contentVersion,importedAt:timestamp(),items};
+    } else if (input.action === 'rename') {
+      if (!previous || !Array.isArray(input.names) || input.names.length > 500) throw failure(400,'저장할 콘텐츠 이름을 확인하세요.','DETAIL_CATALOG_NAMES');
+      value = structuredClone(previous);
+      for (const change of input.names) {
+        const item = value.items.find(item=>item.id === change.id);
+        if (!item || typeof change.name !== 'string' || change.name.length > 80 || /[\u0000-\u001f]/.test(change.name)) throw failure(400,'콘텐츠 이름은 80자 이내로 입력하세요.','DETAIL_CATALOG_NAMES');
+        item.name = change.name.trim();
+      }
+    } else throw failure(400,'콘텐츠 목록 작업을 확인하세요.','DETAIL_CATALOG_ACTION');
+    if (catalogContext().key !== context.key) throw failure(409,'조회 중 상품·버전이 변경됐습니다.','DETAIL_CATALOG_CHANGED');
+    const latest = catalogStore();
+    if (input.action === 'import' && latest.versions[context.key] && JSON.stringify(latest.versions[context.key].items.map(item=>[item.id,item.url])) !== JSON.stringify(value.items.map(item=>[item.id,item.url]))) throw failure(409,'불러오는 동안 콘텐츠 목록이 변경됐습니다. 다시 확인하세요.','DETAIL_CATALOG_CHANGED');
+    if (input.action === 'import') for (const item of value.items) item.name = (latest.versions[context.key]?.items.find(old=>old.id===item.id) || {}).name || '';
+    latest.versions[context.key] = value; catalogWrite(latest); return value;
+  }
+  return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport, detailCatalog };
 }
 
 module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS,
-  validateDetailSettings, buildDetailRequest, assembleDetailReport, DETAIL_DIMENSIONS, DETAIL_DEFAULTS };
+  validateDetailSettings, buildDetailRequest, assembleDetailReport, DETAIL_DIMENSIONS, DETAIL_DEFAULTS, parseDetailMedia, detailMediaUrl };

@@ -49,7 +49,7 @@ test('legacy updater with server.js only serves GA4 UI and unconfigured status w
 
 test('GA4 routes reject cross-origin/host access and mutations without the local action header',async t=>{
  const f=fixture(t);
- for(const endpoint of ['/api/ga4/credentials','/api/ga4/test','/api/ga4/disconnect','/api/ga4/detail-settings']){
+ for(const endpoint of ['/api/ga4/credentials','/api/ga4/test','/api/ga4/disconnect','/api/ga4/detail-settings','/api/ga4/detail-catalog']){
   for(const headers of [{},{'x-roas-local-action':'yes',origin:'https://example.com'},{'x-roas-local-action':'yes',host:'untrusted.example:3000'}]){
    const response=await f.request(endpoint,{method:'POST',headers,body:'{}'});
    assert.equal(response.status,403,endpoint);

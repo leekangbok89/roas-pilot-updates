@@ -13,6 +13,7 @@
     .detail-bar{min-width:130px;height:8px;background:var(--app-surface-soft);border-radius:4px;overflow:hidden}.detail-bar span{display:block;height:100%;background:var(--app-accent)}
     .detail-scroll{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.detail-scroll article{padding:12px;border:1px solid var(--app-border);border-radius:10px}.detail-scroll strong{font-size:24px;display:block}
     .detail-table{overflow:auto}.detail-table table{width:100%;border-collapse:collapse}.detail-table td,.detail-table th{padding:10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--app-border)}
+    .content-preview{display:flex;align-items:center;gap:10px;min-width:240px;white-space:normal}.content-preview img,.content-preview video{width:110px;height:88px;object-fit:contain;border-radius:6px;background:var(--app-surface-soft)}.content-preview small{display:block;max-width:240px;overflow-wrap:anywhere}.content-preview strong{display:block}.catalog-name{width:240px;max-width:100%;box-sizing:border-box}#catalog-message{overflow-wrap:anywhere}
     details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
     .detail-links{display:flex;gap:12px;flex-wrap:wrap}.detail-link-disabled{display:none}#definition-table td:first-child{font-family:monospace}
     @media(max-width:800px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-kpis{grid-template-columns:1fr}.detail-scroll{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -81,6 +82,14 @@
       <p class="helper">최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
       <div class="detail-links"><a id="clarity-dashboard" class="detail-link-disabled" target="_blank" rel="noopener noreferrer">Clarity 히트맵 · 녹화 열기 ↗</a></div>
     </section>
+    <details class="panel" id="content-catalog" open>
+      <summary>이미지 · 영상 이름 관리</summary>
+      <p>현재 자사몰에서 파일 목록을 불러온 뒤 ‘100℃ 가열 설명’, ‘세척 시연’처럼 이름을 붙여 저장하세요. 같은 이름이 통계에도 표시됩니다. GA4 연결 없이도 목록을 관리할 수 있습니다.</p>
+      <div class="detail-actions"><button id="catalog-import" type="button">자사몰 콘텐츠 불러오기</button><button id="catalog-save" type="button" disabled>이름 저장</button></div>
+      <p id="catalog-message" role="status" aria-live="polite">콘텐츠 목록 확인 중…</p>
+      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
+      <p class="helper">이름은 상품번호·상세 버전별로 이 PC에 저장됩니다. 이미지 미리보기는 분할 구간이 아닌 원본 전체입니다. 콘텐츠 순서·파일을 바꾸면 상세 버전과 자사몰 설치코드도 함께 바꿔 새 목록을 불러오세요. 처음 불러온 목록은 현재 페이지 기준이므로 그 이전에 페이지 구성이 달랐다면 과거 통계와 대조가 필요합니다.</p>
+    </details>
     <section id="detail-empty" class="panel"><h2>설치 후부터 데이터를 확인할 수 있습니다</h2><p>사진별 도달·체류와 영상 재생 분량은 GA4에서 가져옵니다. Clarity 히트맵과 방문 녹화는 위 링크에서 확인합니다. 설치 이전 행동은 소급 수집되지 않습니다.</p></section>
     <div id="detail-results" hidden>
       <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
