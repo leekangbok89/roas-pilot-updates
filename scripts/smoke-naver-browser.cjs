@@ -20,8 +20,8 @@ const write=(name,value)=>{const file=path.join(temp,'.roas-data',name);fs.mkdir
  const base='http://127.0.0.1:3000';
  await page.goto(base+'/display-analysis.html');
  await page.waitForFunction(()=>document.querySelector('#cost-status').textContent.includes('기간과 광고비'));
- assert.equal(await page.title(),'ROAS Pilot | 네이버 데이터 분석');
- assert.equal((await page.locator('[data-app-route="display"]').textContent()).trim(),'네이버 데이터 분석');
+ assert.equal(await page.title(),'ROAS Pilot | 네이버 GFA 분석');
+ assert.equal((await page.locator('[data-app-route="display"]').textContent()).trim(),'네이버 GFA 분석');
  await page.locator('#cost-from').fill('2026-09-01');await page.locator('#cost-to').fill('2026-09-02');
  for(const [channel,value] of [['powerlink','100'],['shopping','200'],['gfa','300']])await page.locator('#cost-'+channel).fill(value);
  await page.locator('#cost-save').click();await page.waitForFunction(()=>document.querySelector('#cost-status').textContent.startsWith('저장 완료'));

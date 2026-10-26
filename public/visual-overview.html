@@ -111,9 +111,9 @@ function displayedCombinedRevenue(day){
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
- gfaSpend:{label:'GFA 광고비',format:'won',naverSpendChannel:'gfa',scope:'네이버 · GFA 입력분',description:'네이버 데이터 분석에 저장한 GFA 광고비입니다. 기간 합계 입력은 일별 균등 배분 추정치입니다.'},
- shoppingSpend:{label:'네이버 쇼핑검색',format:'won',naverSpendChannel:'shopping',scope:'네이버 · 쇼핑검색 입력분',description:'네이버 데이터 분석에 저장한 쇼핑검색 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
- powerlinkSpend:{label:'네이버 파워링크',format:'won',naverSpendChannel:'powerlink',scope:'네이버 · 파워링크 입력분',description:'네이버 데이터 분석에 저장한 파워링크 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
+ gfaSpend:{label:'GFA 광고비',format:'won',naverSpendChannel:'gfa',scope:'네이버 · GFA 입력분',description:'네이버 GFA 분석에 저장한 GFA 광고비입니다. 기간 합계 입력은 일별 균등 배분 추정치입니다.'},
+ shoppingSpend:{label:'네이버 쇼핑검색',format:'won',naverSpendChannel:'shopping',scope:'네이버 · 쇼핑검색 입력분',description:'네이버 GFA 분석에 저장한 쇼핑검색 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
+ powerlinkSpend:{label:'네이버 파워링크',format:'won',naverSpendChannel:'powerlink',scope:'네이버 · 파워링크 입력분',description:'네이버 GFA 분석에 저장한 파워링크 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
 
  smartstoreSpend:{label:'스마트스토어 협력 메타 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어용으로 연결된 Meta 광고계정의 지출입니다. 협력광고 캠페인만 판별한 금액이 아니므로 해당 계정이 협력광고 전용인지 확인해 주세요. 두 채널이 동일 계정이면 구분할 수 없습니다.'},
  mallSpend:{label:'자사몰 메타 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰용으로 연결된 Meta 광고계정의 지출입니다. 구매매출 확인 여부와 상단 채널 필터에 관계없이 해당 계정의 지출을 포함하며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
@@ -162,7 +162,7 @@ function summaryMetricContext(choice=$('channel').value){
 function naverCostMetric(channel,dates,days){
  let value=0,knownDays=0,estimated=false;
  for(const date of dates){const day=days.get(date),amount=day?.naverAdSpend?.[channel];if(!Number.isFinite(amount))continue;value+=amount;knownDays++;estimated||=day.naverAdSpendEstimated===true;}
- return {value:knownDays?value:null,knownDays,completeDays:knownDays,totalDays:dates.length,partial:knownDays>0&&knownDays<dates.length,scope:'네이버 입력분',detail:knownDays?'입력 '+knownDays+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):'미입력 · 네이버 데이터 분석에서 입력하세요.'};
+ return {value:knownDays?value:null,knownDays,completeDays:knownDays,totalDays:dates.length,partial:knownDays>0&&knownDays<dates.length,scope:'네이버 입력분',detail:knownDays?'입력 '+knownDays+'/'+dates.length+'일'+(estimated?' · 기간 합계 균등 배분 추정':''):'미입력 · 네이버 GFA 분석에서 입력하세요.'};
 }
 function summaryMetric(key,context=summaryMetricContext()){
  const definition=summaryCardMetrics[key];

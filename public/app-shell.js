@@ -124,7 +124,7 @@
       displayLink.className = 'app-nav-link';
       displayLink.dataset.appRoute = 'display';
       displayLink.href = '/display-analysis.html';
-      displayLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 13l3-3 3 2 4-5"/></svg><span>네이버 데이터 분석</span>';
+      displayLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3M7 13l3-3 3 2 4-5"/></svg><span>네이버 GFA 분석</span>';
       var costLink = nav.querySelector('[data-app-route="cost"]');
       if (costLink) nav.insertBefore(displayLink, costLink);
       else nav.appendChild(displayLink);
