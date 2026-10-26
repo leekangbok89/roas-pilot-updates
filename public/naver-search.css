@@ -25,7 +25,7 @@ body[data-app-page="search"] .app-main { max-width:none; }
 #search-spend-status[data-tone="error"] { color:var(--app-negative); }
 .search-report-head { justify-content:space-between; }
 body[data-app-page="search"] summary { cursor:pointer; font-weight:600; }
-body[data-app-page="search"] summary .small { margin-left:12px; font-weight:400; }
+body[data-app-page="search"] summary .small { margin-left:12px; font-weight:600; }
 @media(max-width:1000px) { .search-form { grid-template-columns:1fr 1fr; } }
 @media(max-width:620px) { .search-form { grid-template-columns:1fr; } .search-metrics { grid-template-columns:1fr 1fr; } .search-metric strong { font-size:21px; } .search-toolbar label { width:calc(50% - 10px); } .search-toolbar input { min-width:0; width:100%; } }
 

@@ -9,7 +9,7 @@ body[data-app-page="ga4"] .panel,body[data-app-page="ga4"] .toolbar,body[data-ap
 .ga4-connection>summary::-webkit-details-marker,.ga4-guide>summary::-webkit-details-marker{display:none}
 .ga4-connection>summary::before,.ga4-guide>summary::before{content:"";width:7px;height:7px;flex:none;border-right:2px solid var(--app-muted);border-bottom:2px solid var(--app-muted);transform:rotate(-45deg);margin-right:2px}
 .ga4-connection[open]>summary::before,.ga4-guide[open]>summary::before{transform:rotate(45deg);margin-bottom:4px}
-.ga4-connection-summary{font-weight:400}
+.ga4-connection-summary{font-weight:600}
 .ga4-connection-body{padding-top:10px}
 .ga4-connect-form{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin:12px 0 8px}
 body[data-app-page="ga4"] label{display:flex;flex-direction:column}
