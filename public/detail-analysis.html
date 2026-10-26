@@ -18,20 +18,20 @@
     details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
     .detail-links{display:flex;gap:12px;flex-wrap:wrap}.detail-link-disabled{display:none}#definition-table td:first-child{font-family:monospace}
     /* Report-specific contrast and sizing, including the shared desktop zoom. */
-    body[data-app-page="detail"]{--app-text:#101c30;--app-muted:#35465e;--app-border:#a9b9cf;--app-surface:#fff;--app-surface-soft:#e8eef7;--detail-secondary:#35465e;--detail-heading:#dfe8f5;--detail-stripe:#f2f6fc;font-size:17px;font-weight:500}
-    :root[data-theme="dark"] body[data-app-page="detail"]{--app-text:#f5f8ff;--app-muted:#d8e2f1;--app-border:#526983;--app-surface:#111e32;--app-surface-soft:#1b2e49;--detail-secondary:#d8e2f1;--detail-heading:#203650;--detail-stripe:#17283f}
+    body[data-app-page="detail"]{--app-text:#101c30;--app-muted:var(--app-text);--app-border:#a9b9cf;--app-surface:#fff;--app-surface-soft:#e8eef7;--detail-secondary:var(--app-text);--detail-heading:#dfe8f5;--detail-stripe:#f2f6fc;font-size:17px;font-weight:600}
+    :root[data-theme="dark"] body[data-app-page="detail"]{--app-text:#f5f8ff;--app-muted:var(--app-text);--app-border:#526983;--app-surface:#111e32;--app-surface-soft:#1b2e49;--detail-secondary:var(--app-text);--detail-heading:#203650;--detail-stripe:#17283f}
     body[data-app-page="detail"] #app-main .panel{background:var(--app-surface);border:1px solid var(--app-border)!important}
     body[data-app-page="detail"] #app-main .app-page-title{font-size:28px}
     body[data-app-page="detail"] #app-main h2{font-size:20px}
     body[data-app-page="detail"] #app-main summary{font-size:18px}
     body[data-app-page="detail"] .app-main :is(h1,h2,h3,summary,label,button,strong){font-weight:700}
-    body[data-app-page="detail"] .app-main :is(p,li){font-weight:500;line-height:1.65}
+    body[data-app-page="detail"] .app-main :is(p,li){font-weight:600;line-height:1.65}
     body[data-app-page="detail"] .app-main p{color:var(--app-text)}
-    body[data-app-page="detail"] .app-main :is(.app-page-subtitle,.helper,small,.thumb-placeholder){color:var(--detail-secondary);font-size:16px;font-weight:500;line-height:1.65}
+    body[data-app-page="detail"] .app-main :is(.app-page-subtitle,.helper,small,.thumb-placeholder){color:var(--detail-secondary);font-size:16px;font-weight:600;line-height:1.65}
     body[data-app-page="detail"] .app-main :is(label,th){color:var(--app-text);font-size:16px}
     body[data-app-page="detail"] .app-main th{font-weight:700}
     body[data-app-page="detail"] .app-main :is(td,input,select){font-weight:600}
-    body[data-app-page="detail"] .app-main textarea{font-weight:500}
+    body[data-app-page="detail"] .app-main textarea{font-weight:600}
     body[data-app-page="detail"] .app-main :is(.detail-kpis,.detail-scroll,#detail-status,#catalog-message,#settings-message,#detail-connection-status){font-weight:600}
     body[data-app-page="detail"] #app-main :is(table,th,td,button,input,select,textarea){font-size:16px!important}
     body[data-app-page="detail"] #app-main :is(button,input:not([type="checkbox"]),select){min-height:36px}
