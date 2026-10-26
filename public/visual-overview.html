@@ -45,6 +45,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 }
 /* Meta spend cards use the shared app-shell.css rules on every page.
    Do not re-declare a higher-specificity overview grid here. */
+body .app-main #summary-cards .summary-card{position:relative;cursor:grab}
+body .app-main #summary-cards .summary-card > .summary-card-label{padding-right:24px}
+body .app-main #summary-cards .summary-card-move{position:absolute;right:6px;top:6px;min-height:22px;width:22px;padding:0;border:0;background:transparent;color:var(--app-muted);font-size:18px;line-height:22px;cursor:grab}
+body .app-main #summary-cards .summary-card-move:hover,body .app-main #summary-cards .summary-card-move:focus-visible{background:var(--app-accent-soft);color:var(--app-link)}
+body .app-main #summary-cards .summary-card.highlight .summary-card-move{color:inherit}
+body .app-main #summary-cards .summary-card-dragging{opacity:.45;cursor:grabbing}
+body .app-main #summary-cards .summary-card-drop-target{outline:2px solid var(--app-accent);outline-offset:2px}
 </style><link rel="stylesheet" href="/app-shell.css"></head><body data-app-page="overview"><div class="app-nav-rail" id="app-nav-rail"><button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button></div>
 <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert><div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div><nav id="app-nav" class="app-nav" aria-label="워크스페이스"><a class="app-nav-link active" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a><a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a><a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a><a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a><a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a><a class="app-nav-link" data-app-route="ga4" href="/ga4.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/></svg><span>GA4 유입 분석</span></a><a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a></nav><div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div></aside>
 <main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">한눈에 보기</h1><p class="app-page-subtitle">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p></div></header>
@@ -128,6 +135,7 @@ const summaryCardMetrics={
  cost:{label:'상품 원가',format:'won',field:'cost'},fee:{label:'판매 수수료',format:'won',field:'fee'},cpc:{label:'링크 CPC',format:'won'},cpm:{label:'CPM',format:'won'}
 };
 let savedSummaryCardKeys=summaryDefaultCardKeys.slice(),draftSummaryCardKeys=summaryDefaultCardKeys.slice(),summaryCardsEditing=false,summarySettingsMessage='',summarySettingsError=false;
+let summaryDraggingSlot=null,summaryDragBlocked=false;
 let summaryLoading=false,summaryAdLoadedAccounts=new Set(),summaryAdCoverage=new Map();
 function normalizeSummaryCardKeys(value){
  const keys=Array.isArray(value)?value:[];
@@ -384,15 +392,68 @@ function renderSpendBreakdown(){
   card.append(label,line,scope,state);root.append(card);
  }
 }
+function clearSummaryCardDrag(){
+ summaryDraggingSlot=null;
+ $('summary-cards')?.querySelectorAll('.summary-card-dragging,.summary-card-drop-target').forEach(card=>card.classList.remove('summary-card-dragging','summary-card-drop-target'));
+}
+function moveSummaryCard(from,to,focus=false){
+ const keys=summaryCardsEditing?draftSummaryCardKeys:savedSummaryCardKeys;
+ if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<0||from>=keys.length||to>=keys.length||from===to)return;
+ const next=keys.slice(),[moved]=next.splice(from,1);next.splice(to,0,moved);
+ if(summaryCardsEditing){
+  draftSummaryCardKeys=next;summarySettingsMessage='지표 순서를 바꿨습니다. 설정 저장을 누르면 고정됩니다.';
+ }else{
+  try{localStorage.setItem(summaryCardStorageKey,JSON.stringify(next));}
+  catch{summarySettingsMessage='지표 순서를 저장하지 못했습니다. 기존 순서를 유지합니다. 브라우저의 저장 공간을 확인해 주세요.';summarySettingsError=true;renderSummaryCards();return;}
+  savedSummaryCardKeys=next;draftSummaryCardKeys=next.slice();summarySettingsMessage='지표 순서를 자동 저장했습니다. 이 브라우저에서 유지됩니다.';
+ }
+ summarySettingsError=false;renderSummaryCards();
+ if(focus)$('summary-cards').querySelector('[data-summary-slot="'+to+'"] .summary-card-move')?.focus({preventScroll:true});
+}
+function setupSummaryCardDrag(){
+ const root=$('summary-cards'),interactive='select,input,textarea,button,a,summary,[contenteditable]';
+ root.onpointerdown=event=>{summaryDragBlocked=!!event.target.closest(interactive)&&!event.target.closest('.summary-card-move');};
+ root.ondragstart=event=>{
+  const card=event.target.closest('[data-summary-slot]');
+  if(!card||summaryDragBlocked||event.target.closest(interactive)&&!event.target.closest('.summary-card-move')){event.preventDefault();return;}
+  summaryDraggingSlot=Number(card.dataset.summarySlot);
+  event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',String(summaryDraggingSlot));card.classList.add('summary-card-dragging');
+ };
+ root.ondragover=event=>{
+  if(summaryDraggingSlot===null)return;
+  const card=event.target.closest('[data-summary-slot]');if(!card)return;
+  event.preventDefault();event.dataTransfer.dropEffect='move';
+  root.querySelectorAll('.summary-card-drop-target').forEach(node=>node.classList.remove('summary-card-drop-target'));
+  if(Number(card.dataset.summarySlot)!==summaryDraggingSlot)card.classList.add('summary-card-drop-target');
+ };
+ root.ondragleave=event=>{const card=event.target.closest('[data-summary-slot]');if(card&&!card.contains(event.relatedTarget))card.classList.remove('summary-card-drop-target');};
+ root.ondrop=event=>{
+  if(summaryDraggingSlot===null)return;
+  event.preventDefault();const card=event.target.closest('[data-summary-slot]'),from=summaryDraggingSlot;
+  clearSummaryCardDrag();if(card)moveSummaryCard(from,Number(card.dataset.summarySlot));
+ };
+ root.ondragend=clearSummaryCardDrag;
+ root.onkeydown=event=>{
+  const handle=event.target.closest('.summary-card-move');if(!handle||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  event.preventDefault();
+  const from=Number(handle.closest('[data-summary-slot]').dataset.summarySlot),keys=summaryCardsEditing?draftSummaryCardKeys:savedSummaryCardKeys;
+  const slots=keys.flatMap((key,index)=>summaryCardsEditing||key?[index]:[]),position=slots.indexOf(from);
+  const target=event.key==='Home'?0:event.key==='End'?slots.length-1:position+(event.key==='ArrowLeft'?-1:1);
+  if(target>=0&&target<slots.length)moveSummaryCard(from,slots[target],true);
+ };
+}
 function renderSummaryCards(){
  renderSpendBreakdown();
  const root=$('summary-cards');if(!root)return;
  const keys=summaryCardsEditing?draftSummaryCardKeys:savedSummaryCardKeys,context=summaryMetricContext(),usedIds=new Set();
- root.replaceChildren();root.setAttribute('aria-busy',String(summaryLoading));
+ clearSummaryCardDrag();root.replaceChildren();root.setAttribute('aria-busy',String(summaryLoading));
  keys.forEach((key,index)=>{
   if(!key&&!summaryCardsEditing)return;
   const definition=summaryCardMetrics[key];
   const card=document.createElement('article');card.className='metric summary-card'+(key==='roas'?' highlight':'');card.setAttribute('data-summary-slot',String(index));card.setAttribute('data-summary-key',key);
+  card.draggable=true;
+  const handle=document.createElement('button');handle.type='button';handle.className='summary-card-move';handle.draggable=true;handle.textContent='⠿';
+  handle.title='드래그하여 순서 변경 · 왼쪽/오른쪽 방향키로 이동';handle.setAttribute('aria-label',(definition?.label||'빈 지표')+' 순서 이동');card.append(handle);
   if(definition?.description)card.title=definition.description;
   const heading=document.createElement(summaryCardsEditing?'label':'small');heading.className='summary-card-label';heading.textContent=summaryCardsEditing?(index+1)+'번 지표':definition.label;
   if(summaryCardsEditing){
@@ -432,16 +493,17 @@ function renderSummaryCards(){
  $('summary-card-count').textContent=count+(summaryCardsEditing?'개 선택':'개 표시')+' · 최대 12개';
  if(!summaryCardsEditing&&!count){const notice=document.createElement('p');notice.className='summary-cards-empty small';notice.textContent='지표 설정에서 표시할 지표를 선택해 주세요.';root.append(notice);}
  $('summary-edit').hidden=summaryCardsEditing;$('summary-edit').setAttribute('aria-expanded',String(summaryCardsEditing));$('summary-edit-actions').hidden=!summaryCardsEditing;
- const status=$('summary-settings-status');status.textContent=summarySettingsMessage;status.setAttribute('data-error',String(summarySettingsError));
+ const status=$('summary-settings-status');status.textContent=summarySettingsMessage||'카드를 드래그하면 순서가 바뀌고 자동 저장됩니다.';status.setAttribute('data-error',String(summarySettingsError));
  renderSummaryRoasAudit(keys);
  renderCafeRevenueDiagnostic();
 }
 function setupSummaryCards(){
+ setupSummaryCardDrag();
  $('cafe-revenue-copy').onclick=copyCafeRevenueDiagnostic;
  try{const saved=localStorage.getItem(summaryCardStorageKey);savedSummaryCardKeys=normalizeSummaryCardKeys(saved===null?null:JSON.parse(saved));}
  catch{savedSummaryCardKeys=summaryDefaultCardKeys.slice();summarySettingsMessage='저장된 지표 설정을 읽을 수 없어 기본 구성으로 표시합니다.';summarySettingsError=true;}
  draftSummaryCardKeys=savedSummaryCardKeys.slice();
- $('summary-edit').onclick=()=>{draftSummaryCardKeys=savedSummaryCardKeys.slice();summaryCardsEditing=true;summarySettingsMessage='사용하지 않을 칸은 ‘선택 안 함’으로 두고 설정 저장을 누르세요.';summarySettingsError=false;renderSummaryCards();$('summary-choice-0')?.focus?.({preventScroll:true});};
+ $('summary-edit').onclick=()=>{draftSummaryCardKeys=savedSummaryCardKeys.slice();summaryCardsEditing=true;summarySettingsMessage='카드를 드래그하여 순서를 바꿀 수 있습니다. 사용하지 않을 칸은 ‘선택 안 함’으로 두고 설정 저장을 누르세요.';summarySettingsError=false;renderSummaryCards();$('summary-choice-0')?.focus?.({preventScroll:true});};
  $('summary-cancel').onclick=()=>{draftSummaryCardKeys=savedSummaryCardKeys.slice();summaryCardsEditing=false;summarySettingsMessage='변경을 취소했습니다.';summarySettingsError=false;renderSummaryCards();$('summary-edit').focus?.({preventScroll:true});};
  $('summary-defaults').onclick=()=>{draftSummaryCardKeys=summaryDefaultCardKeys.slice();summarySettingsMessage='기본 구성으로 바꿨습니다. 설정 저장을 누르면 고정됩니다.';summarySettingsError=false;renderSummaryCards();};
  $('summary-save').onclick=()=>{
