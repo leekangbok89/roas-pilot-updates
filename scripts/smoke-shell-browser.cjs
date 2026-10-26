@@ -180,7 +180,7 @@ async function hoverOverlay(){
  assert.equal(icons.length,expectedLabels.length,'Each navigation item retains its compact icon');
  for(const icon of icons)assert.ok(Math.abs(icon.width-17)<0.1&&Math.abs(icon.height-17)<0.1,'Navigation icons must be17px, never the hundreds of pixels seen with missing shell CSS: '+JSON.stringify(icon));
  const labelSizes=await page.locator(selectors.links).evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).fontSize));
- assert.deepEqual(labelSizes,expectedLabels.map(()=> '13px'),'All sidebar labels are 13px');
+ assert.deepEqual(labelSizes,expectedLabels.map(()=> '12px'),'All sidebar labels are 12px');
  sameBox(initial,await mainBox(),'Hovered navigation overlay');
  await page.mouse.move(900,650);await shellState(false);
  sameBox(initial,await mainBox(),'Closed navigation overlay');
@@ -244,10 +244,23 @@ async function verifyBrowserScenario(){
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(base+'/'))return route.continue();externalRequests.push(url);return route.abort();});
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
+ async function readSharedSpend(context){
+  await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===3&&
+   [...document.querySelectorAll('#ad-spend-breakdown [data-spend-key] strong')].every(el=>el.textContent!=='—'&&el.textContent.endsWith('원')));
+  const got=await page.locator('#ad-spend-breakdown [data-spend-key]').evaluateAll(nodes=>nodes.map(node=>({
+   key:node.dataset.spendKey,label:node.querySelector('.roas-shared-spend-title')?.textContent,
+   amount:node.querySelector('strong')?.textContent
+  })));
+  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend'],context);
+  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비']);
+  return got.map(item=>item.amount);
+ }
+ const originalSpend=await readSharedSpend('한눈에 보기');
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
    await go(route.url);assert.deepEqual(await labelList(),expectedLabels,'Shared navigation labels/order on '+route.url);
+   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Three spend values must be identical on overview, diagnosis and cost pages over the same period');
    assert.deepEqual(await activeLabel(),[route.active]);
    const current=await typography();
    for(const key of ['body','title','button','input','select','table'])assert.ok(current[key],key+' must have a visible sample on '+route.url);
@@ -258,6 +271,10 @@ async function verifyBrowserScenario(){
   pass(width+'px: pages retain folded overview/removed AI and share visible fonts, controls, tables, spacing, navigation, and non-shifting hover rail');
  }
 
+ await go('/#data-source');
+ assert.deepEqual(await readSharedSpend('설정 관리'),originalSpend);
+ await go('/display-analysis.html');
+ await readSharedSpend('디스플레이 분석');
  await page.setViewportSize({width:1440,height:1100});
  for(const mode of ['light','dark']){
   for(const route of routes){
