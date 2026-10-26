@@ -17,18 +17,30 @@
     .video-thumb{width:110px;flex:none}.video-thumb a{display:block;position:relative;width:110px;height:88px;border-radius:6px;background:var(--app-surface-soft);overflow:hidden}.video-thumb img,.video-thumb canvas{display:block;width:110px;height:88px;object-fit:contain}.video-thumb .thumb-placeholder{display:flex;align-items:center;justify-content:center;width:110px;height:88px;text-align:center;font-size:12px;color:var(--app-muted)}.thumb-upload{display:block;font-size:12px;cursor:pointer;text-decoration:underline}.thumb-upload input{display:none}.thumb-message{max-width:140px;font-size:12px;white-space:normal}
     details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
     .detail-links{display:flex;gap:12px;flex-wrap:wrap}.detail-link-disabled{display:none}#definition-table td:first-child{font-family:monospace}
-    /* Keep the compact layout while giving this report stronger, readable type. */
-    body[data-app-page="detail"]{--detail-secondary:#3d506a;font-weight:500}
-    :root[data-theme="dark"] body[data-app-page="detail"]{--detail-secondary:#d0dbee}
+    /* Report-specific contrast and sizing, including the shared desktop zoom. */
+    body[data-app-page="detail"]{--app-text:#101c30;--app-muted:#35465e;--app-border:#a9b9cf;--app-surface:#fff;--app-surface-soft:#e8eef7;--detail-secondary:#35465e;--detail-heading:#dfe8f5;--detail-stripe:#f2f6fc;font-size:17px;font-weight:500}
+    :root[data-theme="dark"] body[data-app-page="detail"]{--app-text:#f5f8ff;--app-muted:#d8e2f1;--app-border:#526983;--app-surface:#111e32;--app-surface-soft:#1b2e49;--detail-secondary:#d8e2f1;--detail-heading:#203650;--detail-stripe:#17283f}
+    body[data-app-page="detail"] #app-main .panel{background:var(--app-surface);border:1px solid var(--app-border)!important}
+    body[data-app-page="detail"] #app-main .app-page-title{font-size:28px}
+    body[data-app-page="detail"] #app-main h2{font-size:20px}
+    body[data-app-page="detail"] #app-main summary{font-size:18px}
     body[data-app-page="detail"] .app-main :is(h1,h2,h3,summary,label,button,strong){font-weight:700}
     body[data-app-page="detail"] .app-main :is(p,li){font-weight:500;line-height:1.65}
     body[data-app-page="detail"] .app-main p{color:var(--app-text)}
-    body[data-app-page="detail"] .app-main :is(.app-page-subtitle,.helper,small,.thumb-placeholder){color:var(--detail-secondary);font-weight:500;line-height:1.6}
-    body[data-app-page="detail"] .app-main :is(label,th){color:var(--app-text)}
+    body[data-app-page="detail"] .app-main :is(.app-page-subtitle,.helper,small,.thumb-placeholder){color:var(--detail-secondary);font-size:16px;font-weight:500;line-height:1.65}
+    body[data-app-page="detail"] .app-main :is(label,th){color:var(--app-text);font-size:16px}
     body[data-app-page="detail"] .app-main th{font-weight:700}
     body[data-app-page="detail"] .app-main :is(td,input,select){font-weight:600}
     body[data-app-page="detail"] .app-main textarea{font-weight:500}
     body[data-app-page="detail"] .app-main :is(.detail-kpis,.detail-scroll,#detail-status,#catalog-message,#settings-message,#detail-connection-status){font-weight:600}
+    body[data-app-page="detail"] #app-main :is(table,th,td,button,input,select,textarea){font-size:16px!important}
+    body[data-app-page="detail"] #app-main :is(button,input:not([type="checkbox"]),select){min-height:36px}
+    body[data-app-page="detail"] #app-main .detail-table :is(th,td){padding:12px;line-height:1.65}
+    body[data-app-page="detail"] #app-main .detail-table th{background:var(--detail-heading)}
+    body[data-app-page="detail"] #app-main .detail-table tbody tr:nth-child(even){background:var(--detail-stripe)}
+    body[data-app-page="detail"] #app-main .detail-scroll article{background:var(--app-surface-soft)}
+    body[data-app-page="detail"] #app-main .detail-grid :is(label,input){min-width:0;max-width:100%}
+    @media screen and (min-width:1000px) and (hover:hover) and (pointer:fine){body[data-app-page="detail"] #app-main{zoom:.9;margin-left:calc(var(--app-rail-width) / .9);min-height:calc(100vh / .9)}}
     @media(max-width:800px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-kpis{grid-template-columns:1fr}.detail-scroll{grid-template-columns:repeat(2,minmax(0,1fr))}}
   </style>
 </head>
