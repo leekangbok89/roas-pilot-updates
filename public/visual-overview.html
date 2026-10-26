@@ -76,7 +76,7 @@ let storeSales=new Map(),profitDays=new Map(),profitFees={naver:7,cafe24:3.5},pr
 let cafeRevenueRecoveryJob=null,cafeRevenueRecoveryPolling=false,cafeRevenueRecoveryStarting=false,detailRepairStarting=false,recent3Refreshing=false;
 const data={naver:[],cafe:[]},currency={naver:'USD',cafe:'USD'};let rates=1350,connectedAccounts={naver:'',cafe:''};
 try{const savedFx=Number(localStorage.getItem('roas-meta-spend-fx-v1'));if(Number.isFinite(savedFx)&&savedFx>0)rates=savedFx;}catch{}
-const metrics={smartstoreRevenue:'스마트스토어 매출',mallRevenue:'자사몰 매출',totalStoreRevenue:'통합 매출',profit:'통합 예상 이익',spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크',revenue:'Meta 귀속 구매매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR',cpa:'구매 CPA'};
+const metrics={smartstoreRevenue:'스마트스토어 매출',mallRevenue:'자사몰 매출',totalStoreRevenue:'통합 매출',profit:'통합 예상 이익',spend:'총 광고비',smartstoreSpend:'스마트스토어 협력 메타 광고비',mallSpend:'자사몰 메타 광고비',gfaSpend:'GFA 광고비',searchSpend:'검색광고 (네이버쇼핑 + 파워링크)',shoppingSpend:'네이버 쇼핑검색',powerlinkSpend:'네이버 파워링크',revenue:'Meta 귀속 구매매출',purchases:'구매수',roas:'ROAS',clicks:'클릭수',ctr:'CTR',cpa:'구매 CPA'};
 function normalize(row,channel){
  const rawSpend=metricNumber(row.spend),code=String(row.account_currency||currency[channel]||'').toUpperCase(),factor=code==='USD'?rates:code==='KRW'?1:null;
  const spendKnown=rawSpend!==null&&rawSpend>=0&&Number.isFinite(factor)&&factor>0;
@@ -111,13 +111,14 @@ function displayedCombinedRevenue(day){
 const summaryCardStorageKey='roas-overview-summary-cards-v1';
 const summaryDefaultCardKeys=['spend','revenue','roas','cpa','purchases','ctr','impressions','clicks','smartstoreRevenue','mallRevenue','totalStoreRevenue','profit'];
 const summaryCardMetrics={
- gfaSpend:{label:'GFA 광고비',format:'won',naverSpendChannel:'gfa',scope:'네이버 · GFA 입력분',description:'네이버 GFA 분석에 저장한 GFA 광고비입니다. 기간 합계 입력은 일별 균등 배분 추정치입니다.'},
+ searchSpend:{label:'검색광고 (네이버쇼핑 + 파워링크)',format:'won',adMetric:'spend',scope:'네이버 검색광고 API 우선 · 수동 보충',description:'위마망으로 선택한 네이버 쇼핑검색과 파워링크 캠페인 지출의 합계입니다. 같은 날짜의 수동 입력과 중복 계산하지 않습니다.'},
+ gfaSpend:{label:'GFA 광고비',format:'won',adMetric:'spend',naverSpendChannel:'gfa',scope:'네이버 · GFA 입력분',description:'네이버 GFA 분석에 저장한 GFA 광고비입니다. 기간 합계 입력은 일별 균등 배분 추정치입니다.'},
  shoppingSpend:{label:'네이버 쇼핑검색',format:'won',naverSpendChannel:'shopping',scope:'네이버 · 쇼핑검색 입력분',description:'네이버 GFA 분석에 저장한 쇼핑검색 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
  powerlinkSpend:{label:'네이버 파워링크',format:'won',naverSpendChannel:'powerlink',scope:'네이버 · 파워링크 입력분',description:'네이버 GFA 분석에 저장한 파워링크 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
 
  smartstoreSpend:{label:'스마트스토어 협력 메타 광고비',format:'won',adMetric:'spend',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어용으로 연결된 Meta 광고계정의 지출입니다. 협력광고 캠페인만 판별한 금액이 아니므로 해당 계정이 협력광고 전용인지 확인해 주세요. 두 채널이 동일 계정이면 구분할 수 없습니다.'},
  mallSpend:{label:'자사몰 메타 광고비',format:'won',adMetric:'spend',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰용으로 연결된 Meta 광고계정의 지출입니다. 구매매출 확인 여부와 상단 채널 필터에 관계없이 해당 계정의 지출을 포함하며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
- spend:{label:'총 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta · 전체 연결 계정',description:'선택 기간의 연결된 Meta 광고 계정 지출과 저장된 네이버 광고비 입력분 합계입니다. 스마트스토어·자사몰이 동일 계정이면 한 번만 집계하고, 미수집 데이터는 확인분으로 구분합니다.'},
+ spend:{label:'총 광고비',format:'won',adMetric:'spend',adScope:'all',scope:'Meta + GFA + 검색광고',description:'메타 스마트스토어·자사몰 광고비 + GFA 광고비 + 쇼핑검색·파워링크 합계입니다. 네이버 검색 API가 확인된 날짜는 수동 입력과 중복 합산하지 않습니다.'},
  revenue:{label:'Meta 귀속 구매매출',format:'won'},
  roas:{label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 상단 채널 필터와 관계없이 전체 연결 계정 기준입니다.'},
  mallRoas:{label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 상단 채널 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
@@ -183,6 +184,16 @@ function summaryMetric(key,context=summaryMetricContext()){
  const isRoas=definition.adMetric==='roas',isSpend=definition.adMetric==='spend',scope=definition.scope||(definition.field?'전체 연결 · 위마망':context.scope);
  if(summaryLoading||!totalDays)return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:summaryLoading?'기간 데이터 조회 중…':'조회 기간을 선택해 주세요.'};
  if(definition.naverSpendChannel){const cost=naverCostMetric(definition.naverSpendChannel,context.dates,profitDays);return {...cost,scope:cost.apiDays?cost.scope:definition.scope};}
+ if(key==='searchSpend'){
+  const amounts=context.dates.map(date=>{
+   const items=profitDays.get(date)?.naverAdSpend||{},shopping=items.shopping,powerlink=items.powerlink;
+   return !Number.isFinite(shopping)&&!Number.isFinite(powerlink)?null:
+    (Number.isFinite(shopping)?shopping:0)+(Number.isFinite(powerlink)?powerlink:0);
+  }),known=amounts.filter(Number.isFinite);
+  return {value:known.length?known.reduce((sum,x)=>sum+x,0):null,
+   partial:known.length<context.dates.length,knownDays:known.length,completeDays:known.length,totalDays:context.dates.length,
+   scope:definition.scope,detail:known.length?'확인 '+known.length+'/'+context.dates.length+'일 · 검색 API 우선':'검색광고 자료 미확인'};
+ }
  if(definition.adScope){
   const connected=definition.adScope==='all'?connectedAccounts.naver||connectedAccounts.cafe:connectedAccounts[definition.adScope];
   if(!connected&&!(key==='spend'&&context.dates.some(date=>Object.values(profitDays.get(date)?.naverAdSpend||{}).some(Number.isFinite))))return {value:null,partial:false,knownDays:0,completeDays:0,totalDays,scope,detail:'광고계정 미연결'};
