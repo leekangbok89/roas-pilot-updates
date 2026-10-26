@@ -7,7 +7,7 @@
   function number(v){if(v===null||v===undefined||String(v).trim()==='')return null;const s=String(v).replace(/[₩￦,\s%]/g,'').replace(/원|회|건/g,'');return /^\d+(\.\d+)?$/.test(s)&&Number.isFinite(+s)?+s:null;}
   function sum(rows,key){return rows.length&&rows.every(r=>r[key]!==null&&r[key]!==undefined)?rows.reduce((s,r)=>s+r[key],0):null;}
   const rate=(n,d,factor=100)=>n!==null&&d>0?n/d*factor:null;
-  function dates(value){const found=String(value??'').match(/20\d{2}[.\-\/]\s*\d{1,2}[.\-\/]\s*\d{1,2}/g)||[];return found.map(s=>s.split(/[.\-\/]/).map(x=>x.trim()).map((x,i)=>i?x.padStart(2,'0'):x).join('-')).filter(validDate);}
+  function dates(value){const found=String(value??'').match(/20\d{2}[.\-\/]\s*\d{1,2}[.\-\/]\s*\d{1,2}|(?<!\d)20\d{6}(?!\d)/g)||[];return found.map(s=>/^20\d{6}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6):s.split(/[.\-\/]/).map(x=>x.trim()).map((x,i)=>i?x.padStart(2,'0'):x).join('-')).filter(validDate);}
   function range(since,until){if(!validDate(since)||!validDate(until)||since>until||(at(until)-at(since))/day>365)throw Object.assign(Error('시작일과 종료일을 확인하세요. 한 번에 최대 366일을 저장할 수 있습니다.'),{status:400});}
   function delimited(text){
     const separator=text.split(/\r?\n/).slice(0,15).some(s=>s.includes('\t'))?'\t':',';
