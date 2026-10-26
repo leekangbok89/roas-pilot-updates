@@ -264,20 +264,17 @@ async function verifyBrowserScenario(){
  async function readSharedSpend(context){
   await page.waitForFunction(()=>document.querySelectorAll('#ad-spend-breakdown [data-spend-key]').length===1&&
    document.querySelector('#ad-spend-breakdown .roas-spend-rollup-trigger strong')?.textContent.endsWith('원'));
-  const root=page.locator('#ad-spend-breakdown');
-  assert.equal(await root.locator('.roas-spend-rollup-trigger').count(),1,'Only one total spend card is visible: '+context);
-  const got=await root.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(node=>({
+  const root=page.locator('#ad-spend-breakdown'),trigger=root.locator('.roas-spend-rollup-trigger');
+  assert.equal(await trigger.count(),1,'Exactly one total spend card is visible on '+context);
+  const lines=await root.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(node=>({
    key:node.dataset.spendLine,label:node.querySelector('.roas-spend-line-label')?.textContent,
    amount:node.querySelector('.roas-spend-line-amount')?.textContent
   })));
-  assert.deepEqual(got.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
-  assert.deepEqual(got.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
-  assert.equal(await root.locator('.roas-spend-rollup-trigger').getAttribute('aria-expanded'),'false');
-  return got.map(item=>item.amount);
+  assert.deepEqual(lines.map(item=>item.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
+  assert.deepEqual(lines.map(item=>item.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
+  return lines.map(item=>item.amount);
  }
  const originalSpend=await readSharedSpend('한눈에 보기');
- // Regression: the overview owns the spend block after the date toolbar;
- // shared navigation code must not lift or duplicate it into the page header.
  const overviewPlacement=await page.evaluate(()=>{
   const root=document.getElementById('ad-spend-breakdown'),heading=root?.previousElementSibling,alert=document.getElementById('alert');
   const toolbar=document.getElementById('reload')?.closest('section');
@@ -285,21 +282,18 @@ async function verifyBrowserScenario(){
    headingClass:heading?.className,afterAlert:heading?.previousElementSibling===alert,
    afterToolbar:!!toolbar&&Boolean(toolbar.compareDocumentPosition(heading)&Node.DOCUMENT_POSITION_FOLLOWING)};
  });
- assert.equal(overviewPlacement.rootCount,1,'Only one spend strip can exist');
+ assert.equal(overviewPlacement.rootCount,1,'Only one spend widget can exist');
  assert.equal(overviewPlacement.headingClass,'ad-spend-heading');
- assert.equal(overviewPlacement.afterAlert,true,'The strip stays after the overview toolbar and alert');
+ assert.equal(overviewPlacement.afterAlert,true,'Spend widget stays after the overview toolbar and alert');
  assert.equal(overviewPlacement.afterToolbar,true);
- // Hover and keyboard-click both reveal the same five-line disclosure.
  const root=page.locator('#ad-spend-breakdown'),trigger=root.locator('.roas-spend-rollup-trigger'),popover=root.locator('.roas-spend-popover');
  assert.equal(await popover.isVisible(),false);
- await trigger.hover();assert.equal(await popover.isVisible(),true,'Hover reveals the breakdown');
+ await trigger.hover();assert.equal(await popover.isVisible(),true,'Mouse hover reveals all five spend lines');
  assert.equal(await root.locator('[data-spend-line]').count(),5);
  await page.mouse.move(900,700);assert.equal(await popover.isVisible(),false);
  await trigger.click();assert.equal(await trigger.getAttribute('aria-expanded'),'true');
- assert.equal(await popover.isVisible(),true,'Click opens the popover without hover');
+ assert.equal(await popover.isVisible(),true,'Click reveals breakdown for touch/keyboard users');
  await trigger.focus();await page.keyboard.press('Escape');assert.equal(await trigger.getAttribute('aria-expanded'),'false');
- // Responsive checks: one card stays readable and the popover cannot overflow
- // the viewport or mask another menu's navigation.
  for(const width of [390,700,768,920,1024,1280,1440,1920]){
   await page.setViewportSize({width,height:1000});
   const geometry=await page.evaluate(()=>{
@@ -309,8 +303,7 @@ async function verifyBrowserScenario(){
   });
   assert.equal(geometry.lineCount,5);
   assert.ok(geometry.rect.width>110&&geometry.rect.height>50,'Total spend card remains legible at '+width+'px');
-  assert.ok(geometry.rect.left>=-1&&geometry.rect.right<=geometry.viewport+2,
-   'Spend card does not overflow at '+width+'px: '+JSON.stringify(geometry.rect));
+  assert.ok(geometry.rect.left>=-1&&geometry.rect.right<=geometry.viewport+2,'Spend card must not overflow at '+width+'px');
  }
 
  for(const width of [1280,1920]){
