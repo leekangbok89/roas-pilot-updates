@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep the legacy-updater fallback in the already-managed server.js file.
-// public/app-shell.* remain the editable source of truth.
+// public/app-shell.* and public/display-analysis.html remain the editable sources of truth.
 const fs=require('node:fs');
 const path=require('node:path');
 
@@ -17,12 +17,12 @@ function main(){
   const start=source.indexOf(begin),finish=source.indexOf(end);
   if(start<0||finish<start||source.indexOf(begin,start+begin.length)>=0||source.indexOf(end,finish+end.length)>=0)throw Error('Expected one generated shell-assets marker block in server.js');
   const assets={};
-  for(const name of ['app-shell.css','app-shell.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
+  for(const name of ['app-shell.css','app-shell.js','display-analysis.html'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
   const block=begin+'\nconst bundledShellAssets=Object.freeze('+JSON.stringify(assets,null,2)+');\n'+end;
   const output=source.slice(0,start)+block+source.slice(finish+end.length);
   if(args[0]==='--check'){
     if(output!==source)throw Error('Shared-shell fallback is stale. Run node scripts/bundle-shell.cjs and commit server.js.');
-    console.log('Shared-shell fallback matches both public assets.');
+    console.log('Shared-shell fallback matches all public fallback assets.');
     return;
   }
   if(output!==source)fs.writeFileSync(serverFile,output);

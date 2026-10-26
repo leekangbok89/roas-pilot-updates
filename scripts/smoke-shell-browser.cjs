@@ -65,6 +65,8 @@ function prepareInstallation(){
   for(const relative of shellAssets)fs.rmSync(path.join(temp,relative),{force:true});
    // Legacy copiers do not include this new page; it must be served by server.js fallback.
    fs.rmSync(path.join(temp,'public/meta-experiments.html'),{force:true});
+   // Older updater builds do not include this view in managedFiles.
+   fs.rmSync(path.join(temp,'public/display-analysis.html'),{force:true});
   const previousVersion=scenario==='legacy-v72-upgrade'?'2.8.72':'2.8.73';
   const pkg=JSON.parse(fs.readFileSync(path.join(temp,'package.json'),'utf8'));
   fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({...pkg,version:previousVersion}));
@@ -74,6 +76,7 @@ function prepareInstallation(){
   assert.equal(JSON.parse(fs.readFileSync(path.join(temp,'package.json'),'utf8')).version,JSON.parse(fs.readFileSync(path.join(source,'package.json'),'utf8')).version,'Updater installs the candidate package version');
  }
  for(const relative of shellAssets)assert.equal(fs.existsSync(path.join(temp,relative)),scenario!=='legacy-v72-upgrade','Expected installed shell asset boundary for '+scenario+': '+relative);
+ assert.equal(fs.existsSync(path.join(temp,'public/display-analysis.html')),scenario==='fresh-install','Historical updater should miss the new display page and exercise bundled fallback');
  assert.deepEqual(snapshotSavedFiles(),before,'Updating must preserve saved orders, costs, credentials, and settings byte for byte');
  pass('installation reproduces historical managed-file copying and preserves local data/credential bytes');
 }
@@ -97,7 +100,7 @@ async function stopServer(){
  child=null;
 }
 async function verifyAssetDelivery(){
- for(const [asset,type] of [['app-shell.css','text/css'],['app-shell.js','application/javascript']]){
+ for(const [asset,type] of [['app-shell.css','text/css'],['app-shell.js','application/javascript'],['display-analysis.html','text/html']]){
   const response=await fetch(base+'/'+asset);
   assert.equal(response.status,200,'Shell asset responds even if the legacy updater never installed it: '+asset);
   assert.ok(response.headers.get('content-type').startsWith(type),'Correct MIME type for '+asset);
@@ -106,7 +109,7 @@ async function verifyAssetDelivery(){
   assert.equal(await response.text(),fs.readFileSync(path.join(source,'public',asset),'utf8'),'Served shell matches the shipped source');
  }
  assert.equal((await fetch(base+'/not-a-shell-file.js')).status,404,'Unrelated missing assets must remain 404');
- pass('CSS and JavaScript return current source with correct MIME/cache headers; unrelated missing assets stay404');
+ pass('Shell CSS, JS and display page return current source with correct MIME/cache headers; unrelated assets stay404');
 }
 async function shellState(expanded){
  await page.waitForFunction(({selector,expanded})=>document.querySelector(selector)?.getAttribute('aria-expanded')===String(expanded),{selector:selectors.toggle,expanded});
