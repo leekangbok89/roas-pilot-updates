@@ -60,7 +60,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     pass('visible video playback completes once; autoplay offscreen and seek-to-end do not');
     await page.close();
     const ui=await browser.newPage({viewport:{width:1440,height:1000},locale:'ko-KR',timezoneId:'Asia/Seoul'});
-    ui.on('pageerror',e=>errors.push(e.message));let saved={...DETAIL_DEFAULTS},mode='ready',catalog={productId:'458',contentVersion:'v1',items:[],importedAt:null};
+    ui.on('pageerror',e=>errors.push(e.message));let saved={...DETAIL_DEFAULTS},mode='ready',reportRequests=[],catalog={productId:'458',contentVersion:'v1',items:[],importedAt:null};
     const raw={dimensionHeaders:['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name=>({name})),metricHeaders:['eventCount','customEvent:rp_visible_ms'].map(name=>({name})),rows:[['rp_detail_view','page','page','100','0'],['rp_content_view','image_001_p01','image','80','0'],['rp_content_time','image_001_p01','image','3','400000']].map(r=>({dimensionValues:r.slice(0,3).map(value=>({value})),metricValues:r.slice(3).map(value=>({value}))}))};
     const report=assembleDetailReport(raw,{since:'2026-10-19',until:'2026-10-25',productId:'458',contentVersion:'v1'},true);
     await ui.route('**/*',async route=>{
@@ -78,7 +78,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
         }
         return route.fulfill({json:catalog});
       }
-      if(p==='/api/ga4/detail-report')return mode==='error'?route.fulfill({status:502,json:{error:'합성 오류 <img src=x onerror="window.injected=1">'}}):route.fulfill({json:mode==='setup'?{state:'setup_required',missing:['rp_content_id']}:mode==='zero'?{state:'no_data',rows:[]}:report});
+      if(p==='/api/ga4/detail-report'){reportRequests.push({mode,url:url.toString()});return mode==='error'?route.fulfill({status:502,json:{error:'합성 오류 <img src=x onerror="window.injected=1">'}}):route.fulfill({json:mode==='setup'?{state:'setup_required',missing:['rp_content_id']}:mode==='zero'?{state:'no_data',rows:[]}:report});}
       const file=path.join(base,'public',p.slice(1));if(fs.existsSync(file))return route.fulfill({path:file});return route.fulfill({status:404,body:'missing'});
     });
     await ui.goto('http://127.0.0.1:3000/detail-analysis.html');await ui.mouse.move(900,700);await ui.keyboard.press('Escape');await ui.locator('#install-output').waitFor({state:'visible'});
@@ -109,7 +109,25 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     await ui.screenshot({path:path.join(base,'..','detail-analysis-qa.png'),fullPage:true});
     assert.equal(await ui.locator('#app-nav [data-app-route="detail"]').getAttribute('aria-current'),'page');
     await ui.locator('#app-theme-toggle').click();assert.equal(await ui.locator('html').getAttribute('data-theme'),'light');
-    for(const m of ['error','setup','zero']){mode=m;await ui.locator('#detail-refresh').click();await ui.waitForFunction(()=>!document.querySelector('#detail-refresh').disabled);assert.equal(await ui.locator('#detail-results').isVisible(),false);}
+    for(const m of ['error','setup','zero']){
+      mode=m;
+      const count=reportRequests.length;
+      await ui.locator('#detail-refresh').click();
+      try{
+        await ui.waitForFunction(()=>!document.querySelector('#detail-refresh').disabled,null,{timeout:8000});
+      }catch(error){
+        const state=await ui.evaluate(()=>({
+          disabled:document.querySelector('#detail-refresh').disabled,
+          status:document.querySelector('#detail-status').textContent,
+          reportValidity:document.querySelector('#detail-report-form').checkValidity(),
+          dateSince:document.querySelector('#detail-since').value,
+          dateUntil:document.querySelector('#detail-until').value
+        }));
+        throw new Error('Detail refresh mode '+m+' stuck: '+JSON.stringify({state,requests:reportRequests.slice(count)}),{cause:error});
+      }
+      assert.ok(reportRequests.length>count,'Mode '+m+' must issue one explicit refresh request');
+      assert.equal(await ui.locator('#detail-results').isVisible(),false);
+    }
     assert.equal(await ui.evaluate(()=>window.injected),undefined);
     await ui.reload();await ui.mouse.move(900,700);await ui.keyboard.press('Escape');await ui.locator('#catalog-body .video-thumb').first().scrollIntoViewIfNeeded();await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
     assert.equal(await ui.locator('.catalog-name').first().inputValue(),'100℃ 가열 설명 <b>테스트</b>');pass('blocked remote video has an upload fallback; saved thumbnails and names survive reload');
