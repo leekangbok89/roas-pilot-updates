@@ -66,6 +66,35 @@ test('purchase metrics remain distinct from total conversions; sums recalculate 
   assert.equal(f.requests.length, count, 'fresh report must not make another API call');
 });
 
+test('cached search spend merges overlapping API windows without refetching or double-counting dates', async t => {
+ const f=fixture(t);await f.connect();
+ await f.service.report({since:'2026-10-24',until:'2026-10-24'});
+ const requests=f.requests.length;
+ assert.deepEqual(f.service.savedSpend({since:'2026-10-24',until:'2026-10-24'}).days,[{date:'2026-10-24',spend:4400}]);
+ assert.equal(f.requests.length,requests,'Dashboard must never make new Search Ads API requests');
+ f.advance(60000);
+ f.setHandler(url=>url.pathname==='/ncc/campaigns'?[campaign('cmp-a'),campaign('cmp-b')]:
+  {data:[day('2026-10-24',url.searchParams.get('id')==='cmp-a'?2100:3300,1,10000)]});
+ await f.service.report({since:'2026-10-23',until:'2026-10-24'});
+ assert.deepEqual(f.service.savedSpend({since:'2026-10-23',until:'2026-10-24'}).days,[{date:'2026-10-24',spend:5400}],
+  'Latest valid report replaces the overlapping earlier date rather than adding it');
+ assert.equal(f.service.savedSpend({since:'2026-10-23',until:'2026-10-24'}).days.length,1,'Unreported dates are missing, never assumed to have zero spend');
+ await f.service.saveScope({campaignIds:['cmp-a']});
+ assert.deepEqual(f.service.savedSpend({since:'2026-10-23',until:'2026-10-24'}).days,[],'Changing selected campaigns invalidates prior scope totals');
+});
+
+test('search spend cache excludes non-Powerlink and non-Shopping campaign types',async t=>{
+ const f=fixture(t);await f.connect();
+ f.setHandler(url=>url.pathname==='/ncc/campaigns'?
+  [{...campaign('cmp-a'),campaignTp:'WEB_SITE'},{...campaign('cmp-b'),campaignTp:'BRANDED_SEARCH'}]:
+  {data:[day('2026-10-24',1000,1,10000)]});
+ await f.service.report({since:'2026-10-24',until:'2026-10-24'});
+ const result=f.service.savedSpend({since:'2026-10-24',until:'2026-10-24'});
+ assert.deepEqual(result.days,[]);
+ assert.equal(result.unsupportedCampaigns,1);
+ assert.match(result.detail,/이외 유형/);
+});
+
 test('missing purchases are unknown and a missing campaign never becomes a zero-filled total', async t => {
   const f = fixture(t); await f.connect();
   f.setHandler(url => {
