@@ -940,3 +940,347 @@ function renderDataCoverage(){
   for(const [show,href,text] of [[unclassified,'#profit-brand-review','미분류 상품 확인'],[costMissing,'#profit-unmatched','미연결 원가 확인']])if(show){const link=document.createElement('a');link.href=href;link.textContent=text;link.style.marginRight='15px';link.onclick=()=>{$('profit-panel').open=true;if(href==='#profit-unmatched')$('profit-unmatched').open=true;};blockers.append(link);}
  }
 }
+function cafeRevenueRecoveryActive(){return cafeRevenueRecoveryStarting||cafeRevenueRecoveryPolling||!!cafeRevenueRecoveryJob?.running;}
+function updateCafeRevenueRecoveryActions(){
+ const cafeBusy=cafeRevenueRecoveryActive(),detailsBusy=detailRepairStarting||detailRepairPolling||!!lastDetailRepairJob?.running;
+ for(const id of ['cafe-revenue-recover','cafe-revenue-recover-diagnostic','history-repair','profit-repair','recent3-refresh']){const button=$(id);if(button)button.disabled=cafeBusy||detailsBusy||recent3Refreshing;}
+}
+function renderCafeRevenueRecoveryJob(job){
+ if(!job||typeof job.running!=='boolean')return;
+ const previous=cafeRevenueRecoveryJob;cafeRevenueRecoveryJob=job;updateCafeRevenueRecoveryActions();
+ const pane=$('cafe-revenue-recovery-progress');if(!pane)return;
+ if(!job.startedAt&&!job.running){if(previous?.running){pane.hidden=false;$('cafe-revenue-recovery-summary').textContent='카페24 재조회 작업 상태를 다시 확인해야 합니다.';$('cafe-revenue-recovery-counts').textContent='서버가 다시 시작되었을 수 있습니다. 현재 저장된 매출과 누락 사유를 확인해 주세요.';}return;}
+ pane.hidden=false;
+ const period=job.since&&job.until?job.since+' ~ '+job.until:'기간 확인 필요';
+ $('cafe-revenue-recovery-summary').textContent='카페24 주문 재조회 '+period+' · '+String(job.status||(job.running?'진행 중':'상태 확인 필요'))+' · '+String(job.progress||'');
+ const count=coverageNumber;
+ $('cafe-revenue-recovery-counts').textContent='날짜 확인 '+count(job.checkedDays)+'/'+count(job.total)+'일 · 완료 '+count(job.completedDays)+'일 · 실패 '+count(job.failedDays)+'일 / 조회 주문 '+count(job.ordersFetched)+'건 · 추가 '+count(job.ordersRestored)+'건 · 갱신 '+count(job.ordersUpdated)+'건 / 상품 상세 확인 '+count(job.itemsChecked)+'건 · 복구 '+count(job.itemsRestored)+'건 · 미확인 '+count(job.itemsMissing)+'건'+(job.backupCreated?' · 기존 주문 자료 백업 완료':'');
+ const note=$('cafe-revenue-recovery-reason');note.textContent=job.error?String(job.error):job.running?'선택한 기간의 카페24 주문 목록과 상품 상세를 확인하고 있습니다. 조회 기간을 바꿔도 진행 중인 복구 기간은 유지됩니다.':'주문 재조회 결과와 현재 선택한 기간의 집계 상태를 확인합니다.';
+ $('cafe-revenue-recovery-connect').hidden=job.status!=='인증 필요';
+ if(!job.running){const failed=(Array.isArray(job.results)?job.results:[]).filter(row=>row.reason);if(failed.length)note.textContent+=(note.textContent?' ':'')+failed.slice(0,3).map(row=>String(row.date||'날짜 미확인')+': '+String(row.reason)).join(' / ')+(failed.length>3?' 외 '+(failed.length-3)+'일':'');}
+}
+function showCafeRevenueRecoveryResult(job){
+ renderCafeRevenueRecoveryJob(job);
+ const note=$('cafe-revenue-recovery-reason'),samePeriod=job.since===$('since').value&&job.until===$('until').value;
+ if(!samePeriod){note.textContent+=' · 복구 기간은 '+job.since+' ~ '+job.until+'이며, 화면은 현재 선택한 '+$('since').value+' ~ '+$('until').value+' 기준입니다.';return;}
+ const diagnostic=cafeRevenueDiagnostic();
+ if(diagnostic){note.textContent+=' · '+String(diagnostic.reason||'집계 근거를 확인해 주세요.');const pane=$('cafe-revenue-diagnostic');pane.hidden=false;pane.open=true;}
+ else note.textContent+=' · 집계 결과를 불러오지 못했습니다. “기간별 데이터 조회”로 다시 확인해 주세요.';
+}
+async function fetchCafeRevenueRecoveryJob(){
+ const response=await fetch('/api/cafe24/orders/recovery/status',{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();
+ if(!response.ok||!body.job||typeof body.job.running!=='boolean')throw Error(body.error||'카페24 재조회 진행 상태를 확인할 수 없습니다.');return body.job;
+}
+async function observeCafeRevenueRecovery(initial){
+ if(cafeRevenueRecoveryPolling)return;
+ cafeRevenueRecoveryPolling=true;updateCafeRevenueRecoveryActions();let job=initial,lastRedraw=0;
+ try{
+  for(let attempt=0;attempt<1800;attempt++){
+   if(!job||attempt)job=await fetchCafeRevenueRecoveryJob();
+   renderCafeRevenueRecoveryJob(job);
+   if(!job.running){await run();const latest=cafeRevenueRecoveryJob||job;if(latest.running){job=latest;continue;}showCafeRevenueRecoveryResult(latest);return;}
+   if(Number(job.checkedDays)>0&&Date.now()-lastRedraw>=6000){await run();lastRedraw=Date.now();}
+   await new Promise(resolve=>setTimeout(resolve,1500));
+  }
+  $('cafe-revenue-recovery-reason').textContent='서버에서 카페24 주문 재조회가 계속 진행 중입니다. “진행 상태 확인”으로 이어서 확인하세요.';
+ }catch(e){$('cafe-revenue-recovery-progress').hidden=false;$('cafe-revenue-recovery-reason').textContent='진행 상태 확인 오류: '+e.message+' · 서버에서 작업이 계속될 수 있습니다. “진행 상태 확인”을 눌러 주세요.';}
+ finally{cafeRevenueRecoveryPolling=false;updateCafeRevenueRecoveryActions();}
+}
+async function recoverCafeRevenue(){
+ if(cafeRevenueRecoveryActive()||detailRepairStarting||detailRepairPolling||lastDetailRepairJob?.running||recent3Refreshing)return;
+ const since=$('since').value,until=$('until').value,valid=value=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
+ const pane=$('cafe-revenue-recovery-progress');pane.hidden=false;
+ if(!valid(since)||!valid(until)||since>until||(Date.parse(until)-Date.parse(since))/86400000>731){$('cafe-revenue-recovery-summary').textContent='카페24 재조회 시작일과 종료일을 확인해 주세요(최대 732일).';return;}
+ cafeRevenueRecoveryStarting=true;updateCafeRevenueRecoveryActions();
+ $('cafe-revenue-recovery-summary').textContent='카페24 주문 재조회 '+since+' ~ '+until+' · 시작 중…';$('cafe-revenue-recovery-counts').textContent='';$('cafe-revenue-recovery-reason').textContent='수집 완료로 표시된 날짜도 주문 목록부터 다시 확인합니다.';$('cafe-revenue-recovery-connect').hidden=true;
+ try{
+  const response=await fetch('/api/cafe24/orders/recover',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({since,until}),cache:'no-store',signal:AbortSignal.timeout(20000)}),body=await response.json();
+  if(!response.ok)throw Error(body.error||'카페24 주문 재조회 시작 실패');
+  const job=body.job&&typeof body.job.running==='boolean'?body.job:await fetchCafeRevenueRecoveryJob();
+  await observeCafeRevenueRecovery(job);
+ }catch(e){
+  $('cafe-revenue-recovery-summary').textContent='카페24 주문 재조회 '+since+' ~ '+until+' · 시작 확인 실패';$('cafe-revenue-recovery-reason').textContent=e.message;
+  try{const job=await fetchCafeRevenueRecoveryJob();if(job.running){renderCafeRevenueRecoveryJob(job);await observeCafeRevenueRecovery(job);}}catch{}
+ }finally{cafeRevenueRecoveryStarting=false;updateCafeRevenueRecoveryActions();}
+}
+async function checkCafeRevenueRecoveryStatus(){
+ try{const job=await fetchCafeRevenueRecoveryJob();renderCafeRevenueRecoveryJob(job);if(job.running&&!cafeRevenueRecoveryPolling)await observeCafeRevenueRecovery(job);else if(!job.running&&job.startedAt){await run();showCafeRevenueRecoveryResult(job);}else if(!job.startedAt){$('cafe-revenue-recovery-progress').hidden=false;$('cafe-revenue-recovery-summary').textContent='진행 중인 카페24 재조회 작업이 없습니다.';}}
+ catch(e){$('cafe-revenue-recovery-progress').hidden=false;$('cafe-revenue-recovery-reason').textContent='진행 상태 확인 실패: '+e.message;}
+}
+function renderDetailRepairJob(job){
+ if(!job)return;
+ lastDetailRepairJob=job;
+ const pane=$('history-repair-progress'),summary=$('history-repair-summary'),root=$('history-repair-sources');if(!pane||!summary||!root)return;
+ if(!job.running&&!job.lastAttemptAt&&!job.startedAt&&!job.since&&!Object.keys(job.sources||{}).length)return;
+ pane.style.display='block';root.replaceChildren();
+ const period=job.since&&job.until?job.since+' ~ '+job.until:'전체 저장 주문';
+ summary.textContent='복구 대상 '+period+' · '+(job.running?'진행 중':job.error?'일부 미완료':'작업 종료')+' · '+(job.progress||'상태 확인 중');
+ const table=document.createElement('table'),head=document.createElement('thead'),header=document.createElement('tr'),body=document.createElement('tbody');
+ for(const text of ['채널','진행 상태','확인 / 대상','상세 복구','남은 상세 미연결','확인할 내용']){const th=document.createElement('th');th.textContent=text;header.append(th);}head.append(header);table.append(head);
+ const descriptions=[];
+ for(const [key,name] of [['naver','스마트스토어'],['cafe24','카페24']]){
+  const source=job.sources?.[key],remaining=Number.isFinite(source?.remaining)?source.remaining:dataCoverage?.sources?.[key]?.missingItemOrders;
+  const tr=document.createElement('tr');tr.setAttribute('data-repair-source',key);
+  const values=[name,source?.status||'채널별 상태 확인 필요',coverageNumber(source?.checked)+' / '+coverageNumber(source?.total)+'건',coverageNumber(source?.restored)+'건',coverageNumber(remaining)+'건',source?.error||''];
+  for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);
+  descriptions.push(name+' '+values[1]+' · 확인 '+values[2]+' · 남음 '+values[4]);
+ }
+ table.append(body);root.append(table);
+ const lower=$('profit-repair-status');if(lower)lower.textContent=period+' · '+descriptions.join(' / ');
+ updateCafeRevenueRecoveryActions();
+}
+async function fetchDetailRepairJob(){
+ const response=await fetch('/api/costs/catalog/diagnostics',{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();if(!response.ok)throw Error(body.error||'복구 진행 상태 확인 실패');
+ if(!body.job)throw Error('복구 진행 상태 응답을 확인할 수 없습니다.');return body.job;
+}
+async function observeDetailRepair(initial){
+ if(detailRepairPolling)return;
+ detailRepairPolling=true;let job=initial,lastRedraw=0;
+ try{
+  for(let attempt=0;attempt<1200;attempt++){
+   if(!job||attempt)job=await fetchDetailRepairJob();
+   renderDetailRepairJob(job);
+   if(!job.running||(Number(job.done)>0&&Date.now()-lastRedraw>=6000)){await run();lastRedraw=Date.now();}
+   if(!job.running){if(typeof showCafeRepairDiagnosis==='function')await showCafeRepairDiagnosis();return;}
+   await new Promise(resolve=>setTimeout(resolve,1500));
+  }
+  $('history-repair-summary').textContent='복구 대상 '+(job?.since||'')+' ~ '+(job?.until||'')+' · 서버에서 계속 진행 중입니다. “복구 진행 상태 확인”으로 이어서 확인하세요.';
+ }catch(e){$('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 상태 확인 중 오류: '+e.message+' · 서버 작업이 계속 진행 중일 수 있습니다. “복구 진행 상태 확인”을 눌러 주세요.';}
+ finally{detailRepairPolling=false;updateCafeRevenueRecoveryActions();}
+}
+async function recoverSelectedOrderDetails(){
+ if(detailRepairStarting||detailRepairPolling||cafeRevenueRecoveryActive()||recent3Refreshing)return;
+ const since=$('since').value,until=$('until').value;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('coverage-summary').textContent='복구할 시작일과 종료일을 확인해 주세요.';return;}
+ let fallbackToCafeRevenue=false;
+ detailRepairStarting=true;updateCafeRevenueRecoveryActions();
+ $('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 대상 '+since+' ~ '+until+' · 저장된 주문의 상품 상세 확인을 시작합니다…';
+ try{
+  const response=await fetch('/api/costs/catalog/refresh',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({since,until}),cache:'no-store'}),body=await response.json();
+  if(!response.ok)throw Error(body.error||'주문 상세 복구 시작 실패');
+  await observeDetailRepair(await fetchDetailRepairJob());
+  const completed=await fetchDetailRepairJob().catch(()=>null);
+  const sources=completed?.sources||{};
+  const total=['naver','cafe24'].reduce((sum,key)=>sum+(Number(sources[key]?.total)||0),0);
+  if(!completed?.running&&total===0)fallbackToCafeRevenue=true;
+ }catch(e){$('history-repair-summary').textContent='주문 상세 복구 시작 오류: '+e.message;}
+ finally{detailRepairStarting=false;updateCafeRevenueRecoveryActions();}
+ if(fallbackToCafeRevenue){
+  $('history-repair-summary').textContent='상품 상세 복구 대상이 0건이라 카페24 매출 강제 재수집으로 자동 전환합니다.';
+  await recoverCafeRevenue();
+ }
+}
+async function checkDetailRepairStatus(){
+ try{const job=await fetchDetailRepairJob();renderDetailRepairJob(job);if(job.running&&!detailRepairPolling)await observeDetailRepair(job);}
+ catch(e){$('history-repair-progress').style.display='block';$('history-repair-summary').textContent='복구 상태 확인 실패: '+e.message;}
+}
+
+async function run(){
+ const version=++requestVersion,since=$('since').value,until=$('until').value,startedAt=Date.now();
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until){$('updated').textContent='시작일과 종료일을 확인해 주세요.';return;}
+ const warnings=[],nextData={naver:[],cafe:[]},nextCurrency={...currency};
+ let nextSales=new Map(),nextProfit=new Map(),nextFees=profitFees,nextProfitError='',nextPendingBrands=[],nextSavedBrandAssignments=[],nextStoreRevenueDiagnostics={},nextCoverage=null,nextCoverageError='',nextRepairJob=null,nextCafeRecoveryJob=null,available=0;const nextSummaryAdLoadedAccounts=new Set(),nextSummaryAdCoverage=new Map();
+ summaryLoading=true;renderSummaryCards();
+ $('reload').disabled=true;$('updated').textContent=since+' ~ '+until+' 저장 데이터 조회 중…';
+ try{
+  let savedIds={};try{savedIds=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{warnings.push('저장된 광고 계정 설정을 읽을 수 없습니다.');}
+  const ids=Object.fromEntries(['naver','cafe'].map(key=>[key,String(savedIds[key]||'').replace(/\D/g,'')]));
+  const accountIds=[...new Set(Object.values(ids).filter(Boolean))];
+  const q=new URLSearchParams({since,until,accounts:accountIds.join(','),fx:String(rates)});
+  // Start the single-pass accounting report alongside cached Meta reads. The
+  // old endpoints are a compatibility fallback only, not three extra requests.
+  const snapshotRequest=(async()=>{
+   try{
+    const response=await fetch('/api/overview/snapshot?'+q,{cache:'no-store',signal:AbortSignal.timeout(30000)}),body=await response.json();
+    if(!response.ok||!body.profit?.days||!body.sales?.days||!body.coverage?.sources||!Number.isFinite(body.coverage.totalDays))throw Error(body.error||'통합 조회 형식 확인 필요');
+    return body;
+   }catch{return null;}
+  })();
+  const metaRequest=Promise.all(accountIds.map(async account=>{
+   const keys=Object.keys(ids).filter(key=>ids[key]===account);
+   try{
+    const q=new URLSearchParams({account,since,until,cacheOnly:'1'});const resp=await fetch('/api/insights?'+q,{cache:'no-store',signal:AbortSignal.timeout(120000)});const body=await resp.json();if(!resp.ok)throw Error(body.error||'조회 실패');
+    for(const key of keys){nextCurrency[key]=body.currency||'USD';nextData[key]=(body.rows||[]).map(row=>normalize({...row,account_currency:row.account_currency||nextCurrency[key]},key));}
+    available++;nextSummaryAdLoadedAccounts.add(account);if(Array.isArray(body.cache?.missingDays))nextSummaryAdCoverage.set(account,{since,until,missingDays:body.cache.missingDays});if(body.cache?.missingDays?.length||body.cache?.warnings?.length)warnings.push(keys.join('/')+' 광고 누락 '+(body.cache.missingDays||[]).length+'일 · '+(body.cache.warnings||[]).join('; '));
+   }catch(e){warnings.push(keys.join('/')+' 광고: '+e.message);}
+  }));
+  const snapshot=await snapshotRequest;
+  await metaRequest;
+  if(snapshot){
+   nextSales=new Map(snapshot.sales.days.map(day=>[day.date,day]));
+   nextCoverage=snapshot.coverage;
+   nextFees=snapshot.profit.fees||nextFees;
+   nextProfit=new Map(snapshot.profit.days.map(day=>[day.date,day]));
+   nextPendingBrands=Array.isArray(snapshot.profit.pendingProducts)?snapshot.profit.pendingProducts:[];
+   nextStoreRevenueDiagnostics=snapshot.profit.revenueDiagnostics||{};
+   const missing=snapshot.sales.days.filter(day=>!day.complete).length;
+   if(missing)warnings.push('주문 매출 전체 확인 필요 '+missing+'일');
+  }else{
+   // Older releases and temporary endpoint errors must still display saved
+   // data. Retain original error handling and do not invent missing sales.
+   const coverageRequest=(async()=>{try{const response=await fetch('/api/data/coverage?'+q,{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();if(!response.ok||!body.sources||!Number.isFinite(body.totalDays))throw Error(body.error||'저장 현황 응답을 확인하세요.');nextCoverage=body;}catch(e){nextCoverageError=e.message;}})();
+   const salesRequest=(async()=>{try{const params=new URLSearchParams({since,until,pivot:since}),response=await fetch('/api/sales/compare?'+params,{signal:AbortSignal.timeout(20000)}),body=await response.json();if(!response.ok)throw Error(body.error||'매출 조회 실패');nextSales=new Map((body.days||[]).map(d=>[d.date,d]));const missing=(body.days||[]).filter(d=>!d.complete).length;if(missing)warnings.push('주문 매출 전체 확인 필요 '+missing+'일');}catch(e){warnings.push('주문 매출: '+e.message);}})();
+   const profitRequest=(async()=>{try{const response=await fetch('/api/profit/daily?'+q,{signal:AbortSignal.timeout(18000)}),p=await response.json();if(!response.ok)throw Error(p.error||'이익 조회 실패');nextFees=p.fees||nextFees;nextProfit=new Map((p.days||[]).map(d=>[d.date,d]));nextPendingBrands=Array.isArray(p.pendingProducts)?p.pendingProducts:[];nextStoreRevenueDiagnostics=p.revenueDiagnostics||{};}catch(e){nextProfitError='이익 계산: '+e.message;warnings.push(nextProfitError);}})();
+   await Promise.all([coverageRequest,salesRequest,profitRequest]);
+  }
+  if(version!==requestVersion)return;
+  for(const key of Object.keys(ids))if(!ids[key])warnings.push((key==='naver'?'스마트스토어':'카페24')+' 광고 계정 ID 없음');
+  data.naver=nextData.naver;data.cafe=nextData.cafe;currency.naver=nextCurrency.naver;currency.cafe=nextCurrency.cafe;connectedAccounts=ids;
+  storeSales=nextSales;profitDays=nextProfit;profitFees=nextFees;profitLoadError=nextProfitError;pendingBrandProducts=nextPendingBrands;savedBrandAssignments=[];storeRevenueDiagnostics=nextStoreRevenueDiagnostics;dataCoverage=nextCoverage;coverageError=nextCoverageError;summaryAdLoadedAccounts=nextSummaryAdLoadedAccounts;summaryAdCoverage=nextSummaryAdCoverage;summaryLoading=false;
+  $('profit-naver-fee').value=profitFees.naver;$('profit-cafe-fee').value=profitFees.cafe24;
+  if(!available&&!storeSales.size&&!profitDays.size)warnings.push('수집된 데이터가 없습니다.');
+  $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');render();
+  const elapsed=((Date.now()-startedAt)/1000).toFixed(1);
+  $('updated').textContent='조회 기간 '+since+' ~ '+until+' · 저장 데이터 표시 · '+elapsed+'초'+(Number.isFinite(snapshot?.timingsMs?.total)?' (서버 계산 '+snapshot.timingsMs.total+'ms)':'');
+  $('reload').disabled=false;
+
+  // Fetch auxiliary detail after showing the charts. A slow product catalogue
+  // or recovery status no longer holds the entire dashboard in loading state.
+  const repairStatusRequest=fetchDetailRepairJob().then(job=>{nextRepairJob=job;}).catch(()=>{});
+  const cafeRecoveryStatusRequest=fetchCafeRevenueRecoveryJob().then(job=>{nextCafeRecoveryJob=job;}).catch(()=>{});
+  const brandAssignmentsRequest=(async()=>{
+   try{
+    const response=await fetch('/api/costs/products',{cache:'no-store',signal:AbortSignal.timeout(18000)}),body=await response.json();
+    if(!response.ok||!Array.isArray(body.items))throw Error(body.error||'상품 분류 목록 조회 실패');
+    const grouped=new Map();
+    for(const item of body.items){
+     if(!['wemamang','excluded'].includes(item?.scope)||Number(item.orders)<=0||!item.name)continue;
+     if(item.source!=='사용자 확인'&&item.scope!=='excluded')continue;
+     const name=String(item.name),row=grouped.get(name)||{name,scope:item.scope,source:item.source||'',channels:new Set(),options:new Set(),orders:0};
+     row.scope=item.scope;row.source=item.source||row.source;row.channels.add(item.channel);row.options.add(String(item.option||''));row.orders+=Number(item.orders)||0;grouped.set(name,row);
+    }
+    nextSavedBrandAssignments=[...grouped.values()].map(row=>({...row,channels:[...row.channels],options:[...row.options]})).sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'ko'));
+   }catch(e){warnings.push('브랜드 분류: '+e.message);}
+  })();
+  await Promise.all([repairStatusRequest,cafeRecoveryStatusRequest,brandAssignmentsRequest]);
+  if(version!==requestVersion)return;
+  savedBrandAssignments=nextSavedBrandAssignments;renderBrandReview();
+  $('alert').style.display=warnings.length?'block':'none';$('alert').textContent=warnings.join(' / ');
+  if(nextRepairJob){renderDetailRepairJob(nextRepairJob);if(nextRepairJob.running&&!detailRepairPolling)void observeDetailRepair(nextRepairJob);}
+  if(nextCafeRecoveryJob){renderCafeRevenueRecoveryJob(nextCafeRecoveryJob);if(nextCafeRecoveryJob.running&&!cafeRevenueRecoveryPolling)void observeCafeRevenueRecovery(nextCafeRecoveryJob);}
+ }catch(e){
+  if(version!==requestVersion)return;
+  data.naver=[];data.cafe=[];storeSales=new Map();profitDays=new Map();pendingBrandProducts=[];savedBrandAssignments=[];storeRevenueDiagnostics={};profitLoadError=e.message;dataCoverage=null;coverageError=e.message;summaryAdLoadedAccounts=new Set();summaryAdCoverage=new Map();summaryLoading=false;render();
+  $('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';
+ }finally{if(version===requestVersion)$('reload').disabled=false;}
+}
+let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
+setupSummaryCards();
+if(typeof window!=='undefined')window.addEventListener('roas:meta-spend-ready',()=>{if(!summaryLoading)renderSummaryCards();});
+document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-period]').forEach(t=>t.classList.toggle('active',t===b));const end=new Date();end.setHours(12,0,0,0);const start=new Date(end);const period=b.dataset.period;if(period==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}else if(period==='3months'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(period==='6months'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(period==='1year'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(period==='2years'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else if(period!=='today'){start.setDate(start.getDate()-(Number(period)-1));}$('since').value=iso(start);$('until').value=iso(end);run()});
+async function showCafeRepairDiagnosis(){
+ const textArea=$('profit-diagnostic-output'),hint=$('profit-diagnostic-hint'),panel=$('cafe-repair-detail');
+ try{
+  const response=await fetch('/api/costs/catalog/diagnostics',{cache:'no-store'}),d=await response.json();if(!response.ok)throw Error(d.error||'진단 요청 실패');
+  const counts=Object.entries(d.cafe24?.byDate||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+  const issues=Object.entries(d.job?.failures||{}).sort((a,b)=>b[1]-a[1]);
+  const examples=(d.job?.examples||[]).map(x=>x.date+' · '+x.stage+' · '+x.result+(x.detail?' · '+x.detail:''));
+  const lines=['ROAS Pilot v'+(d.version||'?')+' · 카페24 상품 상세 복구 진단',
+   '저장된 결제 주문: '+(d.cafe24?.positiveOrders??'?')+'건 / 상품 상세 미연결: '+(d.cafe24?.total??'?')+'건 (매출 0원이라는 뜻이 아님)',
+   '최근 복구 실행: '+(d.lastAttemptAt||'아직 실행하지 않음'),
+   '복구 대상: '+(d.job?.since&&d.job?.until?d.job.since+' ~ '+d.job.until:'전체 저장 주문'),
+   ...['naver','cafe24'].map(key=>{const item=d.job?.sources?.[key];return (key==='naver'?'스마트스토어':'카페24')+': '+(item?.status||'채널별 상태 확인 필요')+' · 확인 '+coverageNumber(item?.checked)+'/'+coverageNumber(item?.total)+'건 · 복구 '+coverageNumber(item?.restored)+'건 · 남은 상세 '+coverageNumber(Number.isFinite(item?.remaining)?item.remaining:key==='cafe24'?d.cafe24?.total:undefined)+'건';}),
+   '상태: '+(d.job?.progress||'확인 불가'),
+   '에러: '+(d.job?.error||'없음'),
+   '날짜별 미복구: '+(counts.length?counts.map(([date,count])=>date+' '+count+'건').join(', '):'없음'),
+   '실패 유형: '+(issues.length?issues.map(([kind,count])=>kind+' '+count+'회').join(' / '):'조회 기록 없음'),
+   '진단 사례 (주문번호·고객정보 미포함):',...(examples.length?examples:['없음'])
+  ];
+  textArea.value=lines.join('\n');
+  $('profit-panel').open=true;panel.open=true;hint.textContent='진단은 주문번호·고객정보·API 키·금액을 포함하지 않습니다.';
+ }catch(e){textArea.value='진단 불러오기 실패: '+e.message;$('profit-panel').open=true;panel.open=true;hint.textContent='로컬 서버 응답 확인 필요';}
+}
+$('profit-diagnostic-view').onclick=showCafeRepairDiagnosis;
+$('profit-diagnostic-copy').onclick=async()=>{
+ const out=$('profit-diagnostic-output');if(!out.value)await showCafeRepairDiagnosis();
+ try{await navigator.clipboard.writeText(out.value);$('profit-diagnostic-hint').textContent='복사되었습니다. 결과를 채팅에 붙여 넣으세요.';}
+ catch{out.focus();out.select();$('profit-diagnostic-hint').textContent='전체 선택됨 · Ctrl+C로 복사해 주세요.';}
+};
+async function repairProfitDetails(){return recoverSelectedOrderDetails();}
+$('profit-repair').onclick=repairProfitDetails;$('history-repair').onclick=recoverSelectedOrderDetails;$('history-repair-status-check').onclick=checkDetailRepairStatus;
+$('cafe-revenue-recover').onclick=recoverCafeRevenue;$('cafe-revenue-recover-diagnostic').onclick=recoverCafeRevenue;$('cafe-revenue-recovery-check').onclick=checkCafeRevenueRecoveryStatus;
+$('profit-save-fees').onclick=async()=>{try{const r=await fetch('/api/profit/fees',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({naver:Number($('profit-naver-fee').value),cafe24:Number($('profit-cafe-fee').value)})});const j=await r.json();if(!r.ok)throw Error(j.error);run();}catch(e){alert(e.message)}};
+async function refreshRecentThreeDays(){
+ if(cafeRevenueRecoveryActive()||detailRepairStarting||detailRepairPolling||lastDetailRepairJob?.running||recent3Refreshing)return;
+ recent3Refreshing=true;updateCafeRevenueRecoveryActions();
+ const button=$('recent3-refresh'),msg=$('recent3-status');
+ button.disabled=true;msg.style.display='block';msg.textContent='오늘 포함 최근 3일의 전체 주문·광고 데이터 업데이트를 시작합니다…';
+ let config={};try{config=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{}
+ const accounts=[...new Set(['naver','cafe'].map(k=>String(config[k]||'').replace(/\D/g,'')).filter(Boolean))];
+ try{
+  const response=await fetch('/api/data/recent3/refresh',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({accounts})});
+  const start=await response.json();if(!response.ok)throw Error(start.error||'업데이트 시작 실패');
+  const period=start.since+' ~ '+start.until;
+  msg.textContent=period+' · 수집 중…';
+  for(let attempt=0;attempt<300;attempt++){
+   await new Promise(resolve=>setTimeout(resolve,2000));
+   const statusResponse=await fetch('/api/data/recent3/status',{cache:'no-store'});
+   const job=await statusResponse.json();if(!statusResponse.ok)throw Error(job.error||'상태 확인 실패');
+   const sources=job.sources||{},list=[['스마트스토어',sources.naver],['카페24',sources.cafe24],...Object.entries(sources.meta||{}).map(([id,value])=>['Meta 계정 '+id,value])];
+   const labels=list.map(([name,info])=>name+': '+(info?.status||'대기')+(info?.error?' ('+String(info.error).slice(0,80)+')':''));
+   msg.textContent=period+' · '+(job.progress||'업데이트 중')+' · '+labels.join(' / ');
+   if(!job.running){
+    await run();
+    msg.textContent=period+' · '+(job.progress||'업데이트 완료')+' · '+labels.join(' / ')+(job.error?' · '+job.error:'')+' · 현재 선택한 조회 기간 화면을 갱신했습니다.';
+    return;
+   }
+  }
+  msg.textContent='현재 서버에서 수집이 계속 진행 중입니다. 이후 상태를 확인하려면 버튼을 다시 누르지 말고 설정 관리에서 수집 상태를 확인하세요.';
+ }catch(e){msg.textContent='최근 3일 업데이트 오류: '+e.message;}
+ finally{recent3Refreshing=false;updateCafeRevenueRecoveryActions();}
+}
+$('recent3-refresh').onclick=refreshRecentThreeDays;
+$('budget-step').onchange=renderBudgetAnalysis;$('reload').onclick=run;$('channel').onchange=run;document.querySelectorAll('.metric-choice').forEach((select,i)=>select.onchange=()=>{const slots=[...document.querySelectorAll('.metric-choice')].map(x=>x.value);const chosen=select.value;if(chosen){for(let j=0;j<slots.length;j++){if(j!==i&&slots[j]===chosen)slots[j]='';}}setChartMetrics(slots);syncChartControls();render();});$('preset-save').onclick=addPreset;$('preset-manage').onclick=managePresets;renderCustomPresets();$('chart-scale').onchange=render;$('chart-window').onchange=render;setChartMetrics(customPresets.length?customPresets[0].keys:['spend','smartstoreRevenue','mallRevenue','profit']);$('chart-window').value='1';if(customPresets[0]?.scale)$('chart-scale').value=customPresets[0].scale;syncChartControls();run();setInterval(()=>{if(!document.hidden)run()},3600000);
+</script><style>
+.roas-range-mask{position:fixed;inset:0;background:#101d3440;z-index:500;display:flex;align-items:center;justify-content:center;padding:14px}
+.roas-range-modal{background:#fff;border:1px solid #dce4f0;border-radius:14px;box-shadow:0 24px 70px #10203838;width:min(760px,100%);max-height:90vh;overflow:auto;padding:18px;color:#1e2940}
+.roas-range-top,.roas-range-bottom{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.roas-range-quick{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.roas-range-modal button{cursor:pointer;border:1px solid #dce3ee;border-radius:7px;background:white;color:#33415a;padding:7px 10px}
+.roas-range-modal button.selected,.roas-range-modal button.apply{background:#665bf2;color:#fff}
+.roas-range-months{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:12px 0}
+.roas-range-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.roas-range-grid button{min-width:0;padding:7px 0;font-size:12px}
+.roas-range-grid button.in-range{background:#ecebff}
+.roas-range-grid span{text-align:center;font-size:11px;color:#8591a5;padding:5px 0}
+.roas-range-month-title{text-align:center;font-weight:700;margin-bottom:10px}
+.roas-range-label{font-size:12px;color:#65738b}
+@media(max-width:600px){.roas-range-months{grid-template-columns:1fr}.roas-range-modal{padding:12px}}
+</style><script>
+(function(){
+const pairs=[['since','until'],['compare-a-start','compare-a-end'],['compare-b-start','compare-b-end']];
+const iso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const from=s=>new Date(s+'T12:00:00');
+for(const [startId,endId] of pairs){
+const first=document.getElementById(startId),last=document.getElementById(endId);if(!first||!last)continue;
+[first,last].forEach(el=>{el.type='text';el.readOnly=true;el.style.cursor='pointer';el.title='달력을 열어 시작일과 종료일을 선택합니다.';el.addEventListener('click',open);});
+function open(){
+let a=first.value,b=last.value,month=from(a||iso(new Date()));month.setDate(1);
+const mask=document.createElement('div');mask.className='roas-range-mask';mask.innerHTML='<div class="roas-range-modal" role="dialog" aria-modal="true" aria-label="기간 선택"><div class="roas-range-top"><strong>조회 기간 선택</strong><span class="roas-range-label" data-label></span></div><div class="roas-range-quick"></div><div class="roas-range-top"><button type="button" data-prev>◀ 이전</button><span class="roas-range-label">시작일을 선택한 다음 종료일을 선택하세요</span><button type="button" data-next>다음 ▶</button></div><div class="roas-range-months"></div><div class="roas-range-bottom"><span class="roas-range-label">선택한 기간이 강조됩니다.</span><div><button type="button" data-cancel>취소</button> <button type="button" class="apply" data-apply>적용</button></div></div></div>';
+document.body.append(mask);
+const close=()=>mask.remove();mask.addEventListener('click',e=>{if(e.target===mask)close();});
+mask.querySelector('[data-cancel]').onclick=close;
+mask.querySelector('[data-prev]').onclick=()=>{month.setMonth(month.getMonth()-1);render();};
+mask.querySelector('[data-next]').onclick=()=>{month.setMonth(month.getMonth()+1);render();};
+mask.querySelector('[data-apply]').onclick=()=>{if(!a||!b){alert('시작일과 종료일을 모두 선택해 주세요.');return;}first.value=a;last.value=b;last.dispatchEvent(new Event('change',{bubbles:true}));close();};
+const quick=[['어제',-1,-1],['오늘',0,0],['최근 7일',-6,0],['최근 30일',-29,0],['최근 3달','3m',0],['최근 6개월','6m',0],['최근 1년','1y',0],['최근 2년','2y',0]];
+for(const [name,offset] of quick){const bt=document.createElement('button');bt.type='button';bt.textContent=name;bt.onclick=()=>{let now=new Date();now.setHours(12,0,0,0);let start=new Date(now),end=new Date(now);if(offset==='3m'){start.setMonth(start.getMonth()-3);start.setDate(start.getDate()+1);}else if(offset==='6m'){start.setMonth(start.getMonth()-6);start.setDate(start.getDate()+1);}else if(offset==='1y'){start.setFullYear(start.getFullYear()-1);start.setDate(start.getDate()+1);}else if(offset==='2y'){start.setFullYear(start.getFullYear()-2);start.setDate(start.getDate()+1);}else start.setDate(start.getDate()+offset);if(name==='어제')end.setDate(end.getDate()-1);a=iso(start);b=iso(end);month=new Date(start);month.setDate(1);render();};mask.querySelector('.roas-range-quick').append(bt);}
+function render(){
+mask.querySelector('[data-label]').textContent=(a||'시작일')+' ~ '+(b||'종료일');
+const root=mask.querySelector('.roas-range-months');root.innerHTML='';
+for(let step=0;step<2;step++){const dt=new Date(month);dt.setMonth(dt.getMonth()+step);const y=dt.getFullYear(),m=dt.getMonth(),days=new Date(y,m+1,0).getDate(),offset=new Date(y,m,1).getDay();
+const wrap=document.createElement('div');wrap.innerHTML='<div class="roas-range-month-title">'+y+'년 '+(m+1)+'월</div>';
+const grid=document.createElement('div');grid.className='roas-range-grid';
+for(const weekday of ['일','월','화','수','목','금','토']){let sp=document.createElement('span');sp.textContent=weekday;grid.append(sp);}
+for(let z=0;z<offset;z++)grid.append(document.createElement('span'));
+for(let day=1;day<=days;day++){const date=iso(new Date(y,m,day,12)),button=document.createElement('button');button.type='button';button.textContent=day;
+if(date===a||date===b)button.classList.add('selected');else if(a&&b&&date>a&&date<b)button.classList.add('in-range');
+button.onclick=()=>{if(!a||b){a=date;b='';}else if(date<a){b=a;a=date;}else{b=date;}render();};
+grid.append(button);}wrap.append(grid);root.append(wrap);}
+}
+render();
+}
+}
+})();
+</script></body></html>
+
