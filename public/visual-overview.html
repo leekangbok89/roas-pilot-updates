@@ -45,6 +45,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:right;
 }
 /* Meta spend cards use the shared app-shell.css rules on every page.
    Do not re-declare a higher-specificity overview grid here. */
+body .app-main #summary-cards .summary-spend-card{position:relative}
+body .app-main #summary-cards .summary-spend-card:hover,body .app-main #summary-cards .summary-spend-card:focus-within{z-index:15}
+body .app-main #summary-cards .summary-spend-details{margin-top:6px}
+body .app-main #summary-cards .summary-spend-details summary{cursor:pointer;color:var(--app-link);font-size:12px;font-weight:600}
+body .app-main #summary-cards .summary-spend-popover{display:none;position:absolute;z-index:16;top:calc(100% + 5px);left:0;min-width:290px;width:max(100%,290px);max-width:min(420px,calc(100vw - 48px));padding:10px 12px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:0 12px 32px #0003}
+body .app-main #summary-cards .summary-spend-card:hover .summary-spend-popover,body .app-main #summary-cards .summary-spend-details:focus-within .summary-spend-popover,body .app-main #summary-cards .summary-spend-details[open] .summary-spend-popover{display:block}
+body .app-main #summary-cards .summary-spend-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 0;border-bottom:1px solid var(--app-border);font-size:12px}
+body .app-main #summary-cards .summary-spend-row:last-child{border:0}
+body .app-main #summary-cards .summary-spend-row strong{display:inline;margin:0;font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
 </style><link rel="stylesheet" href="/app-shell.css"></head><body data-app-page="overview"><div class="app-nav-rail" id="app-nav-rail"><button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button></div>
 <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert><div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div><nav id="app-nav" class="app-nav" aria-label="워크스페이스"><a class="app-nav-link active" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a><a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a><a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a><a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a><a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a><a class="app-nav-link" data-app-route="ga4" href="/ga4.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/></svg><span>GA4 유입 분석</span></a><a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a></nav><div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div></aside>
 <main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">한눈에 보기</h1><p class="app-page-subtitle">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p></div></header>
@@ -386,7 +395,7 @@ function renderSummaryCards(){
   if(!key&&!summaryCardsEditing)return;
   const definition=summaryCardMetrics[key];
   const card=document.createElement('article');card.className='metric summary-card'+(key==='roas'?' highlight':'');card.setAttribute('data-summary-slot',String(index));card.setAttribute('data-summary-key',key);
-  if(definition?.description)card.title=definition.description;
+  if(definition?.description&&key!=='spend')card.title=definition.description;
   const heading=document.createElement(summaryCardsEditing?'label':'small');heading.className='summary-card-label';heading.textContent=summaryCardsEditing?(index+1)+'번 지표':definition.label;
   if(summaryCardsEditing){
    const select=document.createElement('select');select.className='summary-card-choice';select.id='summary-choice-'+index;select.setAttribute('aria-label',(index+1)+'번 카드 지표');
@@ -411,6 +420,19 @@ function renderSummaryCards(){
   if(definition.field)detail.title='이 지표에서 금액을 확인한 날짜만 합산합니다. 지표마다 확인 가능한 날짜와 주문 범위가 다를 수 있습니다.';
   if(definition.adMetric==='spend')detail.title='환율 1 USD = '+format.format(rates)+' KRW · USD 계정에만 적용';
   card.append(heading,valueLine,scope,detail);
+  if(key==='spend'&&!summaryCardsEditing){
+   card.className+=' summary-spend-card';
+   const disclosure=document.createElement('details');disclosure.className='summary-spend-details';
+   const toggle=document.createElement('summary');toggle.textContent='광고비 5개 항목 보기';disclosure.append(toggle);
+   const breakdown=document.createElement('div');breakdown.className='summary-spend-popover';
+   for(const part of ['smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend']){
+    const row=document.createElement('div');row.className='summary-spend-row';row.setAttribute('data-spend-part',part);
+    const name=document.createElement('span');name.textContent=summaryCardMetrics[part].label;
+    const amount=document.createElement('strong');amount.textContent=won(summaryMetric(part,context).value);
+    row.append(name,amount);breakdown.append(row);
+   }
+   disclosure.append(breakdown);card.append(disclosure);
+  }
   if(key==='mallRevenue'&&!summaryLoading&&(metric.value===0||metric.value===null)&&cafeRevenueDiagnostic()){
    const diagnostic=cafeRevenueDiagnostic();
    const counts=document.createElement('small');counts.className='summary-card-state';
