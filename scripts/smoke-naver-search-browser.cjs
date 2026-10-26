@@ -73,6 +73,11 @@ async function main() {
   await page.waitForFunction(() => document.getElementById('search-badge').textContent === '연결 전');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('#search-load').isDisabled(), true);
+  assert.equal(await page.locator('#search-admin').evaluate(el => el.open), false);
+  assert.equal(await page.locator('#app-main > :last-child').getAttribute('id'), 'search-admin');
+  assert.equal(await page.locator('#search-query').isVisible(), true);
+  await page.locator('#search-admin > summary').click();
+  await page.locator('#search-connection > summary').click();
   await page.fill('#search-customer', '123456'); await page.fill('#search-key', 'SYNTHETIC-API-KEY'); await page.fill('#search-secret', 'SYNTHETIC-SECRET-KEY');
   await page.locator('#search-connect button').click();
   await page.locator('#search-scope-options input[value="cmp-a"]').waitFor();
@@ -91,6 +96,9 @@ async function main() {
   assert.equal(await page.locator('#search-campaigns').getByText('트루버 버너').count(), 0);
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('search-report').hidden && !document.getElementById('search-load').disabled);
+  assert.equal(await page.locator('#search-admin').evaluate(el => el.open), false, 'Saved connections never expand the bottom management area');
+  await page.locator('#search-admin [data-ad-spend-host] #ad-spend-breakdown').waitFor({ state: 'attached' });
+  assert.equal(await page.locator('#search-history-start').isVisible(), false);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-a"]').isChecked(), true);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);
   console.log('PASS explicit Wemamang-only scope persists across reload; Truver and unknown campaigns stay unchecked');
@@ -111,6 +119,15 @@ async function main() {
     assert.equal(mapping.mappings['cmp-a'], target); assert.match(await page.locator('#search-metrics').innerText(), /4,400원/, 'Routing and exclusion retain campaign performance');
   }
   console.log('PASS campaign spend choices: explicit save, reload persistence, failed-save draft, reset, GFA/exclusion/automatic and unchanged performance');
+  for (const months of [2, 3, 6, 12]) {
+    await page.locator('[data-search-months="' + months + '"]').click();
+    await page.waitForFunction(() => !document.getElementById('search-load').disabled && document.getElementById('search-period').textContent === document.getElementById('search-since').value + ' ~ ' + document.getElementById('search-until').value);
+    const days = await page.evaluate(() => (Date.parse(document.getElementById('search-until').value) - Date.parse(document.getElementById('search-since').value)) / 86400000 + 1);
+    assert.ok(days >= months * 28 && days <= (months === 12 ? 366 : months * 31));
+    assert.equal(await page.locator('#search-admin').evaluate(el => el.open), false);
+  }
+  console.log('PASS 2/3/6-month and 1-year shortcuts query the selected period while management stays collapsed');
+  await page.locator('#search-admin > summary').click();
   assert.equal(await page.locator('#search-history-since').inputValue(),'2026-06-01');
   await page.locator('#search-history-start').click();
   await page.waitForFunction(()=>document.getElementById('search-history-status').textContent.includes('수집 중'));
@@ -118,6 +135,7 @@ async function main() {
   assert.equal(posted.find(item=>item.endpoint==='history').body.until,await page.locator('#search-history-until').inputValue());
   history={...history,status:'complete',running:false,completedRanges:5,confirmedDays:148};
   await page.reload();await page.waitForFunction(()=>document.getElementById('search-history-status').textContent.includes('수집 완료')&&!document.getElementById('search-history-view').disabled);
+  await page.locator('#search-admin > summary').click();
   await page.locator('#search-history-view').click();await page.waitForFunction(()=>document.getElementById('search-message').textContent.includes('과거 전체 기간'));
   assert.match(await page.locator('#search-period').innerText(),/2026-06-01/);assert.match(await page.locator('#search-report-notice').innerText(),/전체 기간/);
   assert.equal(await page.locator('#search-campaigns').getByText('트루버 버너').count(),0);

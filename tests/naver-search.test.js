@@ -43,6 +43,44 @@ function historicalHandler(url) {
   return { data: rows };
 }
 
+test('year-long queries collect monthly ranges, aggregate ratios and reuse saved data after restart', async t => {
+  const f = fixture(t); await f.connect(); f.setHandler(historicalHandler);
+  const range = { since: '2025-10-26', until: '2026-10-25' };
+  const report = await f.service.report(range);
+  assert.equal(report.daily.length, 365); assert.equal(new Set(report.daily.map(row => row.date)).size, 365);
+  assert.equal(report.partial, false); assert.equal(report.totalRanges, 13);
+  assert.equal(report.summary.spend, 73000); assert.equal(report.summary.purchases, 730);
+  assert.equal(report.summary.purchaseRoas, 1000); assert.equal(report.summary.cpc, 10);
+  const calls = f.requests.filter(r => r.url.pathname === '/stats');
+  assert.equal(calls.length, 26);
+  assert.ok(calls.every(r => { const dates = JSON.parse(r.url.searchParams.get('timeRange')); return (Date.parse(dates.until) - Date.parse(dates.since)) / 86400000 < 31; }));
+  assert.ok(calls.every(r => ['cmp-a', 'cmp-b'].includes(r.url.searchParams.get('id'))));
+  f.service.saveSpendMapping({ ...f.service.spendMapping(), mappings: { 'cmp-a': 'shopping' } });
+  const count = f.requests.length, saved = await f.restart().report(range);
+  assert.deepEqual(saved.summary, report.summary); assert.equal(saved.cached, true);
+  assert.equal(saved.spendMapping.mappings['cmp-a'], 'shopping'); assert.equal(f.requests.length, count);
+  f.setHandler(() => new Response('unavailable', { status: 503 }));
+  const failed = await f.service.report({ ...range, refresh: true });
+  assert.deepEqual(failed.summary, report.summary); assert.equal(failed.stale, true); assert.ok(failed.refreshError);
+  assert.deepEqual((await f.service.report({ ...range, cacheOnly: true })).summary, report.summary);
+});
+
+test('multi-month queries clip saved June history to the exact selected dates without collecting or double counting', async t => {
+  const f = fixture(t); await f.connect(); f.setHandler(historicalHandler);
+  f.service.startHistory(); await historyFinished(f.service);
+  const count = f.requests.length;
+  const report = await f.service.report({ since: '2026-08-27', until: '2026-10-25', cacheOnly: true });
+  assert.equal(report.daily.length, 60); assert.equal(report.daily[0].date, '2026-08-27');
+  assert.equal(report.daily.at(-1).date, '2026-10-25'); assert.equal(report.summary.spend, 12000);
+  assert.equal(report.summary.purchases, 120); assert.equal(report.partial, false);
+  assert.equal(f.requests.length, count);
+  await assert.rejects(f.service.report({ since: '2026-05-27', until: '2026-10-25', cacheOnly: true }), { status: 404 });
+  assert.equal(f.requests.length, count, 'cache-only queries never silently collect missing months');
+  const completed = await f.service.report({ since: '2026-05-27', until: '2026-10-25' });
+  assert.equal(completed.daily.length, 152); assert.equal(completed.summary.spend, 30400);
+  assert.equal(f.requests.length - count, 3, 'only the missing May range and its campaign metadata are fetched');
+});
+
 test('June history runs in monthly chunks and saves scoped daily data and exact full-range totals', async t => {
   const f = fixture(t); await f.connect(); f.setHandler(historicalHandler);
   const started = f.service.startHistory(); assert.equal(started.running, true);
@@ -177,9 +215,9 @@ test('broken API shapes, absent cost and duplicate dates fail without overwritin
   assert.equal(fs.existsSync(path.join(f.dir, '.roas-data/naver-search/123456', f.service.status().scopeKey, '2026-10-24_2026-10-24.json')), false);
 });
 
-test('date validation precedes network access and limits requests to valid past 31 days', async t => {
+test('date validation precedes network access and limits overall queries to a past year', async t => {
   const f = fixture(t); await f.connect(); const count = f.requests.length;
-  for (const [since, until] of [['2026-02-30', '2026-03-01'], ['2026-10-26', '2026-10-26'], ['2026-10-25', '2026-10-24'], ['2026-09-01', '2026-10-24']]) {
+  for (const [since, until] of [['2026-02-30', '2026-03-01'], ['2026-10-26', '2026-10-26'], ['2026-10-25', '2026-10-24'], ['2025-09-01', '2026-10-24']]) {
     await assert.rejects(f.service.report({ since, until }), { status: 400 });
   }
   assert.equal(f.requests.length, count);

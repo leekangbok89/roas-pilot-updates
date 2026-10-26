@@ -55,6 +55,13 @@
     return value;
   }
   function dates(days) { const end = Date.now(); $('search-until').value = kstDate(end); $('search-since').value = kstDate(end - (days - 1) * 86400000); }
+  function monthDates(months) {
+    const end = kstDate(Date.now()), date = new Date(end + 'T00:00:00Z');
+    const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - months, 1));
+    const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+    target.setUTCDate(Math.min(date.getUTCDate(), last));target.setUTCDate(target.getUTCDate() + 1);
+    $('search-since').value = target.toISOString().slice(0, 10);$('search-until').value = end;
+  }
   function cells(row, first, detail) {
     const tr = document.createElement('tr'), td = document.createElement('td');
     td.textContent = first;
@@ -99,7 +106,7 @@
     $('search-daily').replaceChildren(...value.daily.map(row => cells(row, row.date)));
     for (const id of ['search-campaigns', 'search-daily']) if (!$(id).children.length) { const tr = document.createElement('tr'), td = document.createElement('td'); td.colSpan = id === 'search-campaigns' ? 11 : 10; td.textContent = '선택 기간에 반환된 성과가 없습니다.'; tr.appendChild(td); $(id).appendChild(tr); }
     $('search-warnings').replaceChildren(...value.warnings.map(text => { const li = document.createElement('li'); li.textContent = text; return li; }));
-    const notice = value.history ? (value.partial ? '과거 자료 확인분입니다. 미수집 기간·캠페인 날짜는 전체 합계에서 빠져 있을 수 있습니다.' : '과거 수집 저장 자료입니다. 선택한 전체 기간을 합산했습니다.') : value.refreshError ? '갱신 실패: ' + value.refreshError + '\n위 수치는 ' + time(value.fetchedAt) + '에 저장된 자료입니다.' : value.noData ? '선택 기간에 반환된 성과가 없습니다. 캠페인 운영 기간과 API 지원 범위를 확인해 주세요.' : value.stale ? '이전에 저장한 자료입니다. 새로 가져오기를 누르면 API로 갱신합니다.' : '';
+    const notice = value.partial && !value.refreshError ? '선택 기간의 일부 날짜나 지표가 미확인입니다. 반환된 자료의 확인분을 표시합니다.' : value.history ? (value.partial ? '과거 자료 확인분입니다. 미수집 기간·캠페인 날짜는 전체 합계에서 빠져 있을 수 있습니다.' : '과거 수집 저장 자료입니다. 선택한 전체 기간을 합산했습니다.') : value.refreshError ? '갱신 실패: ' + value.refreshError + '\n위 수치는 ' + time(value.fetchedAt) + '에 저장된 자료입니다.' : value.noData ? '선택 기간에 반환된 성과가 없습니다. 캠페인 운영 기간과 API 지원 범위를 확인해 주세요.' : value.stale ? '이전에 저장한 자료입니다. 새로 가져오기를 누르면 API로 갱신합니다.' : '';
     $('search-report-notice').textContent = notice; $('search-report-notice').hidden = !notice; $('search-report-notice').dataset.tone = 'warning';
   }
   async function load(refresh, cacheOnly = false) {
@@ -209,6 +216,9 @@
   $('search-query').addEventListener('submit', event => { event.preventDefault(); load(false); });
   $('search-refresh').addEventListener('click', () => load(true));
   document.querySelectorAll('[data-search-days]').forEach(button => button.addEventListener('click', () => { if (busy) return; dates(Number(button.dataset.searchDays)); if (configured) load(false); }));
+  document.querySelectorAll('[data-search-months]').forEach(button => button.addEventListener('click', () => {
+    if (busy || historyRunning) return;monthDates(Number(button.dataset.searchMonths));if (configured) load(false);
+  }));
   $('search-history-until').value=kstDate(Date.now());$('search-history-since').max=$('search-history-until').max=kstDate(Date.now());
   dates(7); $('search-since').max = $('search-until').max = kstDate(Date.now());
   status().then(async value => { if (value.configured) { $('search-connection').open = false; await loadScope(); if (scopeReady) load(false); } }).catch(error => message(error.message, 'error'));

@@ -219,6 +219,8 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     return result;
   }
   async function report({ since, until, refresh = false, cacheOnly = false }) {
+    if (validDate(since) && validDate(until) && (Date.parse(until) - Date.parse(since)) / 86400000 >= 31)
+      return periodReport({ since, until, refresh, cacheOnly });
     const range = dateRange(since, until, now()), config = requireConfig(), saved = cached(config, range);
     if (cacheOnly || (!refresh && saved && now() - Date.parse(saved.fetchedAt) < 5 * 60000)) {
       if (!saved) throw fail(404, '이 기간의 저장된 검색광고 성과가 없습니다. 기간 조회를 눌러주세요.');
@@ -239,7 +241,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
   }
   function historyRanges(since, until) {
     if (!validDate(since) || !validDate(until) || since > until || until > kstDate(now()) || (Date.parse(until) - Date.parse(since)) / 86400000 > 365)
-      throw fail(400, '과거 수집 기간은 오늘까지 최대 366일로 선택해 주세요.');
+      throw fail(400, '조회·수집 기간은 오늘까지 최대 1년(366일)로 선택해 주세요.');
     const ranges = [];
     for (let cursor = since; cursor <= until;) {
       const year = Number(cursor.slice(0, 4)), month = Number(cursor.slice(5, 7));
@@ -256,25 +258,65 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     if (!job || job.customerId !== config.customerId || job.scopeKey !== scope(config).key) return null;
     return { ...job, running: historyRunning, status: job.status === 'running' && !historyRunning ? 'paused' : job.status };
   }
-  function historyReport() {
-    const config = requireConfig(), selected = requireScope(config), job = historyStatus(config);
-    if (!job) throw fail(404, '아직 과거 수집 내역이 없습니다. 6월부터 수집·저장을 눌러주세요.');
-    const reports = historyRanges(job.since, job.until).map(range => cached(config, range)).filter(Boolean);
-    if (!reports.length) throw fail(404, '저장된 기간이 없습니다. 과거 수집을 시작해 주세요.');
+  function cachedSlice(config, range) {
+    const exact = cached(config, range); if (exact) return exact;
+    const start = range.since.slice(0, 7) + '-01';
+    const monthEnd = new Date(Date.UTC(Number(range.since.slice(0, 4)), Number(range.since.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    const end = monthEnd < kstDate(now()) ? monthEnd : kstDate(now());
+    const full = cached(config, { since: start, until: end });
+    if (!full || !Array.isArray(full.campaignDaily)) return null;
+    const rows = full.campaignDaily.filter(row => row.date >= range.since && row.date <= range.until);
+    const output = full.campaigns.map(campaign => ({ ...campaign, ...aggregate(rows.filter(row => row.id === campaign.id)) }));
+    const daily = full.daily.filter(day => day.date >= range.since && day.date <= range.until);
+    return { ...full, ...range, campaigns: output, campaignDaily: rows, daily, summary: aggregate(output), noData: !daily.length };
+  }
+  function combineReports(config, range, reports, totalRanges) {
+    if (!reports.length) throw fail(404, '선택 기간에 저장된 검색광고 자료가 없습니다. 기간 조회를 눌러주세요.');
+    const selected = requireScope(config);
     const output = selected.campaignIds.map(id => {
       const rows = reports.map(report => report.campaigns.find(row => row.id === id));
       const last = rows[rows.length - 1];
       return { id, name: last.name, type: last.type, status: last.status, ...aggregate(rows) };
     });
     const daily = reports.flatMap(report => report.daily).sort((a, b) => a.date.localeCompare(b.date));
-    const totalDays = (Date.parse(job.until) - Date.parse(job.since)) / 86400000 + 1;
-    const fetchedAt = reports.map(report => report.fetchedAt).sort().at(-1);
-    const incomplete = reports.length !== job.totalRanges || daily.filter(day => day.complete).length < totalDays;
+    const totalDays = (Date.parse(range.until) - Date.parse(range.since)) / 86400000 + 1;
+    const incomplete = reports.length !== totalRanges || daily.filter(day => day.complete).length < totalDays;
     const warnings = [...new Set(reports.flatMap(report => report.warnings))];
     if (incomplete) warnings.push('일부 기간 또는 캠페인 날짜가 미확인입니다. 아래 합계는 저장된 자료의 확인분이며 전체 기간 확정 합계가 아닙니다.');
-    return { customerId: config.customerId, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, spendMapping: spendMapping(config), since: job.since, until: job.until,
-      fetchedAt, currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings,
-      noData: !daily.length, cached: true, stale: true, history: true, partial: incomplete, completedRanges: reports.length, totalRanges: job.totalRanges, jobStatus: job.status };
+    return withSpendMapping(config, { customerId: config.customerId, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, ...range,
+      fetchedAt: reports.map(report => report.fetchedAt).sort().at(-1), currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings,
+      noData: !daily.length, partial: incomplete, completedRanges: reports.length, totalRanges });
+  }
+  async function periodReport({ since, until, refresh, cacheOnly }) {
+    const ranges = historyRanges(since, until), config = requireConfig();
+    const prior = ranges.map(range => cachedSlice(config, range)), allSaved = prior.every(Boolean);
+    if (cacheOnly || !refresh && allSaved) {
+      if (!allSaved) throw fail(404, '선택 기간에 저장되지 않은 자료가 있습니다. 기간 조회를 눌러 수집해 주세요.');
+      return { ...combineReports(config, { since, until }, prior, ranges.length), cached: true, stale: true };
+    }
+    return exclusive(async () => {
+      const reports = [];
+      try {
+        for (let index = 0; index < ranges.length; index++) {
+          const range = ranges[index];progress = (index + 1) + '/' + ranges.length + '개 기간 · ' + range.since + ' ~ ' + range.until;
+          reports.push(!refresh && prior[index] ? prior[index] : await collect(config, range));
+        }
+        const value = combineReports(config, { since, until }, reports, ranges.length);
+        setState({ lastSuccessAt: new Date(now()).toISOString(), error: null });
+        return { ...value, cached: false, stale: false };
+      } catch (error) {
+        setState({ error: error.message });
+        if (allSaved) return { ...combineReports(config, { since, until }, prior, ranges.length), cached: true, stale: true, refreshError: error.message };
+        throw error;
+      }
+    });
+  }
+  function historyReport() {
+    const config = requireConfig(), job = historyStatus(config);
+    if (!job) throw fail(404, '아직 과거 수집 내역이 없습니다. 6월부터 수집·저장을 눌러주세요.');
+    const reports = historyRanges(job.since, job.until).map(range => cached(config, range)).filter(Boolean);
+    if (!reports.length) throw fail(404, '저장된 기간이 없습니다. 과거 수집을 시작해 주세요.');
+    return { ...combineReports(config, { since: job.since, until: job.until }, reports, job.totalRanges), cached: true, stale: true, history: true, jobStatus: job.status };
   }
   function startHistory(input = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail(400, '과거 수집 기간을 확인해 주세요.');
