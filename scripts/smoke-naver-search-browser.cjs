@@ -77,7 +77,7 @@ async function main() {
   await page.waitForFunction(() => !document.getElementById('search-report').hidden && !document.getElementById('search-load').disabled);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-a"]').isChecked(), true);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);
-  console.log('PASS explicit Wemamang-only scope persists across reload; Tru ver and unknown campaigns stay unchecked');
+  console.log('PASS explicit Wemamang-only scope persists across reload; Truver and unknown campaigns stay unchecked');
   console.log('PASS legacy upgrade: connect/save/clear keys, purchase metrics, safe campaign text, no browser secret storage');
   await page.locator('#search-auto').uncheck(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
   assert.equal(auto, false); await page.locator('#search-auto').check(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
@@ -92,6 +92,7 @@ async function main() {
   console.log('PASS auto preference, stale report timestamp/failure, missing purchase stays unknown');
   // Failed replacement must leave the connected account/report usable.
   await page.locator('#search-connection summary').click();
+  await page.fill('#search-customer', '123456');
   await page.fill('#search-key', 'REPLACEMENT-API-KEY'); await page.fill('#search-secret', 'REPLACEMENT-SECRET-KEY'); failSave = true;
   await page.locator('#search-connect button').click();
   await page.waitForFunction(() => document.getElementById('search-message').textContent.includes('인증에 실패'));
