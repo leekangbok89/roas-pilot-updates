@@ -102,7 +102,7 @@
       store=await api();
       const response=await api('POST',{kind:'channels',since:$('file-since').value,until:$('file-until').value,filename:pending.filename,rows:pending.rows,revision:store.revision,replaceExisting:!automatic});
       store=response;history();selectPeriod($('file-since').value,$('file-until').value);
-      message('file-status',(automatic?'자동 저장 완료 · ':'저장 완료 · ')+importSummary(response.importStats)+
+      message('file-status',(automatic?'첨부한 전체채널 파일을 자동 저장했습니다. ':'전체채널 자료를 저장했습니다. ')+importSummary(response.importStats)+
         (pending.skipped?' · 파일 안의 빈 행·합계·중복 '+pending.skipped+'행 제외':''));
     }catch(e){message('file-status',(automatic?'자동 저장 확인 필요: ':'저장 확인 필요: ')+e.message,true);}
     finally{setBusy(false);}
