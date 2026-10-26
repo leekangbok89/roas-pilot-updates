@@ -19,7 +19,6 @@ function validate(input) {
   entry.account = entry.account.replace(/^act_/, '');
   if (entry.channel.startsWith('meta-') && entry.account && !/^\d{5,30}$/.test(entry.account)) fail('Meta 광고 계정 ID는 숫자로 입력하세요.');
   if (!entry.kind || (!entry.before && !entry.after && !entry.note)) fail('변경 종류와 변경 전·후 내용 또는 메모를 입력하세요.');
-  if (!['account', 'unlinked'].includes(entry.level) && !entry.entityName) fail('변경한 캠페인·광고세트·광고 이름을 입력하세요.');
   entry.windowDays = Number(input.windowDays ?? 7);
   if (![3, 7, 14, 28].includes(entry.windowDays)) fail('비교 기간은 3·7·14·28일 중 선택하세요.');
   return entry;
@@ -84,6 +83,7 @@ function createJournal({ baseDir, loadDay, today }) {
   }
   function overlaps(a, b) {
     if (a.id === b.id || a.account !== b.account || !a.channel.startsWith('meta-') || !b.channel.startsWith('meta-')) return false;
+    if ([a, b].some(e => !e.account || e.level === 'unlinked' || (e.level !== 'account' && !e.entityId))) return false;
     if (a.level === 'account' || b.level === 'account') return true;
     if (a.level === b.level) return !!a.entityId && a.entityId === b.entityId;
     const higher = levels.indexOf(a.level) < levels.indexOf(b.level) ? a : b, lower = higher === a ? b : a;

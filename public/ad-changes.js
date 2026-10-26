@@ -23,8 +23,16 @@
     const key = $('channel').value === 'meta-naver' ? 'naver' : $('channel').value === 'meta-cafe' ? 'cafe' : '';
     $('account').value = String(accounts[key] || '').replace(/^act_/, '');
   }
+  function updateChannelControls() {
+    const meta = $('channel').value.startsWith('meta-');
+    $('meta-picker').hidden = !meta;
+    $('load-targets').disabled = !meta;
+    $('target').disabled = !meta;
+    $('account').placeholder = meta ? '선택 입력 · 설정에 등록된 Meta 계정 자동 입력' : '선택 입력 · 비워두어도 저장됩니다';
+    $('entityId').placeholder = meta ? '선택 입력 · 불러온 광고를 선택하면 자동 입력' : '선택 입력 · 비워두어도 저장됩니다';
+  }
   function reset() {
-    $('entry-form').reset(); editing=null;parents={};$('date').value=today;linkedAccount();clearTargets();
+    $('entry-form').reset(); editing=null;parents={};$('date').value=today;linkedAccount();clearTargets();updateChannelControls();
     $('form-title').textContent='변경사항 추가';$('save').textContent='기록 저장';
   }
   function render() {
@@ -40,6 +48,7 @@
   function edit(entry) {
     reset();editing=entry;
     for(const f of fields)$(f).value=entry[f]??'';
+    updateChannelControls();
     parents={campaignId:entry.campaignId,adsetId:entry.adsetId};
     $('form-title').textContent='변경 기록 수정';$('save').textContent='수정 저장';$('date').focus();$('entry-form').scrollIntoView({behavior:'smooth',block:'start'});
   }
@@ -66,14 +75,13 @@
   }
   $('entry-form').addEventListener('submit',async event=>{
     event.preventDefault();const data=Object.fromEntries(fields.map(f=>[f,$(f).value]));
-    if(data.level!=='account'&&!data.entityName.trim()){status('대상 이름을 입력하세요.',true);$('entityName').focus();return;}
     const input={...data,...parents,...(editing?{id:editing.id,revision:editing.revision}:{})};
     $('save').disabled=true;
     try{await api('/api/ad-changes',input);reset();await load();status('변경 기록을 저장했습니다.');if(selectedReport)await showReport(selectedReport,false);}
     catch(e){status('저장 실패: '+e.message,true);}finally{$('save').disabled=false;}
   });
   $('cancel').addEventListener('click',reset);
-  $('channel').addEventListener('change',()=>{linkedAccount();clearTargets();$('entityId').value='';$('entityName').value='';});
+  $('channel').addEventListener('change',()=>{linkedAccount();clearTargets();updateChannelControls();$('entityId').value='';$('entityName').value='';});
   $('account').addEventListener('input',()=>{clearTargets();$('entityId').value='';});
   $('level').addEventListener('change',()=>{clearTargets();$('entityId').value='';$('entityName').value='';});
   $('entityId').addEventListener('input',()=>{parents={};$('target').value='';});

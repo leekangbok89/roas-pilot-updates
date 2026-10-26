@@ -9,6 +9,26 @@ test('exact campaign scope, purchase precedence and weighted ratios use equal wi
 test('missing days, today and future never become zeros or a complete comparison; known empty days are retained',t=>{const f=fixture(t);seed(f,{omit:'2026-10-08'});const entry=f.journal.save(input);let r=f.journal.report(entry);assert.equal(r.ready,false);assert.deepEqual(r.before.missingDays,['2026-10-08']);assert.equal(r.deltas,null);f.setToday('2026-10-12');r=f.journal.report(entry);assert.deepEqual(r.after.pendingDays,['2026-10-12','2026-10-13']);assert.equal(r.after.storedDays,1);assert.equal(r.status,'관찰 중');f.setToday('2026-10-25');seed(f,{empty:true});r=f.journal.report(entry);assert.equal(r.before.complete,true);assert.equal(r.before.metrics.spend,0);assert.equal(r.ready,false);});
 test('different currencies, missing entity ID and non-Meta logs do not produce unsupported comparisons',t=>{const f=fixture(t);seed(f);const entry=f.journal.save(input);f.days.get(input.account+'2026-10-11').currency='USD';const r=f.journal.report(entry);assert.equal(r.ready,false);assert.equal(r.after.currency,null);assert.equal(f.journal.report({...entry,entityId:''}).status,'광고 연결 필요');assert.equal(f.journal.report({...entry,channel:'naver-display'}).status,'기록만 저장');});
 test('same-target and parent changes overlap, independent known campaigns and accounts do not',t=>{const f=fixture(t);seed(f);const entry=f.journal.save(input),same=f.journal.save({...input,date:'2026-10-11',level:'ad',entityId:'a1',campaignId:'c1',adsetId:'s1'});f.journal.save({...input,date:'2026-10-11',entityId:'c2'});f.journal.save({...input,date:'2026-10-11',account:'222222'});assert.deepEqual(f.journal.report(entry).conflicts.map(e=>e.id),[same.id]);});
+test('all channels save, reopen, edit and export memos without account or target details',t=>{
+  const f=fixture(t);
+  for(const channel of ['naver-search','naver-display','meta-naver','meta-cafe','meta-other','other']){
+    const entry=f.journal.save({date:input.date,channel,level:'campaign',kind:'광고 ON/OFF',note:'파워링크 끄고 전체 매출 변화 확인'});
+    assert.equal(entry.account,'');assert.equal(entry.entityName,'');assert.equal(entry.entityId,'');
+    assert.equal(createJournal(f.options).list().find(e=>e.id===entry.id).note,entry.note);
+    const edited=f.journal.save({...entry,note:'내용 수정'});assert.equal(edited.revision,2);
+    const report=f.journal.exportReport().reports.find(r=>r.entry.id===entry.id);
+    assert.equal(report.ready,false);assert.equal(report.before,undefined);
+    assert.equal(report.status,channel.startsWith('meta-')?'광고 연결 필요':'기록만 저장');
+  }
+  assert.throws(()=>f.journal.save({date:input.date,channel:'naver-search',level:'campaign',kind:'기타'}),{status:400});
+});
+test('unlinked Meta memos do not create a false overlapping change for linked ads',t=>{
+  const f=fixture(t);seed(f);
+  const entry=f.journal.save({...input,level:'ad',entityId:'a1',campaignId:'c1',adsetId:'s1'});
+  f.journal.save({...input,entityName:'',entityId:''});
+  f.journal.save({...input,level:'unlinked',entityName:'',entityId:''});
+  assert.deepEqual(f.journal.report(entry).conflicts,[]);
+});
 test('legacy migration is idempotent, preserves names and notes, and never guesses an ID',t=>{const f=fixture(t),legacy=[{date:'2026-10-01',kind:'타겟 변경',ad:'캠페인 / 광고',note:'구매자 제외'}];assert.equal(f.journal.importLegacy(legacy).imported,1);assert.equal(f.journal.importLegacy(legacy).imported,0);const e=f.journal.list()[0];assert.equal(e.entityName,legacy[0].ad);assert.equal(e.note,legacy[0].note);assert.equal(e.level,'unlinked');assert.equal(e.entityId,'');assert.throws(()=>f.journal.importLegacy([...legacy,{date:'bad'}]));assert.equal(f.journal.list().length,1);f.journal.remove(e);assert.equal(f.journal.importLegacy(legacy).imported,0,'deleting an imported memo must survive reopening the browser');assert.equal(f.journal.list().length,0);});
 test('a corrupt journal is reported and never silently replaced',t=>{const f=fixture(t);f.journal.save(input);const file=path.join(f.dir,'.roas-data/ad-changes.json');fs.writeFileSync(file,'broken');assert.throws(()=>f.journal.save(input),{status:500});assert.equal(fs.readFileSync(file,'utf8'),'broken');});
 function serverFixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-changes-api-'));fs.mkdirSync(path.join(dir,'public'));fs.copyFileSync(path.join(__dirname,'../server.js'),path.join(dir,'server.js'));const app=require(path.join(dir,'server.js'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const request=(url,method='GET',value,headers={})=>new Promise((resolve,reject)=>{const {Readable}=require('node:stream');const req=Readable.from(value===undefined?[]:[Buffer.from(JSON.stringify(value))]);Object.assign(req,{url,method,headers:{host:'127.0.0.1:3000',...headers}});const result={};const res={writeHead(status,headers){Object.assign(result,{status,headers});},end(body){result.body=String(body);resolve(result);}};Promise.resolve(app.server.listeners('request')[0](req,res)).catch(reject);});return {dir,request};}

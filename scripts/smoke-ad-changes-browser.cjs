@@ -33,6 +33,29 @@ const write=(file,value)=>{const dest=path.join(temp,file);fs.mkdirSync(path.dir
   for(const mode of ['light','dark']){if(await page.locator('html').getAttribute('data-theme')!==mode)await page.locator('#app-theme-toggle').click();assert.equal(await page.locator('html').getAttribute('data-theme'),mode);}
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile page has no outer horizontal overflow');
   await page.setViewportSize({width:1440,height:1050});page.once('dialog',d=>d.accept());await row.locator('[data-action="delete"]').click();await page.waitForFunction(()=>document.querySelectorAll('#entries tr').length===1);assert.equal(JSON.parse(fs.readFileSync(path.join(temp,'.roas-data/ad-changes.json'))).entries.length,1);
+  for(const channel of ['naver-search','naver-display','meta-other']){
+    await page.locator('#cancel').click();await page.locator('#channel').selectOption(channel);
+    assert.equal(await page.locator('#account').inputValue(),'');
+    assert.equal(await page.locator('#entityName').inputValue(),'');assert.equal(await page.locator('#entityId').inputValue(),'');
+    assert.equal(await page.locator('#meta-picker').isVisible(),channel.startsWith('meta-'));
+    const memo='계정과 대상 없이 저장 '+channel;
+    await page.locator('#note').fill(memo);await page.locator('#save').click();
+    await page.waitForFunction(()=>document.getElementById('status').textContent==='변경 기록을 저장했습니다.');
+    await page.reload();await page.waitForFunction(()=>document.querySelectorAll('#entries tr').length===2);
+    const memoRow=page.locator('#entries tr').filter({hasText:memo});await memoRow.locator('[data-action="edit"]').click();
+    assert.equal(await page.locator('#channel').inputValue(),channel);assert.equal(await page.locator('#meta-picker').isVisible(),channel.startsWith('meta-'));
+    await page.locator('#note').fill(memo+' 수정');await page.locator('#save').click();
+    await page.waitForFunction(()=>document.getElementById('status').textContent==='변경 기록을 저장했습니다.');
+    await memoRow.locator('[data-action="compare"]').click();
+    await page.waitForFunction(()=>/기록만 저장|광고 연결 필요/.test(document.getElementById('report-status').textContent));
+    assert.equal(await page.locator('#report-body .comparison-metrics').count(),0);
+    if(process.env.ROAS_JOURNAL_MEMO_SCREENSHOT&&channel==='naver-search'){
+      await memoRow.locator('[data-action="edit"]').click();
+      await page.screenshot({path:process.env.ROAS_JOURNAL_MEMO_SCREENSHOT,fullPage:true});
+    }
+    page.once('dialog',d=>d.accept());await memoRow.locator('[data-action="delete"]').click();
+    await page.waitForFunction(()=>document.querySelectorAll('#entries tr').length===1);
+  }
   await page.goto(base+'/visual-overview.html');await page.locator('#app-nav-toggle').click();await page.locator('#app-nav [data-app-route="changes"]').click();await page.waitForURL('**/ad-changes.html');assert.equal(await page.locator('#app-nav [aria-current="page"]').getAttribute('data-app-route'),'changes');
-  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);console.log('PASS: legacy fallback, migration, target picker, persistence, edit/delete, safe rendering, comparisons, export, dark/light, mobile and navigation');
+  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);console.log('PASS: legacy fallback, migration, target picker, persistence, edit/delete, safe rendering, comparisons, export, optional account and target memos across channels, dark/light, mobile and navigation');
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(child){child.kill();await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});}fs.rmSync(temp,{recursive:true,force:true});});
