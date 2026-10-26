@@ -181,7 +181,7 @@ body .app-drawer .app-nav-link svg { flex:none; width:17px; height:17px; }
 body .app-drawer .app-nav-link:is(.active,:hover) { color:#fff; background:var(--app-nav-active); }
 body .app-nav-footer { margin-top:auto; padding-top:28px; color:var(--app-nav-text); font-size:12px; }
 body .app-nav-footer p { color:var(--app-nav-text); margin:12px 0 0; font-size:12px; line-height:1.6; }
-body .app-theme-drawer-toggle { display:flex; align-items:center; gap:9px; width:100%; margin:0; padding:10px 4px; color:#e6edf7; background:transparent; border:0; border-top:1px solid #ffffff26; border-radius:0; font-family:inherit; font-size:13px; font-weight:600; text-align:left; cursor:pointer; }
+body .app-theme-drawer-toggle { display:flex; align-items:center; gap:9px; width:100%; margin:0; padding:10px 4px; color:#e6edf7; background:transparent; border:0; border-top:1px solid #ffffff26; border-radius:0; font-family:inherit; font-size:12px; font-weight:600; text-align:left; cursor:pointer; }
 body .app-theme-drawer-toggle [data-theme-icon] { font-size:20px; }
 @media(max-width:750px) { :root { --app-pad:14px; } body .app-page-head { gap:10px; } body .app-main :is(.panel,.control-panel),body[data-app-page="cost"] .app-main>section { padding:12px; } body .app-main .header-actions { width:auto; flex-wrap:wrap; } }
 @media(pointer:coarse) {
