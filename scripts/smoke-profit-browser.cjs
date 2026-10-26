@@ -980,10 +980,7 @@ async function verifySplitSpend(requests) {
       assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each spend card identifies its fixed account scope');
     }
   };
-  const fixedSplit=page.locator('#ad-spend-breakdown [data-spend-key]');
-  assert.equal(await fixedSplit.count(),1);
-  await page.waitForFunction(()=>document.querySelector('#ad-spend-breakdown .roas-spend-total')?.textContent===new Intl.NumberFormat('ko-KR').format(30000)+'원');
-  assert.deepEqual(await page.locator('#ad-spend-breakdown [data-spend-line]').evaluateAll(rows=>rows.map(row=>row.dataset.spendLine)),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend']);
+  assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'The removed fixed spend breakdown stays absent');
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
   const requestStart = requests.length;
@@ -994,14 +991,11 @@ async function verifySplitSpend(requests) {
   await page.locator('#summary-save').click();
   assert.deepEqual(await summaryKeys(), configured.filter(Boolean));
   assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey), configured, 'Three spend and three ROAS selections preserve twelve stored positions including empty slots');
-  assert.equal(await fixedSplit.count(),1,'Configuring KPI cards keeps the single spend breakdown');
+  assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'Configuring KPI cards does not restore the removed spend breakdown');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
-  assert.deepEqual(await Promise.all(keys.map(async key=>({
-   fixed:await page.locator('#ad-spend-breakdown [data-spend-line="'+key+'"] .roas-spend-line-amount').innerText(),
-   selected:await card(key).locator('strong').innerText()
-  }))),keys.map((key,index)=>({fixed:money([20000,10000,30000][index]),selected:money([20000,10000,30000][index])})),
-  'Fixed global strip and configurable overview must display exactly the same Meta spending values');
+  assert.deepEqual(await Promise.all(keys.map(key=>card(key).locator('strong').innerText())),[money(20000),money(10000),money(30000)],
+  'Configurable overview cards keep the three Meta spending values after the fixed strip is removed');
   assert.deepEqual(await page.locator('#summary-roas-audit-body [data-roas-key]').evaluateAll(rows => rows.map(row => row.dataset.roasKey).sort()), roasKeys.slice().sort(), 'ROAS evidence contains only ROAS rows, never the three spend metrics');
   const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
     const box = card.getBoundingClientRect();

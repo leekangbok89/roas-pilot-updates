@@ -50,8 +50,8 @@ const write=(name,value)=>{const file=path.join(temp,'.roas-data',name);fs.mkdir
  if(process.env.ROAS_NAVER_SCREENSHOT)await page.screenshot({path:process.env.ROAS_NAVER_SCREENSHOT,fullPage:true});
  await page.goto(base+'/visual-overview.html');await page.waitForFunction(()=>document.querySelector('#reload').disabled===false);
  await page.evaluate(()=>{document.querySelector('#since').value='2026-09-01';document.querySelector('#until').value='2026-09-02';});await page.locator('#reload').click();await page.waitForFunction(()=>document.querySelector('#reload').disabled===false);
- await page.waitForFunction(()=>document.querySelector('#ad-spend-breakdown [data-spend-key="spend"] strong').textContent==='6,600원');
- assert.deepEqual(await page.locator('#ad-spend-breakdown [data-spend-line] .roas-spend-line-amount').allTextContents(),['6,600원','2,000원','4,000원','300원','300원'],'overview groups the five source categories without losing search components');
+ await page.waitForFunction(()=>document.querySelector('#summary-cards [data-summary-key="spend"] strong')?.textContent==='6,600원');
+ assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'overview omits the removed fixed spend breakdown');
  const report=await (await fetch(base+'/api/profit/daily?since=2026-09-01&until=2026-09-02&accounts=11111,22222')).json();
  assert.deepEqual(report.days.map(d=>d.profit),[-3300,-3300]);
  await page.locator('.metric-choice').nth(0).selectOption('gfaSpend');

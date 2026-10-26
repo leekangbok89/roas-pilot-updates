@@ -358,17 +358,10 @@
    if(request===refreshToken){draw(null,range);const note=document.getElementById('ad-spend-note');if(note)note.textContent=range.since+' ~ '+range.until+' · 광고비 확인 실패: '+error.message;root.setAttribute('aria-busy','false');}
   }
  }
- function requestRefresh(){void refresh();}
+ function requestRefresh(){}
  window.ROASMetaSpend=Object.freeze({labels,refresh:requestRefresh,getSnapshot:()=>lastSnapshot});
  function init(){
-  // The Naver GFA page focuses only on GFA attribution; the shared Meta/Naver spend strip belongs to other workspaces.
-  if (document.body?.dataset.appPage === 'display') return;
-  if(!ensure())return;
-  requestRefresh();
-  document.addEventListener('change',e=>{if(['since','until','fx-rate'].includes(e.target?.id))requestRefresh();});
-  document.addEventListener('click',e=>{if(e.target?.closest?.('[data-days],[data-period],#reload,#connect,#save-accounts'))requestRefresh();});
-  document.addEventListener('roas:meta-cache-updated',requestRefresh);
-  window.addEventListener('storage',e=>{if(['roas-account-ids',rangeKey,'roas-meta-spend-fx-v1'].includes(e.key))requestRefresh();});
+  // The fixed advertising-spend strip was removed from every workspace.
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();

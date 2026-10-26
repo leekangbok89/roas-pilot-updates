@@ -261,47 +261,14 @@ async function verifyBrowserScenario(){
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(base+'/'))return route.continue();externalRequests.push(url);return route.abort();});
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
  await go('/visual-overview.html');await verifyOverviewFolds();
- async function readSharedSpend(context){
-  await page.waitForFunction(()=>document.querySelector('#ad-spend-breakdown .roas-spend-total')?.textContent.endsWith('원'));
-  const root=page.locator('#ad-spend-breakdown');
-  assert.equal(await root.locator('[data-spend-key]').count(),1);
-  const rows=await root.locator('[data-spend-line]').evaluateAll(nodes=>nodes.map(node=>({key:node.dataset.spendLine,label:node.querySelector('.roas-spend-line-label')?.textContent,amount:node.querySelector('.roas-spend-line-amount')?.textContent})));
-  assert.deepEqual(rows.map(row=>row.key),['spend','smartstoreSpend','mallSpend','gfaSpend','searchSpend'],context);
-  assert.deepEqual(rows.map(row=>row.label),['총 광고비','스마트스토어 협력 메타 광고비','자사몰 메타 광고비','GFA 광고비','검색광고 (네이버쇼핑 + 파워링크)']);
-  return rows.map(row=>row.amount);
- }
- const originalSpend=await readSharedSpend('한눈에 보기');
- // Regression: the overview owns the spend block after the date toolbar;
- // shared navigation code must not lift or duplicate it into the page header.
- const overviewPlacement=await page.evaluate(()=>{
-  const root=document.getElementById('ad-spend-breakdown'),heading=root?.previousElementSibling,alert=document.getElementById('alert');
-  const toolbar=document.getElementById('reload')?.closest('section');
-  return {rootCount:document.querySelectorAll('#ad-spend-breakdown').length,
-   headingClass:heading?.className,afterAlert:heading?.previousElementSibling===alert,
-   afterToolbar:!!toolbar&&Boolean(toolbar.compareDocumentPosition(heading)&Node.DOCUMENT_POSITION_FOLLOWING)};
- });
- assert.equal(overviewPlacement.rootCount,1,'Only one spend strip can exist');
- assert.equal(overviewPlacement.headingClass,'ad-spend-heading');
- assert.equal(overviewPlacement.afterAlert,true,'The strip stays after the overview toolbar and alert');
- assert.equal(overviewPlacement.afterToolbar,true);
- const trigger=page.locator('#ad-spend-breakdown .roas-spend-rollup-trigger');
- const popover=page.locator('#ad-spend-breakdown .roas-spend-popover');
- assert.equal(await popover.isVisible(),false);
- await trigger.hover();assert.equal(await popover.isVisible(),true);
- await page.mouse.move(900,700);assert.equal(await popover.isVisible(),false);
- await trigger.click();assert.equal(await popover.isVisible(),true);
- assert.equal(await trigger.getAttribute('aria-expanded'),'true');
- await trigger.focus();await page.keyboard.press('Escape');assert.equal(await trigger.getAttribute('aria-expanded'),'false');
- for(const width of [390,768,1280,1920]){
-  await page.setViewportSize({width,height:1000});
-  const box=await trigger.boundingBox();assert.ok(box?.width>100&&box.x>=-1&&box.x+box.width<=width+2);
- }
+ const assertSpendBreakdownRemoved=async context=>assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,context+' does not render the removed advertising-spend block');
+ await assertSpendBreakdownRemoved('한눈에 보기');
 
  for(const width of [1280,1920]){
   await page.setViewportSize({width,height:1100});const samples=[];
   for(const route of routes){
    await go(route.url);assert.deepEqual(await labelList(),expectedLabels,'Shared navigation labels/order on '+route.url);
-   assert.deepEqual(await readSharedSpend(route.url),originalSpend,'Three spend values must be identical on overview, diagnosis and cost pages over the same period');
+   await assertSpendBreakdownRemoved(route.url);
    assert.deepEqual(await activeLabel(),[route.active]);
    const current=await typography();
    for(const key of ['body','title','button','input','select','table'])assert.ok(current[key],key+' must have a visible sample on '+route.url);
@@ -309,11 +276,11 @@ async function verifyBrowserScenario(){
    await hoverOverlay();
   }
   for(const sample of samples.slice(1))assert.deepEqual(sample.styles,samples[0].styles,'Typography, control/table styles and main padding must match at '+width+'px: '+sample.route+' vs '+samples[0].route);
-  pass(width+'px: pages retain folded overview/removed AI and share visible fonts, controls, tables, spacing, navigation, and non-shifting hover rail');
+  pass(width+'px: pages omit the removed spend block, retain folded overview/removed AI, and share visible fonts, controls, tables, spacing, navigation, and non-shifting hover rail');
  }
 
  await go('/#data-source');
- assert.deepEqual(await readSharedSpend('설정 관리'),originalSpend);
+ await assertSpendBreakdownRemoved('설정 관리');
  await go('/display-analysis.html');
  assert.equal(await page.locator('#ad-spend-breakdown').count(),0,'GFA workspace hides shared Meta/Naver spend cards');
  assert.equal(await page.locator('#naver-cost-panel').count(),0,'GFA workspace hides obsolete manual all-Naver cost form');

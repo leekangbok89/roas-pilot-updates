@@ -192,31 +192,3 @@ body .app-theme-drawer-toggle [data-theme-icon] { font-size:20px; }
 @media(pointer:coarse){body .app-drawer .app-nav-link{min-height:44px;padding:9px}}
 @media(prefers-reduced-motion:reduce) { body .app-drawer { transition:none; } }
 
-/* A single stable Meta advertising spend block on every workspace tab.
-   It uses the same cached server calculation and account scope everywhere. */
-body .app-main .ad-spend-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 12px;margin:8px 0 6px}
-body .app-main .ad-spend-heading h2{margin:0;font-size:17px;font-weight:650}
-body .app-main .ad-spend-heading p{margin:0;color:var(--app-muted);font-size:12px;line-height:1.45}
-body .app-main #ad-spend-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 13px;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-body .app-main .roas-shared-spend-card{min-width:0;display:flex;flex-direction:column;gap:3px;padding:11px 12px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);box-shadow:var(--app-shadow)}
-body .app-main .roas-shared-spend-title{font-size:13px;line-height:1.4;font-weight:650;color:var(--app-text);overflow-wrap:anywhere}
-body .app-main .roas-shared-spend-value{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px}
-body .app-main .roas-shared-spend-value strong{font-size:clamp(19px,2vw,26px);line-height:1.3;color:var(--app-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;word-break:break-word;max-width:100%;white-space:normal}
-body .app-main .roas-shared-spend-partial{font-size:11px;color:var(--app-warning);border:1px solid var(--app-warning-line);border-radius:5px;padding:1px 5px}
-body .app-main .roas-shared-spend-scope{font-size:12px;color:var(--app-muted);margin-top:auto}
-body .app-main .roas-shared-spend-status{font-size:12px;line-height:1.4;color:var(--app-muted);overflow-wrap:anywhere}
-@media(max-width:920px){body .app-main #ad-spend-breakdown{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:720px){body .app-main #ad-spend-breakdown{grid-template-columns:minmax(0,1fr)}}
-
-/* Compact five-category spend disclosure shared by every workspace. */
-body .app-main #ad-spend-breakdown{display:block;position:relative;z-index:24;width:min(360px,100%);max-width:100%;overflow:visible}
-body .app-main .roas-spend-rollup{position:relative;min-width:0}
-body .app-main .roas-spend-rollup-trigger{display:flex;flex-direction:column;gap:5px;align-items:flex-start;width:100%;min-height:90px;padding:12px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);color:var(--app-text);text-align:left;cursor:pointer}
-body .app-main .roas-spend-total{font-size:25px;color:var(--app-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-body .app-main .roas-spend-rollup-hint{font-size:12px;color:var(--app-link)}
-body .app-main .roas-spend-popover{display:none;position:absolute;z-index:80;top:calc(100% + 6px);left:0;width:min(475px,calc(100vw - 30px));max-height:70vh;overflow:auto;padding:12px;background:var(--app-surface);border:1px solid var(--app-border);border-radius:12px;box-shadow:0 16px 38px #0003}
-body .app-main .roas-spend-rollup:hover .roas-spend-popover,body .app-main .roas-spend-rollup:focus-within .roas-spend-popover,body .app-main .roas-spend-rollup.is-open .roas-spend-popover{display:block}
-body .app-main .roas-spend-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:8px 2px;border-bottom:1px solid var(--app-border)}
-body .app-main .roas-spend-line-label{font-size:13px;overflow-wrap:anywhere}
-body .app-main .roas-spend-line-amount{font-size:14px;white-space:nowrap;font-variant-numeric:tabular-nums}
-body .app-main .roas-spend-line-status{grid-column:1/-1;color:var(--app-muted);font-size:11px;overflow-wrap:anywhere}

@@ -97,7 +97,7 @@ async function main() {
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('search-report').hidden && !document.getElementById('search-load').disabled);
   assert.equal(await page.locator('#search-admin').evaluate(el => el.open), false, 'Saved connections never expand the bottom management area');
-  await page.locator('#search-admin [data-ad-spend-host] #ad-spend-breakdown').waitFor({ state: 'attached' });
+  assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading,[data-ad-spend-host]').count(), 0, 'Removed spend breakdown is not recreated inside search settings');
   assert.equal(await page.locator('#search-history-start').isVisible(), false);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-a"]').isChecked(), true);
   assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);

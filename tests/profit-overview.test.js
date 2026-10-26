@@ -203,7 +203,7 @@ test('saved spend layouts preserve twelve slots and only ROAS cards appear in th
  assert.deepEqual(auditRows.map(row=>row.attributes['data-roas-key']),['roas','mallRoas'],'The audit includes only distinct selected ROAS metrics');
 });
 
-test('fixed six-category spend strip is always visible and preserves the saved twelve-slot configuration',()=>{
+test('legacy spend renderer preserves metric calculations and the saved twelve-slot configuration',()=>{
  const h=harness();h.node('until').value='2026-09-01';
  h.run("connectedAccounts={naver:'111',cafe:'222'};data.naver=[{date:'2026-09-01',spend:1000,spendKnown:true}];data.cafe=[{date:'2026-09-01',spend:2000,spendKnown:true}];savedSummaryCardKeys=Array(12).fill('');");
  completeAdCoverage(h);
