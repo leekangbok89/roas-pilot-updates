@@ -36,6 +36,32 @@ function xlsx(){
  const row=page.locator('#stored-files tr').filter({hasText:'전체채널 파일'});await row.locator('[data-load]').click();await page.locator('#channel-preview input:checked').uncheck();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);assert.match(await page.locator('#report-status').textContent(),/GFA 경로를 선택/);
  await page.locator('#channel-preview input').first().check();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);
  if(process.env.ROAS_GFA_SCREENSHOT)await page.screenshot({path:process.env.ROAS_GFA_SCREENSHOT,fullPage:true});
+ // Weekly daily exports auto-save; subsequent overlapping weeks add only new date+route keys.
+ const makeDaily=(start,end)=>[['날짜','경로(1단계)','경로(2단계)','경로(3단계)','방문수','상품결제건수','판매금액(총)'],
+   ...Array.from({length:end-start+1},(_,i)=>{const d=String(start+i).padStart(2,'0');return ['2026-10-'+d,'모바일','광고','성과형 디스플레이광고',10,1,399000];})]
+   .map(cells=>cells.join(',')).join('\n');
+ await page.locator('#channel-file').setInputFiles({name:'visit_20261001-20261007.csv',mimeType:'text/csv',buffer:Buffer.from(makeDaily(1,7))});
+ await page.waitForFunction(()=>document.querySelector('#file-status')?.textContent.includes('자동 저장했습니다'));
+ assert.match(await page.locator('#file-status').textContent(),/새 자료 7행 저장/);
+ await page.locator('#channel-file').setInputFiles({name:'visit_20261005-20261011.csv',mimeType:'text/csv',buffer:Buffer.from(makeDaily(5,11))});
+ await page.waitForFunction(()=>document.querySelector('#file-status')?.textContent.includes('자동 저장했습니다'));
+ assert.match(await page.locator('#file-status').textContent(),/새 자료 4행 저장 · 이미 있던 날짜·경로 3행 중복 제외/);
+ const weekly=(await (await fetch(base+'/api/gfa-analysis')).json());
+ const combined=require(path.join(root,'public/gfa-data.js')).analyze(weekly.entries,'2026-10-01','2026-10-11');
+ assert.equal(combined.channels.covered,11);assert.equal(combined.store.sales,11*399000,'last-click results must not double count');
+ // A campaign report containing planned budget and actual expenditure can be imported by file.
+ const campaignFile=['캠페인 이름','캠페인 ID','총비용','캠페인 예산','구매완료 수','구매완료 전환매출액'].join('\t')+
+   '\n위마망 GFA\t1234567\t700000\t1500000\t7\t2793000';
+ await page.locator('#ads-file').setInputFiles({name:'GFA_20261001-20261007.tsv',mimeType:'text/tab-separated-values',buffer:Buffer.from(campaignFile)});
+ await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('설정 예산을 구분'));
+ assert.equal(await page.locator('#from').inputValue(),'2026-10-01');
+ assert.match(await page.locator('#rows').textContent(),/1,500,000원/);
+ await page.locator('#save').click();
+ await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('전체 통계에 반영'));
+ await page.locator('#report-from').fill('2026-10-01');await page.locator('#report-to').fill('2026-10-07');
+ await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
+ assert.match(await page.locator('#combined-kpis').textContent(),/2,793,000원/);
+ assert.match(await page.locator('#combined-kpis').textContent(),/399%/);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no outer overflow on mobile');
  assert.deepEqual(errors,[]);console.log('PASS: XLSX decompression, preview, GFA selection, source comparison, replace, cross-browser persistence, partial dates and legacy asset fallback.');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill();await new Promise(resolve=>child.once('exit',resolve));}fs.rmSync(temp,{recursive:true,force:true});});
