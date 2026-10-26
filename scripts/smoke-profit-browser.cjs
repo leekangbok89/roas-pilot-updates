@@ -722,6 +722,97 @@ async function verifyMetricCards(requests) {
   check('cards: storage errors preserve saved choices and keep drafts editable; invalid JSON recovers to twelve defaults');
 }
 
+async function verifySummaryCardDrag(requests) {
+  await page.waitForLoadState('networkidle');
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const storageKey = 'roas-overview-summary-cards-v1';
+  const keys = () => page.locator('#summary-cards [data-summary-slot]').evaluateAll(cards => cards.map(card => card.dataset.summaryKey));
+  const saved = () => page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey);
+  const original = await keys();
+  const shifted = (list, from, to) => { const next = list.slice(); next.splice(to, 0, next.splice(from, 1)[0]); return next; };
+  const card = slot => page.locator('#summary-cards [data-summary-slot="' + slot + '"]');
+  const drag = async (from, to) => {
+    // Use native browser mouse events and its real DataTransfer across grid rows.
+    await card(from).locator('.summary-card-move').dragTo(card(to), { targetPosition: { x: 30, y: 55 } });
+  };
+  const requestStart = requests.length;
+  await drag(0, 7);
+  const reordered = shifted(original, 0, 7);
+  assert.deepEqual(await keys(), reordered, 'Dragging forward inserts at the destination and shifts intervening cards');
+  assert.deepEqual(await saved(), reordered, 'Normal view saves the new order immediately');
+  await drag(7, 0);
+  assert.deepEqual(await keys(), original, 'Dragging backward across rows restores the order');
+  await card(0).dragTo(card(7), { sourcePosition: { x: 30, y: 70 }, targetPosition: { x: 30, y: 55 } });
+  assert.deepEqual(await saved(), reordered, 'Dragging the card body also reorders without requiring the handle');
+  await drag(7, 0);
+  await drag(0, 0);
+  assert.deepEqual(await saved(), original, 'Dropping on the same card is a no-op');
+  await card(1).locator('.summary-card-move').dragTo(page.locator('#summary-cards-title'));
+  assert.deepEqual(await keys(), original, 'Dropping outside the grid leaves order unchanged');
+  assert.equal(await page.locator('.summary-card-dragging,.summary-card-drop-target').count(), 0, 'Cancelled drag removes drag markers');
+  await drag(0, 7);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.waitForLoadState('networkidle');
+  assert.deepEqual(await keys(), reordered, 'Auto-saved drag order survives reload');
+  check('card drag: native forward/backward drags across rows, self/outside drops, and reload persistence');
+
+  await page.locator('#summary-edit').click();
+  await drag(7, 0);
+  assert.deepEqual(await keys(), original, 'Editor previews the reordered cards');
+  assert.deepEqual(await saved(), reordered, 'Editor drag does not save before confirmation');
+  assert.equal(await page.locator('#summary-choice-0').inputValue(), original[0], 'Selectors follow the moved metric');
+  await page.locator('#summary-cancel').click();
+  assert.deepEqual(await keys(), reordered, 'Cancel restores the saved order');
+  await page.locator('#summary-edit').click();
+  await drag(7, 0);
+  await page.locator('#summary-save').click();
+  assert.deepEqual(await saved(), original, 'Save commits the editor drag');
+  await card(0).locator('.summary-card-move').focus();
+  await page.keyboard.press('ArrowRight');
+  assert.deepEqual(await keys(), shifted(original, 0, 1), 'Keyboard moves the focused card');
+  assert.equal(await card(1).locator('.summary-card-move').evaluate(node => node === document.activeElement), true, 'Keyboard focus follows the moved card');
+  await page.keyboard.press('Home');
+  assert.deepEqual(await saved(), original);
+  await page.evaluate(key => {
+    window.__dragSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) throw new DOMException('Synthetic quota limit', 'QuotaExceededError');
+      return window.__dragSetItem.call(this, name, value);
+    };
+  }, storageKey);
+  try {
+    await drag(0, 7);
+    assert.deepEqual(await keys(), original, 'Failed automatic save keeps the previous visible order');
+    assert.deepEqual(await saved(), original, 'Failed automatic save preserves storage');
+    assert.equal(await page.locator('#summary-settings-status').getAttribute('data-error'), 'true');
+  } finally {
+    await page.evaluate(() => { Storage.prototype.setItem = window.__dragSetItem; delete window.__dragSetItem; });
+  }
+  check('card drag: editor save/cancel, keyboard focus, and storage failure preserve the intended order');
+
+  const sparse = ['spend', '', 'revenue', 'spend', '', 'profit', '', '', '', '', '', ''];
+  await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: storageKey, value: sparse });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await idle();
+  await page.waitForLoadState('networkidle');
+  await drag(0, 5);
+  const sparseReordered = shifted(sparse, 0, 5);
+  assert.deepEqual(await saved(), sparseReordered, 'Duplicate metrics and hidden slots move by position');
+  assert.deepEqual(await keys(), sparseReordered.filter(Boolean));
+  await page.locator('#summary-edit').click();
+  await drag(0, 11);
+  assert.deepEqual(await keys(), shifted(sparseReordered, 0, 11), 'Empty editor slots can also be dragged');
+  await page.locator('#summary-cancel').click();
+  await page.locator('#summary-edit').click();
+  await page.locator('#summary-defaults').click();
+  await page.locator('#summary-save').click();
+  await metricCardScreenshot('cards-draggable-1440');
+  // Exclude reload requests: all other preference changes are local to the browser.
+  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/') && req.method !== 'GET'), [], 'Reordering never writes business data or invokes collection');
+  check('card drag: sparse layouts, duplicate metrics, and empty editor slots keep their positional identity');
+}
+
 async function verifyOptionalCards(requests) {
   fixture();
   await range('2026-09-01', '2026-09-07');
@@ -1541,6 +1632,7 @@ async function verifyResponsiveHover(requests) {
   await verifyHistoryRepair(base, requests);
   if (!scopeOnly) {
     await verifyMetricCards(requests);
+    await verifySummaryCardDrag(requests);
     await verifyOptionalCards(requests);
     await verifySplitRoas(requests);
     await verifySplitSpend(requests);
