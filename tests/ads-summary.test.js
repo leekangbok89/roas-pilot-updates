@@ -96,11 +96,13 @@ test('selected summaries preserve full-spend ratios, scopes, financial subtotals
   await env.adapter.update({...base,keys:['spend'],force:true});assert.equal(env.calls.length,8);
   env.adapter.invalidate();await env.adapter.update({...base,keys:['spend']});assert.equal(env.calls.length,12);
 });
-test('any unconfirmed spend day blocks total and affected-channel ROAS and CPA',async()=>{
+test('missing dates show labelled saved-data ROAS while CPA remains withheld',async()=>{
   const env=setup(),data=fixtures();data.coverage.sources.meta['11111'].missingDays=[dates[1]];env.setData(data);
   const m=byKey(await env.adapter.update({...base,keys:['spend','roas','cpa','mallRoas','smartstoreRoas']}));
   assert.equal(m.spend.value,110000);assert.equal(m.spend.partial,true);
-  assert.equal(m.roas.value,null);assert.equal(m.cpa.value,null);assert.equal(m.smartstoreRoas.value,null);
+  close(m.roas.value,25000/110000*100);assert.equal(m.cpa.value,null);assert.equal(m.smartstoreRoas.value,5);
+  assert.equal(m.roas.partial,true);assert.equal(m.smartstoreRoas.partial,true);
+  assert.match(m.roas.detail,/저장된 매출·광고비 기준/);assert.match(m.roas.detail,/전체 기간 미확정/);
   assert.equal(m.mallRoas.value,200);assert.match(m.roas.detail,/광고비 미확인 1\/2일/);
 });
 test('verified empty days are zero while missing empty days remain unknown',async()=>{
@@ -134,6 +136,20 @@ test('coverage errors preserve confirmed subtotals and withhold unsupported rati
   const result=await env.adapter.update({...base,keys:['spend','roas','totalStoreRevenue']}),m=byKey(result);
   assert.equal(result.status,'partial');assert.equal(m.spend.value,110000);assert.equal(m.spend.partial,true);assert.equal(m.roas.value,null);
   assert.equal(m.totalStoreRevenue.value,170000);assert.match(env.nodes['ads-period-summary-note'].textContent,/coverage offline/);
+});
+test('insight response coverage certifies ROAS even when the separate coverage request fails',async()=>{
+  const env=setup(),data=fixtures();data.coverage={error:'coverage offline'};
+  for(const account of Object.values(data.accounts))account.cache={missingDays:[]};
+  env.setData(data);
+  const m=byKey(await env.adapter.update({...base,keys:['roas','mallRoas','smartstoreRoas']}));
+  close(m.roas.value,25000/110000*100);assert.equal(m.mallRoas.value,200);assert.equal(m.smartstoreRoas.value,5);
+  assert.equal(m.roas.audit.spendComplete,true);assert.equal(m.mallRoas.partial,false);
+});
+test('one entirely missing account cannot produce a total saved-data ROAS',async()=>{
+  const env=setup(),data=fixtures();data.accounts['22222'].rows=[];
+  data.accounts['22222'].cache={missingDays:dates};env.setData(data);
+  const m=byKey(await env.adapter.update({...base,keys:['roas','mallRoas','smartstoreRoas']}));
+  assert.equal(m.roas.value,null);assert.equal(m.mallRoas.value,null);assert.equal(m.smartstoreRoas.value,5);
 });
 test('unavailable confirmed-order subsets are excluded rather than treated as zero',async()=>{
   const env=setup(),data=fixtures();data.profit.days[1].confirmedAvailable=false;env.setData(data);
@@ -234,7 +250,9 @@ test('zero and negative graph values survive while missing days stay gaps and pa
   const m=result.series[0].metrics;
   assert.equal(m.spend.value,300);assert.equal(m.spend.partial,true);assert.equal(m.spend.knownDays,2);assert.equal(m.spend.totalDays,3);
   assert.equal(m.profit.value,-300);assert.equal(m.profit.partial,true);assert.equal(m.profit.knownDays,2);
-  assert.equal(m.roas.value,null,'missing spend date cannot be removed from the grouped denominator');
+  assert.equal(m.roas.value,0,'Explicit zero revenue survives in a labelled saved-data ratio');
+  assert.equal(m.roas.partial,true);assert.match(m.roas.detail,/전체 기간 미확정/);
+  assert.equal(result.dailySeries[2].metrics.roas.value,null,'An entirely missing date stays a gap');
   assert.equal(m.revenue.value,0);assert.equal(m.revenue.partial,true);assert.equal(m.purchases.value,0);
 });
 

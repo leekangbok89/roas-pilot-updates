@@ -110,9 +110,9 @@ const AdsOverviewSummary = (() => {
  powerlinkSpend:{label:'네이버 파워링크',format:'won',naverSpendChannel:'powerlink',scope:'네이버 · 파워링크 입력분',description:'네이버 GFA 분석에 저장한 파워링크 광고비입니다. 미입력 날짜는 확인분에서 제외합니다.'},
 
     revenue: {label:'Meta 귀속 구매매출',format:'won',description:'선택한 광고 채널에서 확인된 Meta 구매 전환매출 합계입니다. 쇼핑몰 전체 주문매출과 다릅니다.'},
-    roas: {label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 광고 표의 필터와 관계없이 전체 연결 계정 기준입니다.'},
-    mallRoas: {label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
-    smartstoreRoas: {label:'스마트스토어 광고 ROAS',format:'pct',adMetric:'roas',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 스마트스토어 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다.'},
+    roas: {label:'총 광고 ROAS',format:'pct',adMetric:'roas',adScope:'all',scope:'Meta · 전체 연결 계정',description:'자사몰·스마트스토어 광고의 확인된 Meta 구매매출 합계 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함하고 동일 계정은 한 번만 집계합니다. 광고 표의 필터와 관계없이 전체 연결 계정 기준입니다. 미수집 날짜가 있으면 저장된 매출·광고비 기준 확인분이며 전체 기간은 미확정입니다.'},
+    mallRoas: {label:'자사몰 광고 ROAS',format:'pct',adMetric:'roas',adScope:'cafe',scope:'Meta · 자사몰 광고',description:'자사몰 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 자사몰 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다. 미수집 날짜가 있으면 저장된 매출·광고비 기준 확인분이며 전체 기간은 미확정입니다.'},
+    smartstoreRoas: {label:'스마트스토어 광고 ROAS',format:'pct',adMetric:'roas',adScope:'naver',scope:'Meta · 스마트스토어 광고',description:'스마트스토어 광고계정의 확인된 Meta 구매매출 ÷ 선택 기간 전체 광고비 × 100. 구매매출 미확인 광고의 지출도 포함합니다. 광고 표의 필터와 관계없이 스마트스토어 계정 기준이며, 두 채널이 동일 계정이면 구분할 수 없습니다. 미수집 날짜가 있으면 저장된 매출·광고비 기준 확인분이며 전체 기간은 미확정입니다.'},
     cpa: {label:'구매 CPA',format:'won',description:'선택한 광고 채널의 전체 광고비 ÷ 확인된 구매수입니다. 광고비 미확인 날짜가 있으면 계산을 보류합니다.'},
     purchases: {label:'구매 건수',format:'num',description:'선택한 광고 채널에서 확인된 Meta 구매 전환 건수입니다.'},
     ctr: {label:'링크 CTR',format:'pct',description:'선택한 광고 채널의 링크 클릭수 ÷ 노출수 × 100입니다.'},
@@ -214,7 +214,8 @@ const AdsOverviewSummary = (() => {
     });
     const coverageMatches=snapshot.coverage?.since===snapshot.since && snapshot.coverage?.until===snapshot.until;
     const sources=channels.map(channel => {
-      const account=snapshot.accounts[channel],coverage=coverageMatches ? snapshot.coverage.sources?.meta?.[account] : null;
+      const account=snapshot.accounts[channel],responseCoverage=snapshot.adCoverage.get(account);
+      const coverage=responseCoverage || (coverageMatches ? snapshot.coverage.sources?.meta?.[account] : null);
       const missing=new Set(coverage?.missingDays || []),rowsByDate=new Map();
       for (const row of snapshot.data[channel] || []) {
         if (!dateSet.has(row.date)) continue;
@@ -289,17 +290,18 @@ function naverCostMetric(channel,dates,days){
     }
     const totals=sum(rows),allTotals=sum(context.selected),available=knownDays>0;
     const missingSpendDates=context.dates.filter(date => !context.sources.length || !context.sources.every(source => source.spendKnown(date)));
-    let amount=available ? totals[key] : null;
+    let amount=available && (!required || rows.length>0 || context.selected.length===0) ? totals[key] : null;
     if (key==='cpc') amount=available && totals.clicks>0 ? totals.spend/totals.clicks : null;
     if (key==='cpm') amount=available && totals.impressions>0 ? totals.spend/totals.impressions*1000 : null;
     // Purchase reporting does not determine which advertising costs belong to
-    // the period. Missing spend blocks a ratio; missing purchases do not erase spend.
+    // the period. Missing dates permit only an explicitly labelled saved-data ROAS.
     if (isRoas || key==='cpa') {
       const hasNumerator=isRoas ? allTotals.hasRevenue : allTotals.hasPurchases;
-      amount=!missingSpendDates.length && hasNumerator && (isRoas ? allTotals.spend>0 : allTotals.purchases>0)
+      const savedRatio=isRoas && !allTotals.hasUnconfirmedSpend && context.sources.length>0 && context.sources.every(source => context.dates.some(date => source.spendKnown(date)));
+      amount=(!missingSpendDates.length || savedRatio) && hasNumerator && (isRoas ? allTotals.spend>0 : allTotals.purchases>0)
         ? (isRoas ? allTotals.revenue/allTotals.spend*100 : allTotals.spend/allTotals.purchases) : null;
-      const partial=Number.isFinite(amount) && completeDays<totalDays;
-      const detail=missingSpendDates.length ? '광고비 미확인 '+missingSpendDates.length+'/'+totalDays+'일 · 계산 보류'
+      const partial=Number.isFinite(amount) && (completeDays<totalDays || missingSpendDates.length>0);
+      const detail=missingSpendDates.length ? '광고비 미확인 '+missingSpendDates.length+'/'+totalDays+'일'+(Number.isFinite(amount) ? ' · 저장된 매출·광고비 기준 · 전체 기간 미확정' : ' · 계산 보류')
         : !hasNumerator ? (isRoas ? '구매매출 미확인' : '구매수 미확인')
         : !Number.isFinite(amount) ? (isRoas ? '광고비 없음' : '구매 없음')
         : (isRoas ? '구매매출' : '구매수')+' 확인 '+knownDays+'/'+totalDays+'일'+(partial ? ' · 일부 항목 미확인' : '');
@@ -401,7 +403,7 @@ function naverCostMetric(channel,dates,days){
     } finally {if (timeout!==null) clearTimeout(timeout);}
   }
   async function fetchSnapshot(options) {
-    const snapshot={...options,data:{naver:[],cafe:[]},loadedAccounts:new Set(),coverage:null,profitDays:new Map(),errors:[]};
+    const snapshot={...options,data:{naver:[],cafe:[]},loadedAccounts:new Set(),adCoverage:new Map(),coverage:null,profitDays:new Map(),errors:[]};
     const accounts=[...new Set(Object.values(options.accounts).filter(Boolean))];
     const query=new URLSearchParams({since:options.since,until:options.until,accounts:accounts.join(','),fx:String(options.fx)});
     const requests=accounts.map(async account => {
@@ -413,6 +415,7 @@ function naverCostMetric(channel,dates,days){
         if (!Array.isArray(body?.rows)) throw Error('광고 데이터 응답 형식을 확인하세요.');
         for (const channel of channels) snapshot.data[channel]=body.rows.map(row => normalize(row,channel,body.currency || 'USD',options.fx));
         snapshot.loadedAccounts.add(account);
+        if (Array.isArray(body.cache?.missingDays)) snapshot.adCoverage.set(account,{missingDays:body.cache.missingDays});
         if (Array.isArray(body.cache?.warnings)) snapshot.errors.push(...body.cache.warnings.filter(Boolean).map(warning => label+': '+String(warning)));
       } catch (error) {snapshot.errors.push(label+': '+error.message);}
     });
@@ -457,7 +460,7 @@ function naverCostMetric(channel,dates,days){
       }
       const scope=document.createElement('small');scope.className='ads-period-card-scope';scope.textContent=metric.scope;
       const status=document.createElement('small');status.className='ads-period-card-state';status.textContent=metric.detail;
-      if (metric.audit) status.title='확인된 Meta 구매매출 '+formatValue(metric.audit.revenue,'won')+' ÷ 전체 광고비 '+formatValue(metric.audit.spend,'won')+' × 100'+(metric.audit.spendComplete ? '' : ' · 광고비 미확인으로 계산 보류');
+      if (metric.audit) status.title='확인된 Meta 구매매출 '+formatValue(metric.audit.revenue,'won')+' ÷ 저장된 Meta 광고비 '+formatValue(metric.audit.spend,'won')+' × 100'+(metric.audit.spendComplete ? '' : Number.isFinite(metric.value) ? ' · 저장분 기준 · 전체 기간 미확정' : ' · 광고비 미확인으로 계산 보류');
       card.append(scope,status);root.append(card);
     }
     return results;

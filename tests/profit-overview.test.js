@@ -236,7 +236,8 @@ test('channel ROAS retains explicit zero revenue and identifies incomplete dates
  for(const key of ['roas','mallRoas']){
   h.context.metricKey=key;
   const metric=JSON.parse(h.run('JSON.stringify(summaryMetric(metricKey))'));
-  assert.equal(metric.value,null);assert.match(metric.detail,/광고비 미확인 1\/3일.*계산 보류/);assert.equal(metric.audit.spendComplete,false);
+  assert.equal(metric.value,key==='roas'?400/1200*100:0);assert.equal(metric.partial,true);
+  assert.match(metric.detail,/광고비 미확인 1\/3일.*전체 기간 미확정/);assert.equal(metric.audit.spendComplete,false);
  }
  assert.equal(h.run("summaryMetric('smartstoreRoas').value"),40,'The complete channel includes its 900 spend even though revenue is unknown');
  assert.equal(h.run("summaryMetric('smartstoreRoas').partial"),true);
@@ -299,6 +300,17 @@ test('ROAS requires successfully loaded complete spend coverage for the exact se
  assert.equal(h.run("summaryMetric('smartstoreRoas').value"),60);
  h.run("summaryAdLoadedAccounts.add('222');dataCoverage.until='2026-09-02';");
  assert.equal(h.run("summaryMetric('roas').value"),null,'Stale coverage from another date range must not certify this period');
+});
+test('overview uses coverage from the matching insights response instead of stale independent coverage',()=>{
+ const h=harness();h.node('until').value='2026-09-02';
+ h.run("connectedAccounts={naver:'111',cafe:'222'};summaryAdLoadedAccounts=new Set(['111','222']);data.naver=[{date:'2026-09-01',spend:1000,revenue:600}];data.cafe=[{date:'2026-09-01',spend:2000,revenue:400}];summaryAdCoverage=new Map(['111','222'].map(id=>[id,{since:'2026-09-01',until:'2026-09-02',missingDays:[]}]));");
+ assert.equal(h.run("summaryMetric('roas').value"),1000/3000*100);
+ assert.equal(h.run("summaryMetric('mallRoas').value"),20);assert.equal(h.run("summaryMetric('smartstoreRoas').value"),60);
+ assert.equal(h.run("summaryMetric('roas').audit.spendComplete"),true);
+ h.run("summaryAdCoverage.forEach(coverage=>coverage.missingDays=['2026-09-02']);");
+ assert.equal(h.run("summaryMetric('roas').value"),1000/3000*100);
+ assert.equal(h.run("summaryMetric('roas').partial"),true);assert.match(h.run("summaryMetric('roas').detail"),/전체 기간 미확정/);
+ h.node('until').value='2026-09-03';assert.equal(h.run("summaryMetric('roas').value"),null,'Previous-period response cannot certify a new date range');
 });
 
 test('Meta ratio fallback preserves zero and 0.6 means 60 percent without a missing-spend shortcut',()=>{

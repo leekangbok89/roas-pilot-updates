@@ -943,16 +943,16 @@ async function verifySplitRoas(requests) {
   selected = roasSpendFixture(false);
   fs.unlinkSync(path.join(temp, '.roas-data/daily', accountIds.cafe, selected.since + '.json'));
   await range(selected.since, selected.until);
-  await assertRoas([null, null, 60], 'Missing account-day spend suppresses only the scopes with an incomplete denominator');
+  await assertRoas([1200 / 1010 * 100, 6000, 60], 'Missing dates show explicitly partial saved-data ratios');
   await showRoasAudit();
   for (const key of ['roas', 'mallRoas']) {
-    assert.match(await card(key).locator('.summary-card-state').innerText(), /광고비 미확인 1\/2일.*계산 보류/);
+    assert.match(await card(key).locator('.summary-card-state').innerText(), /광고비 미확인 1\/2일.*전체 기간 미확정/);
     assert.ok((await auditCell(key, 'spend').innerText()).includes(money(key === 'roas' ? 1010 : 10)));
     assert.match(await auditCell(key, 'spend').innerText(), /확인분/, 'Incomplete spend is never presented as the full denominator');
-    assert.equal(await auditCell(key, 'value').innerText(), '—');
+    assert.match(await auditCell(key, 'value').innerText(), /확인분/);
     assert.match(await auditCell(key, 'status').innerText(), /광고비 미확인/);
   }
-  check('ROAS: entirely unknown purchase revenue stays unavailable; missing daily spend suppresses total and affected-channel ROAS while the complete channel stays at 60%');
+  check('ROAS: unknown revenue stays unavailable; missing dates show labelled saved-data ratios and preserve exact known spend');
 
   fixture();
   await range('2026-09-04');
