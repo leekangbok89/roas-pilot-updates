@@ -111,7 +111,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     await ui.locator('#app-theme-toggle').click();assert.equal(await ui.locator('html').getAttribute('data-theme'),'light');
     for(const m of ['error','setup','zero']){mode=m;await ui.locator('#detail-refresh').click();await ui.waitForFunction(()=>!document.querySelector('#detail-refresh').disabled);assert.equal(await ui.locator('#detail-results').isVisible(),false);}
     assert.equal(await ui.evaluate(()=>window.injected),undefined);
-    await ui.reload();await ui.mouse.move(900,700);await ui.keyboard.press('Escape');await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
+    await ui.reload();await ui.mouse.move(900,700);await ui.keyboard.press('Escape');await ui.locator('#catalog-body .video-thumb').first().scrollIntoViewIfNeeded();await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
     assert.equal(await ui.locator('.catalog-name').first().inputValue(),'100℃ 가열 설명 <b>테스트</b>');pass('blocked remote video has an upload fallback; saved thumbnails and names survive reload');
     await ui.setViewportSize({width:390,height:844});assert.ok(await ui.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));
     assert.deepEqual(errors,[]);pass('dashboard setup/snippet, real calculations, dark/light, mobile and safe empty/error states');
