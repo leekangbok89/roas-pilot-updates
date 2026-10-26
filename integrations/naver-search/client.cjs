@@ -58,6 +58,18 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
   const readJson = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
   function state() { return readJson(stateFile) || { enabled: true, lastAttemptAt: null, lastSuccessAt: null, error: null }; }
   function setState(values) { atomic(stateFile, JSON.stringify({ ...state(), ...values })); }
+  function scope(config) {
+    if (!config) return null;
+    const value = readJson(path.join(dataDir, config.customerId, 'scope.json'));
+    if (value?.customerId !== config.customerId || !Array.isArray(value.campaignIds) || !value.campaignIds.length || value.campaignIds.some(id => typeof id !== 'string' || !/^[\w-]{1,100}$/.test(id))) return null;
+    const campaignIds = [...new Set(value.campaignIds)].sort();
+    return { campaignIds, key: crypto.createHash('sha256').update(JSON.stringify(campaignIds)).digest('hex') };
+  }
+  function requireScope(config) {
+    const selected = scope(config);
+    if (!selected) throw fail(409, '먼저 집계할 위마망 캠페인을 선택하고 저장해 주세요. 전체 계정 자료는 표시하지 않습니다.');
+    return selected;
+  }
   function read() {
     if (!fs.existsSync(privateFile)) { memo = null; memoStamp = null; return null; }
     const stat = fs.statSync(privateFile), stamp = stat.mtimeMs + ':' + stat.size;
@@ -72,11 +84,12 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
   function status() {
     let saved, unreadable = false;
     try { saved = read(); } catch { unreadable = true; }
-    const s = state();
+    const s = state(), selected = scope(saved);
     return { configured: !!saved, unreadable, customerId: saved?.customerId || '', verifiedAt: saved?.verifiedAt || null,
+      scopeConfigured: !!selected, scopeCampaignIds: selected?.campaignIds || [], scopeKey: selected?.key || '',
       enabled: s.enabled !== false, intervalMinutes: 60, recentDays: 7, running: active, progress,
       lastSuccessAt: s.lastSuccessAt, lastAttemptAt: s.lastAttemptAt, error: s.error,
-      nextAutomaticAt: saved && s.enabled !== false ? new Date(Math.max(now(), Date.parse(s.lastAttemptAt || '') + HOUR || 0)).toISOString() : null };
+      nextAutomaticAt: saved && selected && s.enabled !== false ? new Date(Math.max(now(), Date.parse(s.lastAttemptAt || '') + HOUR || 0)).toISOString() : null };
   }
   async function exclusive(operation) {
     if (active) throw fail(409, '검색광고 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.');
@@ -133,13 +146,16 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     });
   }
   const requireConfig = () => { const config = read(); if (!config) throw fail(400, '먼저 네이버 검색광고를 연결해 주세요.'); return config; };
-  const cacheFile = (config, range) => path.join(dataDir, config.customerId, range.since + '_' + range.until + '.json');
+  const cacheFile = (config, range) => path.join(dataDir, config.customerId, requireScope(config).key, range.since + '_' + range.until + '.json');
   function cached(config, range) {
     const value = readJson(cacheFile(config, range));
-    return value?.schema === 1 && value.customerId === config.customerId && value.since === range.since && value.until === range.until && Array.isArray(value.campaigns) && Array.isArray(value.daily) && validDate(value.since) && Number.isFinite(Date.parse(value.fetchedAt)) ? value : null;
+    const selected = requireScope(config);
+    return value?.schema === 2 && value.scopeKey === selected.key && value.customerId === config.customerId && value.since === range.since && value.until === range.until && Array.isArray(value.campaigns) && value.campaigns.length === selected.campaignIds.length && new Set(value.campaigns.map(row => row.id)).size === selected.campaignIds.length && value.campaigns.every(row => selected.campaignIds.includes(row.id)) && Array.isArray(value.daily) && validDate(value.since) && Number.isFinite(Date.parse(value.fetchedAt)) ? value : null;
   }
   async function collect(config, range) {
-    const list = await campaigns(config), output = [], days = new Map();
+    const selected = requireScope(config), all = await campaigns(config), output = [], days = new Map();
+    const list = all.filter(row => selected.campaignIds.includes(row.nccCampaignId));
+    if (list.length !== selected.campaignIds.length) throw fail(409, '선택한 캠페인 중 일부를 조회할 수 없습니다. 위마망 캠페인 선택을 다시 확인해 주세요.');
     for (const [index, campaign] of list.entries()) {
       progress = (index + 1) + '/' + list.length + ' 캠페인 조회 중';
       const raw = await get(config, '/stats', { id: campaign.nccCampaignId, fields: JSON.stringify(FIELDS), timeRange: JSON.stringify(range), timeIncrement: '1' });
@@ -160,11 +176,11 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     }
     const daily = Array.from(days, ([date, rows]) => ({ date, complete: rows.length === list.length, campaignsReported: rows.length,
       ...aggregate(rows.length === list.length ? rows : []) })).sort((a, b) => a.date.localeCompare(b.date));
-    const warnings = ['광고비는 네이버 API의 부가세 포함 금액입니다. 구매는 검색광고의 광고 기여 기준이며 쇼핑몰 전체 주문매출과 다릅니다.', '현재 API가 반환한 캠페인을 조회합니다. 삭제되어 목록에 없는 캠페인은 포함되지 않을 수 있습니다.'];
+    const warnings = ['광고비는 네이버 API의 부가세 포함 금액입니다. 구매는 검색광고의 광고 기여 기준이며 쇼핑몰 전체 주문매출과 다릅니다.', '선택하여 저장한 위마망 캠페인만 집계합니다. 선택한 캠페인이 조회되지 않으면 집계 범위를 다시 확인해야 합니다.'];
     if (output.some(row => row.purchases === null || row.purchaseRevenue === null)) warnings.push('구매 지표가 없거나 응답되지 않은 캠페인은 미확인으로 표시합니다. 전체 전환을 구매로 대체하지 않습니다.');
     if (output.some(row => row.noData)) warnings.push('일별 성과가 반환되지 않은 캠페인은 미확인으로 표시하며 합계도 확정하지 않습니다.');
     if (daily.some(row => !row.complete)) warnings.push('일부 캠페인의 성과가 반환되지 않은 날짜는 일별 합계를 미확인으로 표시합니다.');
-    const result = { schema: 1, customerId: config.customerId, ...range, fetchedAt: new Date(now()).toISOString(), currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings, noData: !daily.length };
+    const result = { schema: 2, scopeKey: selected.key, scopeCampaignIds: selected.campaignIds, customerId: config.customerId, ...range, fetchedAt: new Date(now()).toISOString(), currency: 'KRW', vatIncluded: true, campaigns: output, daily, summary: aggregate(output), warnings, noData: !daily.length };
     // Commit only after every campaign succeeds. Failed refreshes retain the last report.
     atomic(cacheFile(config, range), JSON.stringify(result));
     return result;
@@ -191,7 +207,7 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
   async function automatic() {
     if (active) return;
     let config; try { config = read(); } catch { return; }
-    if (!config) return;
+    if (!config || !scope(config)) return;
     const s = state();
     if (s.enabled === false || (s.lastAttemptAt && now() - Date.parse(s.lastAttemptAt) < HOUR)) return;
     return exclusive(async () => {
@@ -203,6 +219,19 @@ function createSearchService({ baseDir, protect, fetchImpl = (...args) => fetch(
     });
   }
   return { status, save, report, automatic,
+    campaignOptions: () => exclusive(async () => {
+      const config = requireConfig(), selected = scope(config);
+      return { customerId: config.customerId, campaignIds: selected?.campaignIds || [], campaigns: (await campaigns(config)).map(row => ({ id: row.nccCampaignId, name: String(row.name || row.nccCampaignId).slice(0, 300), type: String(row.campaignTp || ''), status: String(row.status || '') })) };
+    }),
+    saveScope: input => exclusive(async () => {
+      const config = requireConfig(), ids = input?.campaignIds;
+      if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(id => typeof id !== 'string' || !/^[\w-]{1,100}$/.test(id))) throw fail(400, '집계할 위마망 캠페인을 한 개 이상 선택해 주세요.');
+      const unique = [...new Set(ids)].sort(), available = new Set((await campaigns(config)).map(row => row.nccCampaignId));
+      if (unique.some(id => !available.has(id))) throw fail(400, '현재 계정에서 확인되지 않는 캠페인이 있습니다. 목록을 새로 불러와 주세요.');
+      atomic(path.join(dataDir, config.customerId, 'scope.json'), JSON.stringify({ customerId: config.customerId, campaignIds: unique }));
+      setState({ lastAttemptAt: null, lastSuccessAt: null, error: null });
+      return status();
+    }),
     test: () => exclusive(async () => ({ ok: true, campaignCount: (await campaigns(requireConfig())).length })),
     settings: input => {
       if (active) throw fail(409, '검색광고 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.');

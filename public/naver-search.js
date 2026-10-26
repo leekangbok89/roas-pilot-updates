@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
+  let scopeReady = false, scopeKey = '', reportScope = '';
   let configured = false, busy = false, enabled = true, lastLoaded = 0, reportCustomer = '';
   const kstDate = time => new Date(time + 9 * 3600000).toISOString().slice(0, 10);
   const fmt = x => x == null ? '미확인' : Number(x).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
@@ -10,8 +11,9 @@
   function message(text, tone = 'info') { $('search-message').textContent = text; $('search-message').dataset.tone = tone; $('search-message').hidden = !text; }
   function setBusy(value) {
     busy = value;
-    document.querySelectorAll('#search-connect input,#search-connect button,#search-query input,#search-query button,#search-auto,#search-test,#search-disconnect').forEach(el => { el.disabled = value; });
-    ['search-load', 'search-refresh', 'search-test', 'search-disconnect'].forEach(id => { $(id).disabled = value || !configured; });
+    document.querySelectorAll('#search-connect input,#search-connect button,#search-scope-form input,#search-scope-form button,#search-query input,#search-query button,#search-auto,#search-test,#search-disconnect').forEach(el => { el.disabled = value; });
+    ['search-test', 'search-disconnect', 'search-scope-reload', 'search-scope-save'].forEach(id => { $(id).disabled = value || !configured; });
+    ['search-load', 'search-refresh'].forEach(id => { $(id).disabled = value || !configured || !scopeReady; });
     $('search-report').setAttribute('aria-busy', String(value));
   }
   async function request(url, body) {
@@ -25,13 +27,16 @@
   }
   async function status() {
     const value = await request('/api/naver-search/status');
-    configured = value.configured; enabled = value.enabled;
+    configured = value.configured; enabled = value.enabled; scopeReady = value.scopeConfigured === true; scopeKey = value.scopeKey || '';
+    $('search-scope-status').textContent = scopeReady ? '저장된 선택 ' + value.scopeCampaignIds.length + '개' : '위마망 캠페인 선택 필요';
+    if (!scopeReady) $('search-scope').open = true;
     $('search-badge').textContent = configured ? '연결됨 · 고객 ' + value.customerId : value.unreadable ? '저장된 연결 확인 필요' : '연결 전';
     $('search-identity').textContent = configured ? '고객 ID ' + value.customerId : '';
     if (!busy) { $('search-auto').checked = enabled; setBusy(false); }
     $('search-sync').textContent = value.running ? '수집 중 · ' + (value.progress || '조회 준비 중') : (configured ? '최근 수집: ' + time(value.lastSuccessAt) + (enabled ? ' · 다음 자동 점검: ' + time(value.nextAutomaticAt) : ' · 자동 갱신 꺼짐') : value.unreadable ? '저장된 연결을 읽지 못했습니다. 같은 Windows 사용자로 실행하거나 다시 등록해 주세요.' : '연결 후 자동 갱신을 시작합니다.');
+    if (configured && !scopeReady) $('search-sync').textContent = '위마망 캠페인을 먼저 선택하고 저장해 주세요. 자동 수집은 선택 전까지 대기합니다.';
     if (value.error) $('search-sync').textContent += '\n최근 오류: ' + value.error;
-    if (reportCustomer && reportCustomer !== value.customerId) { $('search-report').hidden = true; $('search-empty').hidden = false; reportCustomer = ''; }
+    if (reportCustomer && (reportCustomer !== value.customerId || !scopeReady || reportScope !== scopeKey)) { $('search-report').hidden = true; $('search-empty').hidden = false; reportCustomer = ''; }
     return value;
   }
   function dates(days) { const end = Date.now(); $('search-until').value = kstDate(end); $('search-since').value = kstDate(end - (days - 1) * 86400000); }
@@ -44,6 +49,8 @@
     return tr;
   }
   function render(value) {
+    if (!scopeReady || value.scopeKey !== scopeKey) throw Error('집계 범위가 변경되었습니다. 위마망 캠페인 선택을 확인하고 다시 조회해 주세요.');
+    reportScope = value.scopeKey;
     reportCustomer = value.customerId; lastLoaded = Date.now();
     $('search-empty').hidden = true; $('search-report').hidden = false;
     $('search-period').textContent = value.since + ' ~ ' + value.until;
@@ -64,13 +71,44 @@
     $('search-report-notice').textContent = notice; $('search-report-notice').hidden = !notice; $('search-report-notice').dataset.tone = 'warning';
   }
   async function load(refresh, cacheOnly = false) {
-    if (busy || !configured) return;
+    if (busy || !configured || !scopeReady) return;
     setBusy(true); message(cacheOnly ? '저장 자료를 불러오는 중…' : '캠페인별 성과 조회 중…');
     const query = new URLSearchParams({ since: $('search-since').value, until: $('search-until').value, refresh: refresh ? '1' : '0', cacheOnly: cacheOnly ? '1' : '0' });
     try { const value = await request('/api/naver-search/report?' + query); render(value); message(value.refreshError ? '갱신에 실패하여 이전 저장 자료를 표시합니다.' : '성과 조회 완료', value.refreshError ? 'warning' : 'info'); }
     catch (error) { message(error.message, 'error'); }
     finally { setBusy(false); status().catch(() => {}); }
   }
+  async function loadScope() {
+    if (busy || !configured) return;
+    setBusy(true);
+    try {
+      const value = await request('/api/naver-search/campaigns');
+      $('search-scope-options').replaceChildren(...value.campaigns.map(row => {
+        const label = document.createElement('label'), input = document.createElement('input'), text = document.createElement('span');
+        input.type = 'checkbox'; input.value = row.id; input.name = 'campaignId'; input.checked = value.campaignIds.includes(row.id);
+        text.textContent = row.name + ' · ' + row.type + ' · ' + row.id;
+        label.append(input, text); return label;
+      }));
+      if (!value.campaigns.length) $('search-scope-options').textContent = '이 계정에서 선택할 캠페인이 없습니다.';
+    } catch (error) { message(error.message, 'error'); }
+    finally { setBusy(false); }
+  }
+  $('search-scope-reload').addEventListener('click', loadScope);
+  $('search-scope-form').addEventListener('submit', async event => {
+    event.preventDefault(); if (busy || !configured) return;
+    const campaignIds = Array.from(document.querySelectorAll('#search-scope-options input:checked')).map(input => input.value);
+    if (!campaignIds.length) { message('위마망 캠페인을 한 개 이상 선택해 주세요.', 'error'); return; }
+    setBusy(true);
+    let saved = false;
+    try {
+      await request('/api/naver-search/scope', { campaignIds });
+      $('search-report').hidden = true; reportCustomer = ''; reportScope = '';
+      await status(); $('search-scope').open = false; saved = true;
+      message('위마망 캠페인 ' + campaignIds.length + '개를 집계 대상으로 저장했습니다.');
+    } catch (error) { message(error.message, 'error'); }
+    finally { setBusy(false); }
+    if (saved) await load(false);
+  });
   $('search-connect').addEventListener('submit', async event => {
     event.preventDefault(); if (busy) return;
     const input = { customerId: $('search-customer').value.trim(), apiKey: $('search-key').value.trim(), secretKey: $('search-secret').value.trim(), enabled: $('search-auto').checked };
@@ -83,7 +121,7 @@
       message('연결 완료 · ' + value.campaignCount + '개 캠페인 확인');
     } catch (error) { $('search-key').value = ''; $('search-secret').value = ''; message(error.message, 'error'); }
     finally { setBusy(false); }
-    if (saved) { try { await status(); await load(false); } catch (error) { message(error.message, 'error'); } }
+    if (saved) { try { await status(); await loadScope(); if (scopeReady) await load(false); } catch (error) { message(error.message, 'error'); } }
   });
   $('search-test').addEventListener('click', async () => {
     if (busy) return; setBusy(true); message('저장된 연결 테스트 중…');
@@ -107,7 +145,7 @@
   $('search-refresh').addEventListener('click', () => load(true));
   document.querySelectorAll('[data-search-days]').forEach(button => button.addEventListener('click', () => { if (busy) return; dates(Number(button.dataset.searchDays)); if (configured) load(false); }));
   dates(7); $('search-since').max = $('search-until').max = kstDate(Date.now());
-  status().then(value => { if (value.configured) { $('search-connection').open = false; load(false); } }).catch(error => message(error.message, 'error'));
+  status().then(async value => { if (value.configured) { $('search-connection').open = false; await loadScope(); if (scopeReady) load(false); } }).catch(error => message(error.message, 'error'));
   setInterval(() => {
     if (busy || document.hidden) return;
     status().then(value => { if (value.configured && enabled && Date.now() - lastLoaded >= 3600000) load(false); }).catch(() => {});

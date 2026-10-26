@@ -25,7 +25,7 @@ function fixture(t) {
       if (result instanceof Response) return result;
       return new Response(JSON.stringify(result), { status: 200 });
     } });
-  return { service, dir, requests, waits, setHandler: value => { handler = value; }, advance: ms => { clock += ms; } };
+  return { service, dir, requests, waits, connect: async () => { const value = await service.save(config); await service.saveScope({ campaignIds: ['cmp-a', 'cmp-b'] }); return value; }, setHandler: value => { handler = value; }, advance: ms => { clock += ms; } };
 }
 
 test('Naver signing uses raw secret, timestamp, GET and URI without query', () => {
@@ -50,7 +50,7 @@ test('credentials are verified before encrypted save; responses never include AP
 });
 
 test('purchase metrics remain distinct from total conversions; sums recalculate ratios', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect();
   const report = await f.service.report({ since: '2026-10-24', until: '2026-10-24' });
   assert.equal(report.summary.spend, 4400); assert.equal(report.summary.purchases, 4);
   assert.equal(report.summary.purchaseRevenue, 44000); assert.equal(report.summary.conversions, 198);
@@ -67,7 +67,7 @@ test('purchase metrics remain distinct from total conversions; sums recalculate 
 });
 
 test('missing purchases are unknown and a missing campaign never becomes a zero-filled total', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect();
   f.setHandler(url => {
     if (url.pathname === '/ncc/campaigns') return [campaign('cmp-a'), campaign('cmp-b')];
     if (url.searchParams.get('id') === 'cmp-b') return { data: [] };
@@ -81,10 +81,10 @@ test('missing purchases are unknown and a missing campaign never becomes a zero-
 });
 
 test('failed refresh and throttling retain the exact last report with stale warning', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect();
   const query = { since: '2026-10-24', until: '2026-10-24' };
   const old = await f.service.report(query);
-  const file = path.join(f.dir, '.roas-data/naver-search/123456/2026-10-24_2026-10-24.json');
+  const file = path.join(f.dir, '.roas-data/naver-search/123456', f.service.status().scopeKey, '2026-10-24_2026-10-24.json');
   const before = fs.readFileSync(file, 'utf8');
   f.setHandler(() => new Response('secret server error ' + config.secretKey, { status: 429 }));
   const result = await f.service.report({ ...query, refresh: true });
@@ -96,16 +96,16 @@ test('failed refresh and throttling retain the exact last report with stale warn
 });
 
 test('broken API shapes, absent cost and duplicate dates fail without overwriting a report', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect(); await f.service.saveScope({ campaignIds: ['cmp-a'] });
   for (const data of [{}, { data: [{ dateStart: '2026-10-24', purchaseCcnt: 1 }] }, { data: [day('2026-10-24', 1, 1, 1), day('2026-10-24', 1, 1, 1)] }]) {
     f.setHandler(url => url.pathname === '/ncc/campaigns' ? [campaign('cmp-a')] : data);
     await assert.rejects(f.service.report({ since: '2026-10-24', until: '2026-10-24', refresh: true }));
   }
-  assert.equal(fs.existsSync(path.join(f.dir, '.roas-data/naver-search/123456/2026-10-24_2026-10-24.json')), false);
+  assert.equal(fs.existsSync(path.join(f.dir, '.roas-data/naver-search/123456', f.service.status().scopeKey, '2026-10-24_2026-10-24.json')), false);
 });
 
 test('date validation precedes network access and limits requests to valid past 31 days', async t => {
-  const f = fixture(t); await f.service.save(config); const count = f.requests.length;
+  const f = fixture(t); await f.connect(); const count = f.requests.length;
   for (const [since, until] of [['2026-02-30', '2026-03-01'], ['2026-10-26', '2026-10-26'], ['2026-10-25', '2026-10-24'], ['2026-09-01', '2026-10-24']]) {
     await assert.rejects(f.service.report({ since, until }), { status: 400 });
   }
@@ -113,9 +113,11 @@ test('date validation precedes network access and limits requests to valid past 
 });
 
 test('account switches isolate disk caches; disconnect stops collection and preserves other integrations', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect();
   const query = { since: '2026-10-24', until: '2026-10-24' }; await f.service.report(query);
   await f.service.save({ ...config, customerId: '654321' });
+  assert.equal(f.service.status().scopeConfigured, false);
+  await f.service.saveScope({ campaignIds: ['cmp-a'] });
   await assert.rejects(f.service.report({ ...query, cacheOnly: true }), { status: 404 });
   const other = path.join(f.dir, '.roas-private', 'naver-commerce.dpapi'); fs.writeFileSync(other, 'existing');
   f.service.remove(); const count = f.requests.length; await f.service.automatic();
@@ -124,7 +126,7 @@ test('account switches isolate disk caches; disconnect stops collection and pres
 });
 
 test('server automatic collection covers seven KST days, waits one hour, and obeys off', async t => {
-  const f = fixture(t); await f.service.save(config);
+  const f = fixture(t); await f.connect();
   await f.service.automatic(); const count = f.requests.length;
   const stats = f.requests.find(request => request.url.pathname === '/stats');
   assert.deepEqual(JSON.parse(stats.url.searchParams.get('timeRange')), { since: '2026-10-19', until: '2026-10-25' });
@@ -132,6 +134,63 @@ test('server automatic collection covers seven KST days, waits one hour, and obe
   f.advance(3600000); await f.service.automatic(); assert.ok(f.requests.length > count);
   f.service.settings({ enabled: false }); const after = f.requests.length;
   f.advance(3600000); await f.service.automatic(); assert.equal(f.requests.length, after);
+});
+
+test('existing mixed-account reports remain blocked until the user explicitly selects campaigns', async t => {
+  const f = fixture(t); await f.service.save(config);
+  const legacy = path.join(f.dir, '.roas-data/naver-search/123456/2026-10-24_2026-10-24.json');
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  const legacyText = JSON.stringify({ schema: 1, customerId: '123456', summary: { spend: 999999 }, campaigns: [{ id: 'truver' }] });
+  fs.writeFileSync(legacy, legacyText);
+  const count = f.requests.length;
+  assert.equal(f.service.status().scopeConfigured, false);
+  assert.equal(f.service.status().nextAutomaticAt, null);
+  for (const cacheOnly of [false, true]) await assert.rejects(f.service.report({ since: '2026-10-24', until: '2026-10-24', cacheOnly }), { status: 409 });
+  await f.service.automatic(); assert.equal(f.requests.length, count, 'No whole-account collection before selection');
+  assert.equal(fs.readFileSync(legacy, 'utf8'), legacyText, 'Legacy reports are preserved, never shown as brand totals');
+});
+
+test('manual, daily and automatic reports query only saved Wemamang IDs; names never choose financial scope', async t => {
+  const f = fixture(t); await f.service.save(config);
+  f.setHandler(url => url.pathname === '/ncc/campaigns'
+    ? [campaign('cmp-a', '위마망 백도씨'), campaign('cmp-b', '트루버 버너'), campaign('new-wema', '위마망 새 캠페인'), campaign('unknown', '일반 검색')]
+    : { data: [day('2026-10-24', 1100, 2, 22000)] });
+  const options = await f.service.campaignOptions();
+  assert.equal(options.campaigns.length, 4); assert.deepEqual(options.campaignIds, []);
+  await f.service.saveScope({ campaignIds: ['cmp-a'] });
+  let count = f.requests.length;
+  const r = await f.service.report({ since: '2026-10-24', until: '2026-10-24' });
+  assert.deepEqual(r.campaigns.map(x => x.id), ['cmp-a']);
+  assert.equal(r.summary.spend, 1100); assert.equal(r.summary.purchases, 2); assert.equal(r.daily[0].spend, 1100);
+  assert.ok(f.requests.slice(count).filter(x => x.url.pathname === '/stats').every(x => x.url.searchParams.get('id') === 'cmp-a'));
+  count = f.requests.length; await f.service.automatic();
+  assert.ok(f.requests.slice(count).filter(x => x.url.pathname === '/stats').every(x => x.url.searchParams.get('id') === 'cmp-a'));
+  assert.deepEqual(f.service.status().scopeCampaignIds, ['cmp-a'], 'New matching and unknown campaigns are never silently included');
+});
+
+test('scope changes isolate prior caches and refresh failures cannot return a different brand total', async t => {
+  const f = fixture(t); await f.connect();
+  const range = { since: '2026-10-24', until: '2026-10-24' };
+  const all = await f.service.report(range); assert.equal(all.summary.spend, 4400);
+  await f.service.saveScope({ campaignIds: ['cmp-a'] });
+  assert.notEqual(f.service.status().scopeKey, all.scopeKey);
+  await assert.rejects(f.service.report({ ...range, cacheOnly: true }), { status: 404 });
+  f.setHandler(() => new Response('network failure', { status: 503 }));
+  await assert.rejects(f.service.report({ ...range, refresh: true }), { status: 502 });
+  assert.deepEqual(f.service.status().scopeCampaignIds, ['cmp-a']);
+});
+
+test('invalid selections preserve the saved scope and missing selected IDs do not become partial or all-account totals', async t => {
+  const f = fixture(t); await f.connect();
+  const before = f.service.status().scopeKey;
+  for (const campaignIds of [[], ['missing-campaign'], ['../other'], ['cmp-a', 42]]) {
+    await assert.rejects(f.service.saveScope({ campaignIds }), { status: 400 });
+    assert.equal(f.service.status().scopeKey, before);
+  }
+  f.setHandler(url => url.pathname === '/ncc/campaigns' ? [campaign('unselected')] : { data: [day('2026-10-24', 1000000, 9, 9000000)] });
+  const count = f.requests.length;
+  await assert.rejects(f.service.report({ since: '2026-10-24', until: '2026-10-24' }), { status: 409 });
+  assert.equal(f.requests.slice(count).some(x => x.url.pathname === '/stats'), false);
 });
 
 function serverFixture(t) {
@@ -164,14 +223,14 @@ test('legacy updater boots embedded search assets without installing client or U
 
 test('search endpoints reject cross-origin requests, wrong methods, missing action headers and malformed payloads', async t => {
   const f = serverFixture(t);
-  for (const endpoint of ['credentials', 'settings', 'test', 'disconnect']) {
+  for (const endpoint of ['credentials', 'settings', 'test', 'disconnect', 'scope']) {
     const url = '/api/naver-search/' + endpoint;
     assert.equal((await f.request(url)).status, 405);
     for (const headers of [{}, { 'x-roas-local-action': 'yes', origin: 'https://evil.invalid' }, { 'x-roas-local-action': 'yes', host: 'evil.invalid:3000' }]) {
       assert.equal((await f.request(url, { method: 'POST', headers, body: '{}' })).status, 403);
     }
   }
-  for (const endpoint of ['status', 'report']) {
+  for (const endpoint of ['status', 'report', 'campaigns']) {
     assert.equal((await f.request('/api/naver-search/' + endpoint, { headers: { host: 'evil.invalid:3000' } })).status, 403);
     assert.equal((await f.request('/api/naver-search/' + endpoint, { method: 'POST' })).status, 405);
   }

@@ -9,14 +9,14 @@ const source = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-search-browser-'));
 const base = 'http://127.0.0.1:3000';
 const { chromium } = require(process.env.ROAS_PLAYWRIGHT_MODULE || 'playwright');
-let child, browser, page, connected = false, auto = true, failSave = false, stale = false, missing = false;
+let child, browser, page, connected = false, scopeChosen = false, auto = true, failSave = false, stale = false, missing = false;
 const errors = [], external = [], posted = [];
-const status = () => ({ configured: connected, customerId: connected ? '123456' : '', enabled: auto, running: false, lastSuccessAt: '2026-10-25T03:00:00Z', nextAutomaticAt: '2026-10-25T04:00:00Z' });
+const status = () => ({ configured: connected, customerId: connected ? '123456' : '', scopeConfigured: connected && scopeChosen, scopeKey: scopeChosen ? 'scope-wemamang-a' : '', scopeCampaignIds: scopeChosen ? ['cmp-a'] : [], enabled: auto, running: false, lastSuccessAt: '2026-10-25T03:00:00Z', nextAutomaticAt: '2026-10-25T04:00:00Z' });
 const metrics = { spend: 4400, impressions: 2000, clicks: 20, purchases: 4, purchaseRevenue: 44000, purchaseRoas: 1000, ctr: 1, cpc: 220, cpm: 2200 };
 function result(url) {
   const range = new URL(url).searchParams;
   const values = { ...metrics, ...(missing ? { purchases: null, purchaseRevenue: null, purchaseRoas: null } : {}) };
-  return { customerId: '123456', since: range.get('since'), until: range.get('until'), fetchedAt: '2026-10-25T03:00:00Z', cached: stale, stale,
+  return { scopeKey: 'scope-wemamang-a', customerId: '123456', since: range.get('since'), until: range.get('until'), fetchedAt: '2026-10-25T03:00:00Z', cached: stale, stale,
     ...(stale ? { refreshError: '호출 한도: 저장 자료 유지' } : {}), summary: values,
     campaigns: [{ id: 'cmp-a', name: '<img data-injected src=x onerror="window.__injected=1"> 위마망', type: 'WEB_SITE', status: 'ELIGIBLE', ...values }],
     daily: [{ date: range.get('since'), ...values }], warnings: ['광고비 VAT 포함 · 구매 기여 기준'] };
@@ -46,6 +46,8 @@ async function main() {
       connected = true;
       return route.fulfill({ json: { ...status(), campaignCount: 1 } });
     }
+    if (endpoint === 'campaigns') return route.fulfill({ json: { campaignIds: scopeChosen ? ['cmp-a'] : [], campaigns: [{ id: 'cmp-a', name: '위마망 백도씨', type: 'WEB_SITE' }, { id: 'cmp-truver', name: '트루버 버너', type: 'SHOPPING' }, { id: 'cmp-unknown', name: '알 수 없는 캠페인', type: 'WEB_SITE' }] } });
+    if (endpoint === 'scope') { assert.deepEqual(request.postDataJSON().campaignIds, ['cmp-a']); scopeChosen = true; }
     if (endpoint === 'settings') auto = request.postDataJSON().enabled;
     if (endpoint === 'disconnect') connected = false;
     return route.fulfill({ json: endpoint === 'report' ? result(url) : endpoint === 'test' ? { ok: true, campaignCount: 1 } : status() });
@@ -57,6 +59,12 @@ async function main() {
   assert.equal(await page.locator('#search-load').isDisabled(), true);
   await page.fill('#search-customer', '123456'); await page.fill('#search-key', 'SYNTHETIC-API-KEY'); await page.fill('#search-secret', 'SYNTHETIC-SECRET-KEY');
   await page.locator('#search-connect button').click();
+  await page.locator('#search-scope-options input[value="cmp-a"]').waitFor();
+  assert.equal(await page.locator('#search-report').isVisible(), false, 'Whole-account figures are hidden before explicit brand selection');
+  assert.equal(await page.locator('#search-load').isDisabled(), true);
+  assert.equal(await page.locator('#search-scope-options input:checked').count(), 0, 'No campaign is guessed from its name');
+  await page.locator('#search-scope-options input[value="cmp-a"]').check();
+  await page.locator('#search-scope-save').click();
   await page.waitForFunction(() => !document.getElementById('search-report').hidden && document.getElementById('search-load').disabled === false);
   assert.equal(await page.locator('#search-key').inputValue(), ''); assert.equal(await page.locator('#search-secret').inputValue(), '');
   assert.match(await page.locator('#search-metrics').innerText(), /4,400원/); assert.match(await page.locator('#search-metrics').innerText(), /1,000%/);
@@ -64,6 +72,12 @@ async function main() {
   assert.match(await page.locator('#search-campaigns').innerText(), /<img data-injected/);
   assert.equal(await page.evaluate(() => JSON.stringify({ ...localStorage }).includes('SYNTHETIC')), false);
   assert.equal(posted[0].body.customerId, '123456');
+  assert.equal(await page.locator('#search-campaigns').getByText('트루버 버너').count(), 0);
+  await page.reload();
+  await page.waitForFunction(() => !document.getElementById('search-report').hidden && !document.getElementById('search-load').disabled);
+  assert.equal(await page.locator('#search-scope-options input[value="cmp-a"]').isChecked(), true);
+  assert.equal(await page.locator('#search-scope-options input[value="cmp-truver"]').isChecked(), false);
+  console.log('PASS explicit Wemamang-only scope persists across reload; Tru ver and unknown campaigns stay unchecked');
   console.log('PASS legacy upgrade: connect/save/clear keys, purchase metrics, safe campaign text, no browser secret storage');
   await page.locator('#search-auto').uncheck(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
   assert.equal(auto, false); await page.locator('#search-auto').check(); await page.waitForFunction(() => !document.getElementById('search-auto').disabled);
