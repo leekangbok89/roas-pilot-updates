@@ -975,7 +975,7 @@ async function verifySplitSpend(requests) {
   const assertSpend = async (expected, message) => {
     for (const [index, key] of keys.entries()) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
-      assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
+      assert.equal(await card(key).locator('.summary-card-value strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
       assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
       assert.equal(await card(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each spend card identifies its fixed account scope');
     }
@@ -983,6 +983,9 @@ async function verifySplitSpend(requests) {
   assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'The removed fixed spend breakdown stays absent');
   assert.equal((await summaryKeys())[0], 'spend', 'Existing saved/default spend selections retain their original key');
   assert.equal(await card('spend').locator('.summary-card-label').innerText(), '총 광고비');
+  await card('spend').hover();
+  assert.equal(await card('spend').locator('.summary-spend-popover').isVisible(),true,'Five spend sources open on hover');
+  assert.deepEqual(await card('spend').locator('.summary-spend-row').evaluateAll(rows=>rows.map(row=>row.dataset.spendPart)),['smartstoreSpend','mallSpend','gfaSpend','shoppingSpend','powerlinkSpend']);
   const requestStart = requests.length;
   await page.locator('#summary-edit').click();
   assert.equal(await page.locator('.summary-card-choice').count(), 12);
@@ -994,7 +997,7 @@ async function verifySplitSpend(requests) {
   assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'Configuring KPI cards does not restore the removed spend breakdown');
   assert.equal(await page.locator('#summary-card-count').innerText(), '6개 표시 · 최대 12개');
   await assertSpend([20000, 10000, 30000], 'Integrated spend equals Smartstore plus mall spend');
-  assert.deepEqual(await Promise.all(keys.map(key=>card(key).locator('strong').innerText())),[money(20000),money(10000),money(30000)],
+  assert.deepEqual(await Promise.all(keys.map(key=>card(key).locator('.summary-card-value strong').innerText())),[money(20000),money(10000),money(30000)],
   'Configurable overview cards keep the three Meta spending values after the fixed strip is removed');
   assert.deepEqual(await page.locator('#summary-roas-audit-body [data-roas-key]').evaluateAll(rows => rows.map(row => row.dataset.roasKey).sort()), roasKeys.slice().sort(), 'ROAS evidence contains only ROAS rows, never the three spend metrics');
   const layout = await page.locator('#summary-cards .summary-card').evaluateAll(cards => cards.map(card => {
@@ -1019,7 +1022,7 @@ async function verifySplitSpend(requests) {
     await page.locator('#channel').selectOption(channel);
     await idle();
     await assertSpend([20000, 10000, 30000], 'Spend scopes ignore the top channel filter ' + channel);
-    const values = await Promise.all(keys.map(key => card(key).locator('strong').innerText()));
+    const values = await Promise.all(keys.map(key => card(key).locator('.summary-card-value strong').innerText()));
     assert.equal(Number(values[0].replace(/[^\d]/g, '')) + Number(values[1].replace(/[^\d]/g, '')), Number(values[2].replace(/[^\d]/g, '')), 'The displayed total equals the displayed channel amounts');
   }
   check('spend: three fixed-scope choices save locally with three ROAS cards, keep empty slots across reload, ignore top filters, and never enter the ROAS audit');
@@ -1346,224 +1349,4 @@ async function verifyCafeRevenueRecovery(base, requests) {
       assert.equal(job.failedDays, scenario.config.failedDates.length);
       assert.ok(api.days.filter(day => scenario.config.failedDates.includes(day.date)).every(day => day.complete === false && day.profit === null), 'Failed dates remain unconfirmed rather than completed zero profit');
     } else if (scenario.config.missingItemDates) {
-      assert.equal(job.itemsMissing, 1);
-      assert.equal(api.revenueDiagnostics.cafe24.missingItemOrders, 1);
-      assert.equal(api.revenueDiagnostics.cafe24.complete, false);
-      assert.equal(api.days[1].profit, null);
-      assert.equal(read('cafe24-orders/orders.json').orders['qa-cafe-recovered-2026-09-04'].net, 200000, 'A missing item detail does not erase the known payment');
-      await page.locator('#cafe-revenue-recovery-progress').evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
-      await metricCardScreenshot('cafe-recovery-partial-reason-1440');
-    } else {
-      assert.equal(api.revenueDiagnostics.cafe24.confirmedRevenue, 0);
-      assert.equal(api.revenueDiagnostics.cafe24.zeroReason, 'excluded');
-      assert.equal(await cafeCard().locator('strong').innerText(), money(0));
-      assert.ok((await page.locator('#cafe-revenue-recovery-reason').innerText()).includes(api.revenueDiagnostics.cafe24.reason), 'A valid zero after recovery explains the exclusion instead of promising revenue');
-    }
-    onlyRecoveryPosts(attemptStart, 1);
-  }
-  check('Cafe recovery: authentication, failed dates and missing items stay explicit and unconfirmed; preserved orders survive failures and a legitimate excluded zero displays its actual reason');
-  fixture();
-  await range('2026-09-04');
-}
-
-async function hoverVisibleProfitPoints(label) {
-  await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
-  const count = await points.count();
-  assert.ok(count >= 3, label + ' has enough date points to verify both edges and the middle');
-  for (const index of [...new Set([0, Math.floor(count / 2), count - 1])]) {
-    const point = await points.nth(index).evaluate(circle => {
-      const screen = new DOMPoint(circle.cx.baseVal.value, circle.cy.baseVal.value).matrixTransform(circle.getScreenCTM());
-      return { x: screen.x, y: screen.y, svgX: circle.cx.baseVal.value, date: circle.dataset.pointDate, label: circle.querySelector('title').textContent.split(' · ')[0] };
-    });
-    await page.mouse.move(point.x, point.y);
-    await page.waitForFunction(() => getComputedStyle(document.getElementById('roas-chart-hover')).display !== 'none', undefined, { timeout: 2000 });
-    const actual = await page.evaluate(() => {
-      const tip = document.getElementById('roas-chart-hover'), cross = document.querySelector('#graph [data-chart-crosshair]'), graph = document.getElementById('graph');
-      const tipBox = tip.getBoundingClientRect(), graphBox = graph.getBoundingClientRect();
-      const screen = new DOMPoint(Number(cross.getAttribute('x1')), Number(cross.getAttribute('y1'))).matrixTransform(cross.getScreenCTM());
-      return { date: tip.dataset.pointDate, title: tip.querySelector('strong')?.textContent, crossDate: cross.dataset.pointDate, crossX: Number(cross.getAttribute('x1')), screenX: screen.x,
-        tip: { left: tipBox.left, right: tipBox.right, top: tipBox.top, bottom: tipBox.bottom }, graph: { left: graphBox.left, right: graphBox.right, top: graphBox.top, bottom: graphBox.bottom } };
-    });
-    assert.equal(actual.date, point.date, label + ': pointer at the rendered SVG point selects its actual date');
-    assert.equal(actual.crossDate, point.date, label + ': crosshair and tooltip use the same bucket');
-    assert.ok(actual.title.startsWith(point.label + ' · '), label + ': tooltip header matches the rendered daily/averaged label');
-    assert.ok(Math.abs(actual.crossX - point.svgX) < 0.1 && Math.abs(actual.screenX - point.x) < 1, label + ': crosshair intersects the rendered point');
-    assert.ok(actual.tip.left >= actual.graph.left - 1 && actual.tip.right <= actual.graph.right + 1 && actual.tip.top >= actual.graph.top - 1 && actual.tip.bottom <= actual.graph.bottom + 1,
-      label + ': tooltip stays inside the graph at both edges: ' + JSON.stringify(actual));
-  }
-}
-async function verifyResponsiveHover(requests) {
-  scopeFixture('long');
-  await range('2026-08-01', '2026-09-10');
-  await page.locator('#custom-preset-buttons button').first().click();
-  const requestStart = requests.length;
-  for (const window of ['1', '3', '5', '7']) {
-    await page.locator('#chart-window').selectOption(window);
-    for (const width of [1280, 1440, 1920, 1280]) {
-      await page.setViewportSize({ width, height: 1100 });
-      await hoverVisibleProfitPoints(window + '-day at' + width + 'px');
-      if (window === '1' && width === 1920) await metricCardScreenshot('hover-wide-1920');
-    }
-    check('hover: ' + window + '-day first/middle/last dates, crosshair and contained tooltip match real screenCTM coordinates through1280→1440→1920→1280px resizing');
-  }
-  await page.setViewportSize({ width: 1440, height: 1100 });
-  try {
-    await page.evaluate(() => { document.body.style.zoom = '1.25'; });
-    for (const window of ['1', '7']) {
-      await page.locator('#chart-window').selectOption(window);
-      await hoverVisibleProfitPoints(window + '-day with125% CSS zoom');
-    }
-    const bounds = await page.locator('#graph').boundingBox();
-    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2);
-    assert.equal(await page.locator('#roas-chart-hover').isVisible(), false, 'Pointer in the outer SVG gutter must not select a wrong edge date');
-  } finally {
-    await page.evaluate(() => document.body.style.removeProperty('zoom'));
-  }
-  await page.locator('#chart-window').selectOption('1');
-  assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Resizing, averaging, and hover do not recollect data');
-  check('hover: actual point alignment survives125% CSS zoom; outer gutters hide the tooltip and all interactions remain local');
-}
-
-(async () => {
-  const base = await startServer();
-  const data = await report(base, '2026-09-01', '2026-09-10');
-  const byDate = new Map(data.days.map(day => [day.date, day]));
-  const expected = [99000, 129000, -30000, 321000, 0, 99000, 99000];
-  expected.forEach((value, i) => assert.equal(byDate.get('2026-09-0' + (i + 1)).profit, value));
-  assert.equal(byDate.get('2026-09-04').cost, 400000, 'Costs use sold quantity and exclude saved delivery charges');
-  assert.equal(byDate.get('2026-09-04').fee, 49000, 'Each channel uses its own rate');
-  assert.equal(byDate.get('2026-09-02').adSpend, 0, 'Empty cached account-day confirms zero spend');
-  for (const date of ['2026-09-08', '2026-09-09', '2026-09-10']) assert.equal(byDate.get(date).profit, null);
-  check('real HTTP: fee + quantity formula; verified zero sales/spend; negative profit; unknown costs/ads/orders remain null');
-  const duplicate = await report(base, '2026-09-01', '2026-09-01', [accountIds.naver, accountIds.naver]);
-  assert.equal(duplicate.days[0].profit, 109000);
-  check('real HTTP: duplicate account IDs deduct spend once');
-  if (process.argv.includes('--api-only')) {
-    console.log('API-only verification passed; browser checks were explicitly skipped.');
-    return;
-  }
-
-  const { chromium } = require(process.env.ROAS_PLAYWRIGHT_MODULE || 'playwright');
-  browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
-  await context.addInitScript(ids => {
-    localStorage.setItem('roas-account-ids', JSON.stringify(ids));
-    localStorage.setItem('roas-custom-chart-presets-v1', JSON.stringify([{ name: '통합 이익 검증', keys: ['profit'], window: 3, scale: 'absolute' }]));
-  }, accountIds);
-  await context.route('**/*', route => route.request().url().startsWith(base + '/') ? route.continue() : route.abort());
-  page = await context.newPage();
-  const pageErrors = [];
-  const requests = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  page.on('request', request => requests.push({ url: request.url(), method: request.method() }));
-  await page.goto(base + '/visual-overview.html');
-  await idle();
-  // Playwright starts at (0,0), the intentional hover target for the drawer.
-  // Move into the workspace before interacting with content beneath that overlay.
-  await page.mouse.move(1000, 80);
-  await verifyOverviewFolds(requests);
-  assert.equal(await page.locator('#chart-window').inputValue(),'1','Page load defaults to daily raw regardless of saved 3-day preset');
-  if (!scopeOnly) {
-  await page.locator('#custom-preset-buttons button').first().click();
-  assert.equal(await page.locator('#chart-window').inputValue(),'1','Clicking saved preset never switches to 3-day automatically');
-  await page.locator('#chart-window').selectOption('3');
-  assert.equal(await page.locator('#chart-window').inputValue(),'3','3-day average applies when explicitly selected');
-  await range('2026-09-01', '2026-09-07');
-  await page.locator('#chart-window').selectOption('1');
-  for (let i = 0; i < expected.length; i++) await amount('2026-09-0' + (i + 1), expected[i]);
-  assert.equal(await page.locator('#profit-total').innerText(), money(717000));
-  assert.equal(await page.locator('#graph path[data-metric="profit"]').count(), 1);
-  assert.equal((await pointTitles()).length, 7);
-  assert.ok((await pointTitles()).some(text => text.includes('-30,000원')));
-  assert.ok((await pointTitles()).some(text => text.endsWith(': 0원')));
-  check('browser: actual API values match table, total, positive/negative/zero SVG points');
-  await range('2026-09-01');
-  assert.equal(await page.locator('#revenue').innerText(), '—', 'Meta purchase attribution is absent');
-  await amount('2026-09-01', 99000);
-  assert.equal(await page.locator('#profit-total').innerText(), money(99000));
-  assert.ok((await pointTitles()).some(title => title.includes('99,000원')));
-  await openDetails('#profit-troubleshooting', '#profit-troubleshooting-body');
-  assert.ok((await page.locator('#profit-troubleshooting-body').innerText()).includes('Meta 구매 전환매출과 무관'));
-  check('browser: actual store profit graph works with zero Meta purchase conversions');
-  await range('2026-09-01', '2026-09-07');
-
-  for (const channel of ['naver', 'cafe', 'all']) {
-    await page.locator('#channel').selectOption(channel);
-    await idle();
-    assert.equal(await page.locator('#profit-total').innerText(), money(717000));
-    await amount('2026-09-01', 99000);
-  }
-  check('browser: integrated profit stays invariant across all channel filters');
-
-  await range('2026-09-02', '2026-09-07');
-  for (const [window, values] of [['3', [49500, 140000, 99000]], ['5', [105000, 99000]], ['7', [103000]]]) {
-    await page.locator('#chart-window').selectOption(window);
-    const titles = await pointTitles();
-    assert.equal(titles.length, values.length, window + '-day clipped point count');
-    values.forEach((value, i) => assert.ok(titles[i].endsWith(': ' + money(value)), window + '-day mean: ' + titles[i]));
-    await page.locator('#graph circle[data-metric="profit"]').first().hover({ force: true });
-    assert.ok((await page.locator('#roas-chart-hover').innerText()).includes(money(values[0])));
-  }
-  check('browser: nonoverlapping 3/5/7-day averages clip range edges and match hover values');
-
-  for (const [date, reason] of [['2026-09-08', '원가'], ['2026-09-09', '광고비'], ['2026-09-10', '수집']]) {
-    await range(date);
-    await page.locator('#chart-window').selectOption('1');
-    const cells = await row(date);
-    assert.equal(cells[5], '미확정');
-    assert.ok(cells[6].includes(reason));
-    assert.equal(await page.locator('#graph circle[data-metric="profit"]').count(), 0);
-    assert.ok((await page.locator('#profit-chart-status').innerText()).length > 0);
-  }
-  check('browser: missing costs/ads/orders show reasons and never appear as zero profit');
-
-  await page.evaluate(id => localStorage.setItem('roas-account-ids', JSON.stringify({ naver: id, cafe: id })), accountIds.naver);
-  await range('2026-09-01');
-  await amount('2026-09-01', 109000);
-  assert.equal(await page.locator('#spend').innerText(), money(20000));
-  check('browser: duplicate account mapping does not double count total spend or profit');
-  await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
-
-  fixture(true);
-  await range('2026-08-01', '2026-09-10');
-  await page.locator('#chart-window').selectOption('1');
-  assert.equal(await page.locator('#profit-table tbody tr').count(), 41);
-  assert.equal(await page.locator('#graph circle[data-metric="profit"]').count(), 1);
-  assert.equal(await page.locator('#graph circle[data-metric="profit"]').first().getAttribute('data-point-date'), '2026-08-21');
-  assert.ok((await pointTitles())[0].includes('99,000원'));
-  await page.locator('#graph circle[data-metric="profit"]').hover({ force: true });
-  assert.ok((await page.locator('#roas-chart-hover').innerText()).includes('99,000원'));
-  check('browser: isolated valid profit remains visible across more than 35 daily points');
-  }
-
-  await verifyScope(base, requests);
-  await verifyHistoryRepair(base, requests);
-  if (!scopeOnly) {
-    await verifyMetricCards(requests);
-    await verifyOptionalCards(requests);
-    await verifySplitRoas(requests);
-    await verifySplitSpend(requests);
-    await verifyCafeRevenueDiagnostic(base, requests);
-    await verifyCafeRevenueRecovery(base, requests);
-    await verifyResponsiveHover(requests);
-  }
-
-  assert.deepEqual(pageErrors, [], 'Browser JavaScript errors');
-  assert.deepEqual(requests.filter(req => new URL(req.url).pathname.startsWith('/api/ai')), [], 'Removed AI controls never issue requests during overview interactions');
-  if (process.env.ROAS_PROFIT_SCREENSHOT) {
-    await page.screenshot({ path: process.env.ROAS_PROFIT_SCREENSHOT, fullPage: true });
-  }
-  console.log('Profit integration verification passed: ' + checks + ' checks, no browser JavaScript errors.');
-})().catch(async error => {
-  console.error('FAIL ' + error.stack);
-  if (page) {
-    console.error(JSON.stringify(await page.evaluate(() => ({ status: document.getElementById('updated')?.textContent, alert: document.getElementById('alert')?.textContent, profit: document.getElementById('profit-status')?.textContent, chart: document.getElementById('profit-chart-status')?.textContent })).catch(() => ({}))));
-  }
-  process.exitCode = 1;
-}).finally(async () => {
-  if (browser) await browser.close();
-  if (child && child.exitCode === null) child.kill('SIGTERM');
-  fs.rmSync(temp, { recursive: true, force: true });
-});
-
+      assert.equal(job.itemsMis

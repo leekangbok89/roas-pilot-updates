@@ -1071,7 +1071,48 @@ async function setupUpdater(){
  async function api(url,opts={}){const r=await fetch(url,{cache:'no-store',...opts});const d=await r.json();if(!r.ok)throw Error(d.error||'오류');return d;}
  async function check(){try{const d=await api('/api/update/status');document.getElementById('program-version').textContent='v'+d.version;document.getElementById('remote-feed').value=d.remote.feed||'';document.getElementById('remote-enabled').checked=!!d.remote.enabled;const history=document.getElementById('version-history');history.replaceChildren();if(!d.backups.length){history.textContent='복원할 백업이 없습니다. 첫 업데이트 시 백업이 생성됩니다.';}else for(const b of d.backups){const line=document.createElement('div');line.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border-bottom:1px solid #7774';const name=document.createElement('span');name.textContent='v'+b.version+' · '+b.created.replace('T',' ').slice(0,19);const btn=document.createElement('button');btn.className='button ghost';btn.textContent='이 버전 복원';btn.addEventListener('click',async()=>{if(!confirm('v'+b.version+' 버전으로 되돌릴까요? 현재 버전도 백업합니다.'))return;try{status.textContent='복원 중…';await api('/api/update/rollback',{method:'POST',headers,body:JSON.stringify({backup:b.id})});status.textContent='서버 재시작 중…';setTimeout(()=>location.reload(),4000);}catch(e){status.textContent='복원 실패: '+e.message;}});line.append(name,btn);history.append(line);}const f=document.getElementById('downloads-folder');if(f&&d.watcher)f.textContent='감시 폴더: '+d.watcher.folder;status.textContent=d.watcher?.message||'다운로드 폴더 자동 감시가 켜져 있습니다.';}catch(e){status.textContent='업데이트 상태 조회 실패: '+e.message;}}
  document.getElementById('remote-save').addEventListener('click',async()=>{try{await api('/api/update/settings',{method:'POST',headers,body:JSON.stringify({feed:document.getElementById('remote-feed').value.trim(),enabled:document.getElementById('remote-enabled').checked})});status.textContent='설정을 저장했습니다.';}catch(e){status.textContent='설정 오류: '+e.message;}});
- async function find(andInstall){try{const d=await api('/api/update/check');if(!d.available){status.textContent='최신 버전(v'+d.version+')을 사용 중입니다.';return;}status.textContent='새 버전 v'+d.version+' 발견 · '+(d.notes||'');if(andInstall){if(!document.getElementById('remote-enabled').checked){status.textContent='자동 업데이트를 활성화하고 설정을 저장해 주세요.';return;}status.textContent='업데이트 다운로드·검증·백업 진행 중…';await api('/api/update/remote',{method:'POST',headers});status.textContent='업데이트 완료 · 서버 재시작 중';setTimeout(()=>location.reload(),4000);}}catch(e){status.textContent='업데이트 확인/적용 실패: '+e.message;}}
+ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ async function waitForServer(version,timeout=30000){
+  const until=Date.now()+timeout;
+  while(Date.now()<until){
+   try{const state=await api('/api/update/status');if(!version||state.version===version)return state;}
+   catch{}
+   await pause(1200);
+  }
+  return null;
+ }
+ async function find(andInstall){
+  let target;
+  try{
+   let d;
+   try{d=await api('/api/update/check');}
+   catch(error){
+    if(!(error instanceof TypeError))throw error;
+    status.textContent='서버가 재시작 중입니다. 자동으로 다시 연결하고 있습니다…';
+    if(!await waitForServer(null,15000))throw Error('ROAS Pilot 로컬 서버에 연결되지 않습니다. 프로그램 실행 상태를 확인해 주세요.');
+    d=await api('/api/update/check');
+   }
+   if(!d.available){status.textContent='최신 버전(v'+d.version+')을 사용 중입니다.';return;}
+   target=d.version;
+   status.textContent='새 버전 v'+target+' 발견 · '+(d.notes||'');
+   if(!andInstall)return;
+   if(!document.getElementById('remote-enabled').checked){status.textContent='자동 업데이트를 활성화하고 설정을 저장해 주세요.';return;}
+   status.textContent='업데이트 다운로드·검증·백업 진행 중…';
+   let confirmed=false;
+   try{await api('/api/update/remote',{method:'POST',headers});}
+   catch(error){
+    // A successful update restarts the local server and can interrupt the response.
+    // Never repeat the POST; verify the installed version after reconnection.
+    if(!(error instanceof TypeError))throw error;
+    status.textContent='서버 재시작 확인 중…';
+    confirmed=!!await waitForServer(target);
+    if(!confirmed)throw Error('서버 연결이 끊겼습니다. 업데이트 완료 여부를 확인할 수 없습니다. ROAS Pilot 실행 상태를 확인해 주세요.');
+   }
+   if(!confirmed&&!await waitForServer(target))throw Error('적용 요청은 완료됐지만 서버가 새 버전으로 재시작하지 않았습니다. ROAS Pilot 실행 상태를 확인해 주세요.');
+   status.textContent='v'+target+' 업데이트 완료 · 화면을 새로고침합니다.';
+   setTimeout(()=>location.reload(),2500);
+  }catch(e){status.textContent='업데이트 확인/적용 실패: '+e.message;}
+ }
  document.getElementById('remote-check').addEventListener('click',()=>find(false));document.getElementById('remote-install').addEventListener('click',()=>find(true));await check();
  // When enabled, check at startup and then every hour; only installs releases from the configured feed.
  async function scheduled(){const d=await api('/api/update/status');if(d.remote.enabled&&d.remote.feed)await find(true);}

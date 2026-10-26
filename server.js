@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/display-analysis.html','public/visual-overview.html','public/cost-management.html','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html','public/detail-analysis.html','public/detail-analysis.js','public/detail-tracker.js','public/ad-changes.html','public/ad-changes.js','public/ad-changes.css','public/naver-search.html','public/naver-search.js','public/naver-search.css','public/naver-analysis.js'];
-const appVersion='2.8.126';
+const appVersion='2.8.127';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -17,7 +17,7 @@ function backupNow(){const dir=path.join(updateDir,'backups',new Date().toISOStr
 function listBackups(){const base=path.join(updateDir,'backups');if(!fs.existsSync(base))return [];return fs.readdirSync(base,{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>{const dir=path.join(base,d.name);let version='알 수 없음';try{version=fs.readFileSync(path.join(dir,'version.txt'),'utf8').trim()}catch{}return {id:d.name,version,created:d.name}}).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,40);}
 function localPost(req){const host=String(req.headers.host||'');const origin=req.headers.origin;return /^(127\.0\.0\.1|localhost):3000$/.test(host)&&(!origin||/^http:\/\/(127\.0\.0\.1|localhost):3000$/.test(origin))&&req.headers['x-roas-local-action']==='yes';}
 async function payload(req){const chunks=[];let count=0;for await(const c of req){count+=c.length;if(count>maxUpdateSize)throw Object.assign(Error('파일이 8MB를 초과합니다.'),{status:413});chunks.push(c);}return Buffer.concat(chunks);}
-function scheduleRestart(res){json(res,200,{ok:true,message:'적용 완료. 로컬 서버가 자동 재시작합니다.'});setTimeout(()=>server.close(()=>process.exit(42)),250);}
+function scheduleRestart(res){json(res,200,{ok:true,message:'적용 완료. 로컬 서버가 자동 재시작합니다.'});setTimeout(()=>server.close(()=>process.exit(42)),1500);}
 
 
 const remoteCfgFile=path.join(updateDir,'remote.json');
