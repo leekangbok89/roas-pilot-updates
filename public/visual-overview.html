@@ -439,9 +439,10 @@ function appendSummarySpendPopover(card,slot,context){
  const footer=document.createElement('small');footer.className='summary-spend-popover-footer';
  footer.textContent='검색광고 API 우선 · 수동 입력 중복 제외. 미수집 금액은 0으로 간주하지 않습니다.';
  panel.append(footer);
- const setOpen=open=>{card.dataset.spendOpen=open?'yes':'no';title.setAttribute('aria-expanded',String(open));};
+ const setOpen=open=>{card.dataset.spendOpen=open?'yes':'no';if(open)card.dataset.spendDismissed='no';title.setAttribute('aria-expanded',String(open));};
  title.onclick=()=>setOpen(card.dataset.spendOpen!=='yes');
- title.onkeydown=event=>{if(event.key==='Escape'){setOpen(false);event.stopPropagation();title.blur?.();}};
+ title.onkeydown=event=>{if(event.key==='Escape'){setOpen(false);card.dataset.spendDismissed='yes';event.stopPropagation();title.blur?.();}};
+ card.onmouseleave=()=>{card.dataset.spendDismissed='no';};
  card.className+=' summary-spend-has-breakdown';
  card.append(title,panel);
 }
