@@ -29,6 +29,26 @@ npm test
 ROAS_PLAYWRIGHT_MODULE=/path/to/playwright node scripts/smoke-detail-browser.cjs
 ```
 
+## 네이버 검색광고 API
+
+왼쪽 **검색광고 분석** 메뉴에서 검색광고 계정을 연결합니다. **설정 관리 → 계정 연결**에도 연결 화면 바로가기가 있습니다.
+
+1. 네이버 광고주센터 → **검색광고 → 도구 → SA API 사용 관리**에서 API 서비스를 신청합니다.
+2. 해당 화면의 **고객 ID(Customer ID)**, **액세스라이선스(API Key)**, **비밀키(Secret Key)**를 ROAS Pilot 화면에 입력합니다. 스마트스토어 커머스API 키와 별도입니다.
+3. **연결 확인 후 암호화 저장**을 누르면 캠페인 목록으로 인증을 검사한 뒤 저장하고 최근 7일을 조회합니다. 인증 실패 시 이전 연결을 유지합니다.
+
+고객 ID·키는 로컬 `http://127.0.0.1:3000/naver-search.html` 화면에서만 입력하며 채팅·GitHub에 올리지 않습니다. 키는 Windows DPAPI로 `.roas-private/naver-search.dpapi`에 암호화 저장합니다. 외부 네이버 API에는 GET 조회만 요청하고 예산·입찰·ON/OFF를 변경하지 않습니다.
+
+- 캠페인별/일별 광고비·노출·클릭·CTR·CPC·CPM·구매완료 수·구매완료 매출·구매 ROAS를 표시합니다. 광고비 `salesAmt`는 VAT 포함 원화이며, 구매는 `purchaseCcnt`, `purchaseConvAmt`로만 계산합니다. 전체 전환 수/가치를 구매로 대체하지 않습니다.
+- **최근 7일 매시간 자동 갱신**은 기본으로 켜집니다. 서버 실행 시 점검하고 이후 매분 갱신 시점을 확인합니다. 해당 연결의 최근 7일을 마지막 시도 후 1시간마다 수집합니다. 브라우저를 닫아도 서버가 실행 중이면 수집하며 PC 절전/종료 중에는 수집하지 않습니다.
+- 기간 조회는 한 번에 최대 31일입니다. 같은 기간의 저장 자료는 5분간 재사용하며 **새로 가져오기**는 API로 다시 조회합니다. 모든 캠페인 조회 성공 후 파일을 교체합니다. 갱신 실패 시 이전 자료·원래 수집 시각·실패 이유를 표시합니다.
+- 지원되는 캠페인 목록에 반환된 항목만 조회합니다. 삭제된 캠페인은 누락될 수 있으며 미응답/누락 구매 지표는 미확인으로 표시합니다. 일부 캠페인의 일별 성과가 없으면 일별 합계도 확정하지 않습니다. 최근 전환 값은 이후 수정될 수 있습니다.
+- 검색광고 집계는 별도 화면이며 기존 Meta·GFA·쇼핑몰 매출/이익에 자동 합산하지 않습니다. 연결 해제는 검색광고 인증정보를 삭제하고 자동 수집을 끄며, 다른 연결과 저장된 성과는 유지합니다.
+
+수정 후 `node scripts/bundle-naver-search.cjs`로 서버에 클라이언트와 화면을 포함합니다. 기존 업데이트 프로그램이 새 파일을 복사하지 못해도 포함된 화면으로 실행됩니다. 검증: `node scripts/bundle-naver-search.cjs --check`, `npm test`, `node scripts/smoke-naver-search-browser.cjs`.
+
+공식 근거: [키 발급 안내](https://ads.naver.com/help/faq/991), [API 명세](https://naver.github.io/searchad-apidoc/), [구매 지표 추가 공지](https://github.com/naver/searchad-apidoc/blob/gh-pages/_posts/2026-03-20-notice1.md).
+
 ## GA4 유입 분석
 
 왼쪽 메뉴의 **GA4 유입 분석**에서 자사몰의 방문, 참여율, 광고 UTM과 방문 시작 페이지를 확인합니다.

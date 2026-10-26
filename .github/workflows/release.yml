@@ -13,6 +13,7 @@ on:
       - 'scripts/**'
       - 'integrations/ga4/**'
       - 'integrations/ad-changes/**'
+      - 'integrations/naver-search/**'
   workflow_dispatch:
     inputs:
       version:
@@ -58,6 +59,8 @@ jobs:
           node scripts/bundle-ga4.cjs --check
           node scripts/bundle-ad-changes.cjs --check
           node --check public/ad-changes.js
+          node scripts/bundle-naver-search.cjs --check
+          node --check public/naver-search.js
           node scripts/bundle-experiments.cjs --check
           node --check server.js
           node --check public/app.js
@@ -91,6 +94,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ga4-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-detail-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ad-changes-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-search-browser.cjs
 
       - name: Package ROAS Pilot
         run: |

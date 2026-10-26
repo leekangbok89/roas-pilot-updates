@@ -149,6 +149,16 @@
       if (dailyLink) dailyLink.after(changeLink);
       else nav.appendChild(changeLink);
     }
+    if (nav && !nav.querySelector('[data-app-route="search"]')) {
+      var searchLink = document.createElement('a');
+      searchLink.className = 'app-nav-link';
+      searchLink.dataset.appRoute = 'search';
+      searchLink.href = '/naver-search.html';
+      searchLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 12v-2M10 12V7M13 12V9"/></svg><span>검색광고 분석</span>';
+      var displayItem = nav.querySelector('[data-app-route="display"]');
+      if (displayItem) nav.insertBefore(searchLink, displayItem);
+      else nav.appendChild(searchLink);
+    }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
     links.forEach(function (link) {
       if (link.querySelector('svg')) return;
@@ -230,7 +240,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(['cost','ga4','experiments','display','detail','changes'].indexOf(page) >= 0 ? page : 'overview');
+      markActive(['cost','ga4','experiments','display','detail','changes','search'].indexOf(page) >= 0 ? page : 'overview');
       body.classList.add('app-route-ready');
     }
   }

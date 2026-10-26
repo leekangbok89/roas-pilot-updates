@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROAS Pilot | 검색광고 분석</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/naver-search.css"><script src="/naver-search.js" defer></script></head>
+<body data-app-page="search">
+  <div class="app-nav-rail" id="app-nav-rail">
+    <button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button>
+  </div>
+  <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert>
+    <div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div>
+    <nav id="app-nav" class="app-nav" aria-label="워크스페이스">
+      <a class="app-nav-link" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a>
+      <a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a>
+      <a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a>
+      <a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a>
+      <a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a>
+      <a class="app-nav-link active" data-app-route="ga4" href="/ga4.html" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/><path d="m7 8 5-3 5 1"/></svg><span>GA4 유입 분석</span></a>
+      <a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a>
+    </nav>
+    <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <header class="app-page-head"><div><h1 class="app-page-title">네이버 검색광고 분석</h1><p class="app-page-subtitle">검색광고의 광고비와 구매 성과를 캠페인별로 확인합니다.</p></div><span id="search-badge" class="search-badge" role="status">연결 확인 중</span></header>
+    <details id="search-connection" class="panel" open><summary>검색광고 API 연결 <span id="search-identity" class="small"></span></summary><div class="search-body">
+      <p class="helper">네이버 광고주센터 → 검색광고 → 도구 → SA API 사용 관리에서 서비스 신청 후 아래 세 항목을 확인하세요.</p>
+      <form id="search-connect" class="search-form" autocomplete="off">
+        <label for="search-customer">고객 ID · Customer ID<input id="search-customer" inputmode="numeric" maxlength="20" placeholder="숫자형 고객 ID" required spellcheck="false"></label>
+        <label for="search-key">액세스라이선스 · API Key<input id="search-key" type="password" autocomplete="new-password" maxlength="512" placeholder="발급받은 액세스라이선스" required spellcheck="false"></label>
+        <label for="search-secret">비밀키 · Secret Key<input id="search-secret" type="password" autocomplete="new-password" maxlength="512" placeholder="발급받은 비밀키" required spellcheck="false"></label>
+        <button class="primary" type="submit">연결 확인 후 암호화 저장</button>
+      </form>
+      <p class="helper">연결 정보는 이 PC의 Windows 사용자 계정으로 암호화해 보관합니다. 스마트스토어 커머스API와는 별도의 연결입니다.</p>
+      <div class="search-actions"><button id="search-test" type="button" disabled>저장된 연결 테스트</button><button id="search-disconnect" type="button" disabled>연결 해제</button><a href="https://ads.naver.com/help/faq/991" target="_blank" rel="noopener noreferrer">네이버 발급 안내 ↗</a></div>
+    </div></details>
+    <section class="panel search-auto" aria-label="자동 갱신 설정"><label><input type="checkbox" id="search-auto" checked> 최근 7일 성과를 매시간 자동 갱신</label><p class="helper">노트북의 ROAS Pilot 서버가 실행 중이면 브라우저를 닫아도 수집합니다. 절전·종료 중에는 수집하지 않으며 다음 실행 때 점검합니다.</p><p id="search-sync" class="small" role="status">연결 후 자동 갱신을 시작합니다.</p></section>
+    <p id="search-message" class="search-notice" role="status" aria-live="polite" hidden></p>
+    <form id="search-query" class="panel search-toolbar"><div class="search-actions"><button type="button" data-search-days="1">오늘</button><button type="button" data-search-days="7">최근 7일</button><button type="button" data-search-days="30">최근 30일</button></div><label for="search-since">시작일<input type="date" id="search-since" required></label><label for="search-until">종료일<input type="date" id="search-until" required></label><button type="submit" class="primary" id="search-load" disabled>기간 조회</button><button type="button" id="search-refresh" disabled>새로 가져오기</button><span class="small">한 번에 최대 31일 · 원화 · 광고비 VAT 포함</span></form>
+    <section class="panel" id="search-empty"><h2>검색광고를 연결하면 성과가 표시됩니다.</h2><p>고객 ID, 액세스라이선스, 비밀키를 위에 입력하고 연결 확인 후 저장을 누르세요.</p></section>
+    <div id="search-report" hidden aria-busy="false">
+      <div class="search-report-head"><h2>선택 기간 성과</h2><span id="search-period" class="small"></span><span id="search-fetched" class="small"></span></div>
+      <section id="search-metrics" class="search-metrics" aria-label="주요 성과"></section>
+      <div class="search-notice" id="search-report-notice" role="status" hidden></div>
+      <section class="panel"><h2>캠페인별 성과</h2><div class="search-scroll" tabindex="0" role="region" aria-label="캠페인별 성과 표"><table><thead><tr><th scope="col">캠페인</th><th scope="col">광고비</th><th scope="col">구매완료</th><th scope="col">구매완료 매출</th><th scope="col">구매 ROAS</th><th scope="col">노출</th><th scope="col">클릭</th><th scope="col">CTR</th><th scope="col">CPC</th><th scope="col">CPM</th></tr></thead><tbody id="search-campaigns"></tbody></table></div></section>
+      <details class="panel"><summary>일별 성과</summary><div class="search-scroll" tabindex="0" role="region" aria-label="일별 성과 표"><table><thead><tr><th scope="col">날짜</th><th scope="col">광고비</th><th scope="col">구매완료</th><th scope="col">구매완료 매출</th><th scope="col">구매 ROAS</th><th scope="col">노출</th><th scope="col">클릭</th><th scope="col">CTR</th><th scope="col">CPC</th><th scope="col">CPM</th></tr></thead><tbody id="search-daily"></tbody></table></div></details>
+      <details class="panel"><summary>집계 기준과 조회 범위</summary><ul id="search-warnings"></ul><p class="helper">검색광고 성과는 이 화면에서 별도로 집계합니다. 기존 Meta 광고비·쇼핑몰 매출·이익 합계에는 자동으로 더하지 않습니다. 최근 전환은 이후 변경될 수 있습니다.</p></details>
+    </div>
+  </main></body></html>
