@@ -305,7 +305,15 @@ async function verifyBrowserScenario(){
  await context.addInitScript(ids=>localStorage.setItem('roas-account-ids',JSON.stringify(ids)),accountIds);
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(base+'/'))return route.continue();externalRequests.push(url);return route.abort();});
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
- await go('/visual-overview.html');await verifyOverviewCompletedDays();await verifyOverviewFolds();
+ await go('/visual-overview.html');
+ assert.equal(await page.locator('#summary-cards .summary-card:visible').count(),2);
+ assert.equal(await page.locator('#summary-cards .summary-card-scope:visible').count(),0);
+ await page.locator('[data-summary-key="totalStoreRevenue"] .summary-toggle').click();
+ assert.ok(await page.locator('#summary-cards .summary-card:visible').count()>2);
+ await page.locator('[data-summary-key="profit"] .summary-toggle').click();
+ assert.equal(await page.locator('#summary-cards .summary-card:visible').count(),2);
+ pass('Revenue and profit summaries expand and collapse with a click');
+ await verifyOverviewCompletedDays();await verifyOverviewFolds();
  const assertSpendBreakdownRemoved=async context=>assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,context+' does not render the removed advertising-spend block');
  await assertSpendBreakdownRemoved('한눈에 보기');
 
