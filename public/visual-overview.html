@@ -1231,8 +1231,9 @@ async function run(){
 let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
 setupSummaryCards();
 if(typeof window!=='undefined'){
- let chartResizeFrame=0;
- const resizeChart=()=>{if(!lastChartRows||$('graph').clientWidth===lastChartWidth)return;cancelAnimationFrame(chartResizeFrame);chartResizeFrame=requestAnimationFrame(()=>draw(lastChartRows));};
+ // ResizeObserver already runs before paint. Draw here so the new SVG is ready
+ // for pointer input in the same frame as the resized layout.
+ const resizeChart=()=>{if(lastChartRows&&$('graph').clientWidth!==lastChartWidth)draw(lastChartRows);};
  if(typeof ResizeObserver!=='undefined')new ResizeObserver(resizeChart).observe($('graph'));
  else window.addEventListener('resize',resizeChart);
 }
