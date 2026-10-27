@@ -28,3 +28,7 @@ body[data-app-page="coupang"] fieldset{border:0;margin:0;padding:0;min-width:0}
 .cp-page-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px;padding:5px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface)}
 .cp-page-tabs a{padding:10px 16px;border-radius:8px;text-decoration:none;color:var(--app-text);font-weight:650}
 .cp-page-tabs a[aria-current=page]{background:var(--app-info-bg);color:var(--app-accent)}
+.cp-diagnosis{margin-top:12px;padding:12px 14px;border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface);line-height:1.65;overflow-wrap:anywhere}
+.cp-diagnosis p{margin:5px 0}
+.cp-diagnosis strong{font-weight:750}
+.cp-diagnosis-check{margin-top:10px;padding-top:10px;border-top:1px solid var(--app-border)}

@@ -25,18 +25,22 @@
     <p id="cp-message" class="cp-notice" role="status" aria-live="polite">쿠팡 연결을 확인합니다.</p>
     <details class="panel" id="cp-connection" open><summary>쿠팡 API 연결 · <span id="cp-identity">미연결</span></summary>
       <p class="helper">쿠팡 WING에서 발급한 업체코드·Access Key·Secret Key를 등록하세요. 키는 이 PC의 Windows 계정으로 암호화합니다. API 허용 IP는 실제 인터넷 공인 IP를 사용합니다.</p>
+      <p id="cp-key-storage" class="helper">키는 저장 후 입력칸에 다시 표시하지 않습니다. 저장 여부는 위의 연결 상태에서 확인하세요.</p>
       <form id="cp-connect" autocomplete="off"><fieldset><div class="cp-form">
         <label>업체코드 · Vendor ID<input id="cp-vendor" placeholder="A00012345" required maxlength="21" spellcheck="false"></label>
-        <label>Access Key<input id="cp-access" type="password" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
-        <label>Secret Key<input id="cp-secret" type="password" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
+        <label>Access Key<input id="cp-access" type="password" placeholder="미등록 · 발급받은 키 입력" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
+        <label>Secret Key<input id="cp-secret" type="password" placeholder="미등록 · 발급받은 키 입력" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
       </div><button class="primary" type="submit">암호화 저장</button></fieldset></form>
+      <fieldset class="cp-actions"><button id="cp-diagnose" type="button">저장된 키로 연결 진단</button></fieldset>
+      <p class="helper">저장된 키를 읽어 어제 날짜의 로켓그로스·판매자배송 API 접근을 각각 확인합니다. 진단은 주문 자료와 수집 진행 기록을 바꾸지 않습니다. 인증 문제를 해결한 뒤 기존 수집은 ‘이어서 수집’으로 재개하세요.</p>
+      <div id="cp-diagnosis" class="cp-diagnosis" role="status" aria-live="polite">저장된 키로 연결 진단을 실행하면 배송 방식별 결과와 확인할 설정을 볼 수 있습니다.</div>
     </details>
     <section class="panel"><h2>조회 기간과 주문 수집</h2>
       <form id="cp-query"><fieldset class="cp-toolbar"><label>시작일<input id="cp-since" type="date" required></label><label>종료일<input id="cp-until" type="date" required></label>
         <label>배송 방식<select id="cp-channel"><option value="growth">로켓그로스</option><option value="seller">판매자배송</option><option value="all">전체</option></select></label>
         <button type="submit">저장 자료 조회</button><button type="button" data-cp-days="7">최근 7일</button><button type="button" data-cp-days="30">최근 30일</button><button type="button" data-cp-days="365">최근 1년</button><button id="cp-sync-growth" type="button">그로스 주문 API 수집</button><button id="cp-sync-seller" type="button">판매자배송 주문 API 수집</button>
       </fieldset></form>
-      <p class="helper">저장 자료 조회는 API를 호출하지 않습니다. 조회·저장은 최대 1년이며, 7일을 넘는 기간은 백그라운드에서 7일씩 나누어 수집합니다. 그로스는 출고 이후 주문만 반환하며, 판매자배송의 반품 완료 주문은 주문 API에서 빠질 수 있습니다. 주문 금액을 확정 매출로 간주하지 않습니다.</p>
+      <p class="helper">저장 자료 조회는 API를 호출하지 않습니다. 조회·저장은 최대 1년이며, 7일을 넘는 기간은 백그라운드에서 7일씩 나누어 수집합니다. 그로스는 API에서 제공하는 주문 범위만 조회하며 과거 제공 범위는 별도 확인이 필요합니다. 판매자배송의 반품 완료 주문은 주문 API에서 빠질 수 있습니다. 주문 금액을 확정 매출로 간주하지 않습니다.</p>
     </section>
     <section class="panel" id="cp-history"><h2>최근 1년 주문 저장</h2>
       <fieldset class="cp-actions"><button id="cp-year" class="primary" type="button">최근 1년 전체 수집</button><button id="cp-resume" type="button" disabled>이어서 수집</button><button id="cp-pause" type="button" disabled>일시정지</button></fieldset>
