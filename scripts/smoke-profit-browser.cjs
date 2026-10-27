@@ -350,9 +350,10 @@ async function verifyOverviewFolds(requests) {
     ['details.fold-panel:has(#daily)', '#daily'],
     ['#profit-panel', '#profit-save-fees'],
     ['#budget-efficiency', '#budget-step'],
-    ['#collection-status-panel', '#cafe-revenue-recover']
+    ['#collection-status-panel', '#cafe-revenue-recover'],
+    ['#summary-connections', '#summary-connections-list']
   ];
-  assert.equal(await page.locator('details.fold-panel').count(), 5, 'The five secondary overview panels use native details');
+  assert.equal(await page.locator('details.fold-panel').count(), 6, 'The six secondary overview panels use native details');
   assert.equal(await page.locator('#ai-strategy,#ai-form,#ai-key,#ai-question,#ai-submit').count(), 0, 'Removed AI controls are absent rather than hidden');
   assert.equal(await page.getByText('AI 전략 회의실', { exact: true }).count(), 0);
   for (const [selector, content] of panels) {
@@ -372,7 +373,7 @@ async function verifyOverviewFolds(requests) {
     assert.equal(await page.locator(content).isVisible(), false);
   }
   assert.deepEqual(requests.filter(req => new URL(req.url).pathname.startsWith('/api/ai')), [], 'The removed AI workspace makes no startup API requests');
-  check('overview: four panels start closed with hidden content, real clicks/Enter toggle them, and removed AI controls make no requests');
+  check('overview: six panels start closed with hidden content, real clicks/Enter toggle them, and removed AI controls make no requests');
 }
 async function range(since, until = since) {
   await idle();
