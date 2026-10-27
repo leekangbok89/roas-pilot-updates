@@ -20,8 +20,8 @@
     <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
-    <header class="app-page-head"><div><p class="ca-eyebrow">트루버 + 위마망</p><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">매출 흐름부터 상품·옵션별 손익까지 한곳에서 확인합니다.</p></div><a class="ca-manage-link" href="/coupang.html">쿠팡 연결·자료 관리 ↗</a></header>
-    <nav class="ca-subnav" aria-label="쿠팡 수익 분석 페이지"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-sales.html" aria-current="page">상품별 매출 분석</a><a href="/coupang.html">연결·원가·비용 관리</a></nav>
+    <header class="app-page-head"><div><p class="ca-eyebrow">트루버 + 위마망</p><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">매출 흐름부터 상품·옵션별 손익까지 한곳에서 확인합니다.</p></div><a class="ca-manage-link" href="/coupang.html">자료·연결 관리 ↗</a></header>
+    <nav class="ca-subnav" aria-label="쿠팡 분석 메뉴"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-products.html">상품 관리</a><a href="/coupang-sales.html" aria-current="page">매출 분석</a><a href="/coupang-ads.html">광고 분석</a><a href="/coupang.html">자료·연결 관리</a></nav>
 
     <p id="ca-message" class="ca-notice" role="status" aria-live="polite">저장된 쿠팡 자료를 불러옵니다.</p>
     <section class="panel ca-filter-panel" aria-label="쿠팡 조회 조건">
@@ -32,7 +32,7 @@
         <label>배송 방식<select id="ca-channel"><option value="all">판매자배송 + 로켓그로스</option><option value="growth">로켓그로스</option><option value="seller">판매자배송</option></select></label>
         <label>월별 조회<select id="ca-month" aria-label="월별 조회"><option value="">월 선택</option></select></label>
         <button id="ca-refresh" class="primary" type="submit">저장 자료 조회</button>
-        <a class="ca-text-link" href="/coupang.html">주문 수집·원가 관리 ↗</a>
+        <a class="ca-text-link" href="/coupang.html">주문 수집·자료 관리 ↗</a>
       </fieldset></form>
       <div class="ca-presets" aria-label="조회 기간 선택">
         <button type="button" data-ca-preset="1">어제</button><button type="button" data-ca-preset="0">오늘</button>
@@ -42,16 +42,19 @@
       </div>
       <p id="ca-coverage" class="helper">기본 조회 기간은 오늘을 제외한 최근 7일입니다.</p>
     </section>
+    <p class="helper ca-summary-scope">위 기간·배송 방식의 전체 선택 상품 합계입니다. 아래 검색·그룹 필터는 상품 표와 CSV에만 적용됩니다.</p>
     <div id="ca-summary" class="ca-cards" aria-label="쿠팡 기간 합계"></div>
 
     <section class="panel ca-sales-panel" aria-labelledby="ca-sales-title">
       <div class="ca-panel-head"><div><h2 id="ca-sales-title">상품별 매출·손익 현황</h2><p class="helper">상품의 + 버튼을 누르면 옵션별 실적이 펼쳐집니다.</p></div><div class="ca-toolbar"><button id="ca-compact" type="button" aria-pressed="false">작게 보기</button><button id="ca-expand-all" type="button">옵션 모두 펼치기</button><button id="ca-sales-export" type="button">CSV 다운로드</button></div></div>
       <div class="ca-toolbar ca-sales-toolbar">
         <label class="ca-search-label">상품·옵션 검색<input id="ca-search" type="search" placeholder="상품 ID, 옵션 ID, 상품명, 옵션명" autocomplete="off"></label>
+        <label>상품 그룹<select id="ca-group" aria-label="상품 그룹"><option value="">전체 그룹</option></select></label>
         <label>정렬<select id="ca-sort" aria-label="상품 정렬"></select></label>
         <label class="ca-checkbox-label"><input id="ca-favorites" type="checkbox">즐겨찾기만 보기</label>
         <details id="ca-columns" class="ca-columns"><summary>표시항목 설정</summary><div id="ca-column-options" class="ca-column-options"></div></details>
       </div>
+      <p id="ca-group-status" class="helper">상품 관리에서 만든 그룹으로 표를 좁혀 볼 수 있습니다. 그룹은 집계 대상을 바꾸지 않습니다.</p>
       <p id="ca-sales-count" class="helper" role="status">저장 자료를 불러옵니다.</p>
       <div class="ca-scroll ca-sales-scroll" tabindex="0" aria-label="상품별 매출 분석 가로 스크롤"><table class="ca-table ca-sales-table"><thead id="ca-sales-head"></thead><tbody id="ca-sales-body"><tr><td class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>
       <p class="helper">ROAS = 광고집행매출 ÷ 광고집행비 × 100. 광고비가 0이거나 미수집이면 —로 표시합니다. 상품별 셀하 순이익에는 배송 방식별로만 확인한 신규고객확보 광고비를 임의 배분하지 않습니다.</p>

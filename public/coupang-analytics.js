@@ -27,6 +27,7 @@
   ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'].forEach(k => moneyFields.add(k));
   const defaultColumns = columns.filter(c => !['salePrice', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'].includes(c.key)).map(c => c.key);
   let report = null, groups = [], pendingImport = null, loading = false, loadSequence = 0, parseSequence = 0, importSaving = false;
+  let savedGroups = [];
   let productDailyPage = 0, productDailyCache = null;
   const productDailyPageSize = 100;
   let expanded = new Set(), favoriteIds = new Set(readSetting('favorites', [])), visibleColumns = new Set(readSetting('columns', defaultColumns));
@@ -89,13 +90,17 @@
     const submit = $('ca-query').querySelector('[type="submit"]'); if (submit) submit.disabled = true;
     message('저장된 쿠팡 자료를 불러옵니다.');
     try {
-      const data = await request('analytics?' + queryString() + '&view=' + encodeURIComponent(view)); if (sequence !== loadSequence) return;
-      report = data; render(); history.replaceState(null, '', location.pathname + '?' + queryString());
+      const results = await Promise.allSettled([request('analytics?' + queryString() + '&view=' + encodeURIComponent(view)), ...(view === 'sales' ? [request('workspace')] : [])]);
+      if (sequence !== loadSequence) return;
+      if (results[0].status === 'rejected') throw results[0].reason;
+      report = results[0].value;
+      if (view === 'sales') updateGroupChoices(results[1]);
+      render(); history.replaceState(null, '', location.pathname + '?' + queryString());
       message(isNumber(displayedValue(report.summary, 'sales')) ? '저장 자료 조회 완료 · ' + report.since + ' ~ ' + report.until + ' · ' + channels[queryValues().channel] + (isPartialValue(report.summary, 'sales') ? ' · 수집된 매출을 먼저 표시합니다. 일부 날짜·배송 방식·상품 자료는 미수집입니다.' : '') : '조회 기간에 저장된 주문·손익 파일이 없습니다. 주문을 수집하거나 셀하 손익 엑셀을 가져와 주세요.');
     } catch (error) {
       if (sequence !== loadSequence) return;
-      message(error.message + ' 연결과 집계 상품은 ‘연결·원가·비용 관리’에서 확인할 수 있습니다.', true);
-      $('ca-coverage').textContent = '자료를 불러오지 못했습니다. 연결·원가·비용 관리에서 API 연결과 집계 상품을 확인해 주세요.';
+      message(error.message + ' 연결과 집계 상품은 ‘자료·연결 관리’에서 확인할 수 있습니다.', true);
+      $('ca-coverage').textContent = '자료를 불러오지 못했습니다. 자료·연결 관리에서 API 연결과 집계 상품을 확인해 주세요.';
     } finally { if (sequence === loadSequence) { loading = false; if (submit) submit.disabled = false; } }
   }
   function setPreset(days) {
@@ -290,10 +295,31 @@
       return { ...aggregateRows(rows), id, name: rows[0].name, channel: [...new Set(rows.map(r => channels[r.channel]))].join(' + '), options, rows };
     });
   }
+  function updateGroupChoices(result) {
+    const select = $('ca-group'), selected = select.value;
+    const workspace = result.status === 'fulfilled' ? result.value : null;
+    const matched = workspace?.configured && workspace.scopeKey === report.scopeKey && workspace.revision === report.workspaceRevision;
+    savedGroups = matched && Array.isArray(workspace.groups) ? workspace.groups : [];
+    select.replaceChildren(); const all = element('option', '전체 그룹'); all.value = ''; select.append(all);
+    for (const group of savedGroups) { const option = element('option', group.name); option.value = group.id; select.append(option); }
+    select.value = savedGroups.some(group => group.id === selected) ? selected : '';
+    $('ca-group-status').textContent = result.status === 'rejected' ? '상품 그룹을 불러오지 못했습니다. 전체 상품 표를 표시합니다. 다시 조회해 주세요.' : !matched ? '집계 상품이 변경되었습니다. 다시 조회하면 최신 그룹을 연결합니다.' : '상품 관리에서 만든 그룹으로 표와 CSV를 좁혀 봅니다. 위 전체 합계와 집계 대상은 유지됩니다.';
+  }
+  function filterProductGroups(productGroups, itemIds) {
+    if (!itemIds) return productGroups;
+    const chosen = new Set(itemIds.map(String));
+    return productGroups.flatMap(group => {
+      const options = group.options.filter(option => chosen.has(String(option.id)));
+      if (!options.length) return [];
+      const rows = options.flatMap(option => option.rows);
+      return [{ ...group, ...aggregateRows(rows), options, rows, channel: [...new Set(options.map(option => channels[option.channel]))].join(' + ') }];
+    });
+  }
   function currentGroups() {
     const term = $('ca-search').value.trim().toLocaleLowerCase('ko-KR'), favoritesOnly = $('ca-favorites').checked;
     const [key, direction] = $('ca-sort').value.split(':');
-    return groups.filter(group => (!favoritesOnly || favoriteIds.has(group.id)) && (!term || [group.id, group.name, ...group.options.flatMap(option => [option.id, option.name, option.optionName])].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(term))))
+    const selected = savedGroups.find(group => group.id === $('ca-group').value);
+    return filterProductGroups(groups, selected ? selected.itemIds : null).filter(group => (!favoritesOnly || favoriteIds.has(group.id)) && (!term || [group.id, group.name, ...group.options.flatMap(option => [option.id, option.name, option.optionName])].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(term))))
       .sort((a, b) => compareValues(a, b, key, direction === 'asc') || a.id.localeCompare(b.id));
   }
   function salesHeader() {
@@ -328,7 +354,7 @@
         const optionCell = addCell(optionRow, undefined, 'ca-name'); optionCell.append(element('strong', option.optionName), element('small', option.name)); appendNumbers(optionRow, option); addCell(optionRow).append(sourceBadge(option)); host.append(optionRow);
       }
     }
-    if (!shown.length) { const tr = element('tr'), td = addCell(tr, groups.length ? '검색 조건에 맞는 상품이 없습니다.' : '상품 자료가 없습니다. 연결·원가·비용 관리에서 집계 상품을 선택하고 주문을 수집하거나 손익 파일을 넣어 주세요.', 'ca-empty'); td.colSpan = 6 + fields.length; host.append(tr); }
+    if (!shown.length) { const tr = element('tr'), td = addCell(tr, groups.length ? '검색 조건에 맞는 상품이 없습니다.' : '상품 자료가 없습니다. 자료·연결 관리에서 집계 상품을 선택하고 주문을 수집하거나 손익 파일을 넣어 주세요.', 'ca-empty'); td.colSpan = 6 + fields.length; host.append(tr); }
     $('ca-sales-count').textContent = '전체 ' + groups.length + '개 상품 중 ' + shown.length + '개 · 옵션 ' + shown.reduce((n, g) => n + g.options.length, 0) + '개 · 매출·판매량은 수집분을 표시하며 미수집 부분은 0으로 간주하지 않습니다. 순이익은 확인된 셀하 기준입니다.';
     $('ca-expand-all').textContent = shown.length && shown.every(g => expanded.has(g.id)) ? '옵션 모두 접기' : '옵션 모두 펼치기';
   }
@@ -408,6 +434,7 @@
       check.addEventListener('change', () => { if (check.checked) visibleColumns.add(column.key); else visibleColumns.delete(column.key); saveSetting('columns', [...visibleColumns]); if (report) renderSales(); }); label.append(check, element('span', column.label)); $('ca-column-options').append(label);
     }
     $('ca-search').addEventListener('input', () => { if (report) renderSales(); }); $('ca-sort').addEventListener('change', () => { if (report) renderSales(); }); $('ca-favorites').addEventListener('change', () => { if (report) renderSales(); });
+    $('ca-group').addEventListener('change', () => { if (report) renderSales(); });
     $('ca-compact').addEventListener('click', () => { const on = $('ca-compact').getAttribute('aria-pressed') !== 'true'; $('ca-compact').setAttribute('aria-pressed', String(on)); $('ca-compact').textContent = on ? '크게 보기' : '작게 보기'; document.body.classList.toggle('ca-compact', on); });
     $('ca-expand-all').addEventListener('click', () => { if (!report) return; const shown = currentGroups(), collapse = shown.every(group => expanded.has(group.id)); for (const group of shown) { if (collapse) expanded.delete(group.id); else expanded.add(group.id); } renderSales(); });
     $('ca-sales-export').addEventListener('click', () => { const fields = columns.filter(column => visibleColumns.has(column.key)); downloadCsv('쿠팡_상품별손익', [['행 구분', '상품 ID', '옵션 ID', '배송 방식', '상품명', '옵션명', ...fields.map(c => c.label), '매출 집계 상태', '자료 기준'], ...currentGroups().flatMap(group => [['상품 합계', group.id, '', group.channel, group.name, '', ...fields.map(c => displayedValue(group, c.key)), salesStatus(group), sourceNames[group.source] || '혼합 자료'], ...group.options.map(option => ['옵션', group.id, option.id, channels[option.channel], option.name, option.optionName, ...fields.map(c => displayedValue(option, c.key)), salesStatus(option), sourceNames[option.source] || '혼합 자료'])])]); });

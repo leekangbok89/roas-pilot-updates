@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROAS Pilot | 쿠팡 상품 관리</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/coupang-analytics.css"><link rel="stylesheet" href="/coupang-products.css"><script src="/coupang-products.js" defer></script></head>
+<body data-app-page="coupang" data-coupang-view="products">
+  <div class="app-nav-rail" id="app-nav-rail">
+    <button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button>
+  </div>
+  <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert>
+    <div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div>
+    <nav id="app-nav" class="app-nav" aria-label="워크스페이스">
+      <a class="app-nav-link" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a>
+      <a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a>
+      <a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a>
+      <a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a>
+      <a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a>
+      <a class="app-nav-link" data-app-route="ga4" href="/ga4.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/><path d="m7 8 5-3 5 1"/></svg><span>GA4 유입 분석</span></a>
+      <a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a>
+    </nav>
+    <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <header class="app-page-head"><div><p class="ca-eyebrow">트루버 + 위마망</p><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">상품·옵션의 원가와 배송비를 확인하고 분석용 그룹을 관리합니다.</p></div><a class="ca-manage-link" href="/coupang.html">자료·연결 관리 ↗</a></header>
+    <nav class="ca-subnav" aria-label="쿠팡 수익 분석 페이지"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-products.html" aria-current="page">상품 관리</a><a href="/coupang-sales.html">매출 분석</a><a href="/coupang-ads.html">광고 분석</a><a href="/coupang.html">자료·연결 관리</a></nav>
+
+    <p id="cpm-message" class="ca-notice" role="status" aria-live="polite">저장된 상품을 불러옵니다.</p>
+    <div id="cpm-summary" class="ca-cards cpm-cards" aria-label="상품 등록 현황"></div>
+    <section class="panel ca-filter-panel" aria-label="상품 조회 조건">
+      <fieldset class="ca-toolbar">
+        <label class="ca-search-label">상품·옵션 검색<input id="cpm-search" type="search" placeholder="상품명, 상품 ID, 옵션명, 옵션 ID" autocomplete="off"></label>
+        <label>배송 방식<select id="cpm-channel"><option value="all">전체</option><option value="growth">로켓그로스</option><option value="seller">판매자배송</option><option value="unknown">미분류</option></select></label>
+        <label>상품 그룹<select id="cpm-group"><option value="">전체 그룹</option><option value="__ungrouped">그룹 미지정</option></select></label>
+        <label class="ca-checkbox-label"><input id="cpm-missing" type="checkbox">원가 미등록만</label>
+        <button type="button" id="cpm-reload">저장 자료 새로 읽기</button>
+      </fieldset>
+      <p class="helper">저장된 집계 대상 상품을 보여줍니다. 원가 미등록과 확인된 0원은 구분하며, 수정한 원가는 API 주문의 참고 원가 계산에 반영됩니다. 가져온 손익 파일의 이익금은 그대로 보존합니다.</p>
+    </section>
+    <section class="panel" aria-labelledby="cpm-title">
+      <div class="ca-panel-head"><div><h2 id="cpm-title">상품·옵션 목록</h2><p class="helper">상품을 펼쳐 옵션별 원가·수수료·배송비를 수정하세요.</p></div><div class="ca-toolbar"><button id="cpm-expand" type="button">옵션 모두 펼치기</button><a class="ca-text-link" href="/coupang.html#cp-catalog">상품현황 엑셀 가져오기 ↗</a></div></div>
+      <div class="cpm-selection ca-toolbar"><strong id="cpm-selected">선택 0개 옵션</strong><label>선택 옵션을 담을 그룹<select id="cpm-assign"><option value="">그룹 선택</option></select></label><button id="cpm-add-members" type="button" disabled>그룹에 추가</button><button id="cpm-remove-members" type="button" disabled>그룹에서 제외</button><button id="cpm-clear-selection" type="button" disabled>선택 해제</button></div>
+      <p id="cpm-count" class="helper" role="status"></p>
+      <div class="ca-scroll cpm-scroll" tabindex="0" aria-label="상품 관리 표 가로 스크롤"><table class="ca-table cpm-table"><thead><tr><th><input id="cpm-select-visible" type="checkbox" aria-label="조회된 옵션 모두 선택"></th><th class="ca-name">상품 / 옵션</th><th>배송 방식</th><th>판매가</th><th>개당 원가</th><th>수수료율</th><th>입출고 요금</th><th>배송비</th><th>원가 기준일</th><th>관리</th></tr></thead><tbody id="cpm-body"><tr><td colspan="10" class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>
+    </section>
+    <section class="panel cpm-group-panel" aria-labelledby="cpm-groups-title">
+      <div class="ca-panel-head"><div><h2 id="cpm-groups-title">분석용 상품 그룹</h2><p class="helper">브랜드·상품군처럼 원하는 이름으로 묶습니다. 그룹은 표를 좁혀 보는 용도이며 전체 집계 대상을 변경하지 않습니다. 집계에서 잠시 제외한 옵션의 기존 그룹 분류는 보존됩니다.</p></div></div>
+      <form id="cpm-create-group"><fieldset class="ca-toolbar"><label>새 그룹 이름<input id="cpm-group-name" type="text" maxlength="60" required placeholder="예: 트루버 / 위마망"></label><button type="submit" id="cpm-create">그룹 만들기</button></fieldset></form>
+      <div id="cpm-groups" class="cpm-groups"></div>
+    </section>
+    <dialog id="cpm-editor" class="cpm-dialog" aria-labelledby="cpm-editor-title">
+      <form id="cpm-edit-form"><h2 id="cpm-editor-title">옵션 비용 수정</h2><p id="cpm-editor-name" class="helper"></p><p class="helper">빈칸은 미등록으로 저장합니다. 비용이 없음을 확인했다면 0을 입력하세요.</p>
+        <fieldset class="cpm-edit-grid"><label>개당 원가<input id="cpm-unit-cost" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>마켓 수수료율 (%)<input id="cpm-commission" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>개당 입출고 요금<input id="cpm-inbound" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>개당 배송비<input id="cpm-delivery" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>원가 적용 시작일<input id="cpm-cost-since" type="date"></label></fieldset>
+        <p id="cpm-edit-error" class="helper" role="alert"></p><div class="ca-toolbar cpm-dialog-actions"><button id="cpm-edit-save" type="submit" class="primary">비용 저장</button><button id="cpm-edit-cancel" type="button">취소</button></div>
+      </form>
+    </dialog>
+    <dialog id="cpm-rename-dialog" class="cpm-dialog" aria-labelledby="cpm-rename-title"><form id="cpm-rename-form"><h2 id="cpm-rename-title">그룹 이름 변경</h2><fieldset><label>그룹 이름<input id="cpm-rename-name" maxlength="60" required></label></fieldset><p id="cpm-rename-error" class="helper" role="alert"></p><div class="ca-toolbar cpm-dialog-actions"><button id="cpm-rename-save" class="primary" type="submit">이름 저장</button><button id="cpm-rename-cancel" type="button">취소</button></div></form></dialog>
+  </main>
+</body></html>

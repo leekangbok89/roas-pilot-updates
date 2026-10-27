@@ -1,0 +1,6 @@
+.cad-cards{grid-template-columns:repeat(5,minmax(0,1fr));margin-top:16px}
+.cad-table{min-width:1530px}
+.cad-table :is(th,td):nth-child(2){text-align:left}
+.cad-guide{background:var(--app-tone-violet-bg,var(--app-surface))!important}
+@media(max-width:1100px){.cad-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:650px){.cad-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
