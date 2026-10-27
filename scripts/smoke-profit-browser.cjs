@@ -342,9 +342,10 @@ async function verifyOverviewFolds(requests) {
     ['details.fold-panel:has(#channels)', '#channels'],
     ['details.fold-panel:has(#daily)', '#daily'],
     ['#profit-panel', '#profit-save-fees'],
-    ['#budget-efficiency', '#budget-step']
+    ['#budget-efficiency', '#budget-step'],
+    ['#collection-status-panel', '#cafe-revenue-recover']
   ];
-  assert.equal(await page.locator('details.fold-panel').count(), 4, 'The four secondary overview panels use native details');
+  assert.equal(await page.locator('details.fold-panel').count(), 5, 'The five secondary overview panels use native details');
   assert.equal(await page.locator('#ai-strategy,#ai-form,#ai-key,#ai-question,#ai-submit').count(), 0, 'Removed AI controls are absent rather than hidden');
   assert.equal(await page.getByText('AI 전략 회의실', { exact: true }).count(), 0);
   for (const [selector, content] of panels) {
