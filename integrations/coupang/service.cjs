@@ -90,11 +90,30 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (!Array.isArray(v?.products) || !v.products.length || v.products.length > 500) throw fail(400, '트루버·위마망 옵션을 1개 이상 선택하세요.');
     const products = v.products.map(p => {
       if (!id(p?.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300 || (p.unitCost !== null && money(p.unitCost) === null)) throw fail(400, '옵션 ID·상품명·원가를 확인하세요.');
-      return { itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
+      return { ...scope(c).products.find(old=>old.itemId===String(p.itemId)), itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
     }).sort((a, b) => a.itemId.localeCompare(b.itemId));
     if (new Set(products.map(p => p.itemId)).size !== products.length) throw fail(400, '중복 옵션 ID를 제거하세요.');
     // Costs belong to exactly this set of products; changing unit costs does not erase a reconciled ledger.
     atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ products, key: hash(products.map(p => p.itemId)) })); return status();
+  }
+  function importCatalog(v) {
+    const c = config(), previous = scope(c);
+    if (!Array.isArray(v.products) || !v.products.length || v.products.length > 500) throw fail(400, '상품현황 옵션은 1~500개여야 합니다.');
+    const incoming = v.products.map(p => {
+      if (!id(p.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300) throw fail(400, '옵션 ID·상품명을 확인하세요.');
+      for (const k of ['unitCost','commissionRate','inboundFee','deliveryFee']) if (money(p[k]) === null) throw fail(400, '원가·수수료·배송비에 숫자가 필요합니다.');
+      if (Number(p.commissionRate) > 100 || p.costSince && !validDay(p.costSince)) throw fail(400, '수수료율·원가 기준일을 확인하세요.');
+      return { itemId:String(p.itemId), name:p.name.trim(), unitCost:Number(p.unitCost)>0?Number(p.unitCost):null,
+        commissionRate:Number(p.commissionRate), inboundFee:Number(p.inboundFee), deliveryFee:Number(p.deliveryFee),
+        costSince:p.costSince||null, source:'상품현황', importedAt:new Date(now()).toISOString() };
+    });
+    if (new Set(incoming.map(p=>p.itemId)).size !== incoming.length) throw fail(400, '중복 옵션 ID가 있습니다.');
+    const merged = new Map(previous.products.map(p=>[p.itemId,p]));
+    for (const p of incoming) merged.set(p.itemId,{...merged.get(p.itemId),...p});
+    if (merged.size > 500) throw fail(400, '기존 상품을 포함해 500개를 초과합니다.');
+    const products = [...merged.values()].sort((a,b)=>a.itemId.localeCompare(b.itemId));
+    atomic(path.join(dir(c),'scope.json'), JSON.stringify({products,key:hash(products.map(p=>p.itemId))}));
+    return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length};
   }
   async function get(c, uri, params) {
     const allowed = ['/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets'];
@@ -274,9 +293,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const current = basis(snap), stale = !!entry && entry.basis !== current;
       const complete = !!entry && !stale && entry.reviewed && COSTS.every(k => Number.isFinite(entry[k]));
       const gross = snap ? rows.reduce((n, r) => n + r.gross, 0) : null;
-      const unitCostKnown = !!snap && rows.every(r => chosen.get(r.itemId).unitCost !== null);
+      const unitCostKnown = !!snap && rows.every(r => chosen.get(r.itemId).unitCost !== null && (!chosen.get(r.itemId).costSince || date >= chosen.get(r.itemId).costSince));
       return { date, channel, gross, quantity: snap ? rows.reduce((n, r) => n + r.quantity, 0) : null,
         estimatedProductCost: unitCostKnown ? rows.reduce((n, r) => n + r.quantity * chosen.get(r.itemId).unitCost, 0) : null,
+        estimatedCommission: snap && rows.every(r=>Number.isFinite(chosen.get(r.itemId).commissionRate)) ? rows.reduce((n,r)=>n+r.gross*chosen.get(r.itemId).commissionRate/100,0) : null,
+        estimatedFulfillment: snap && rows.every(r=>Number.isFinite(chosen.get(r.itemId).inboundFee)&&Number.isFinite(chosen.get(r.itemId).deliveryFee)) ? rows.reduce((n,r)=>n+r.quantity*(chosen.get(r.itemId).inboundFee+chosen.get(r.itemId).deliveryFee),0) : null,
         fetchedAt: snap?.fetchedAt || null, basis: current, entry, stale, complete,
         profit: complete ? entry.netSales - COSTS.filter(k => k !== 'netSales').reduce((sum, k) => sum + entry[k], 0) : null };
     }));
@@ -288,6 +309,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, saveScope, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, saveScope, importCatalog, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
 module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };

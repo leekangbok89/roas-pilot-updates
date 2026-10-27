@@ -15,7 +15,7 @@
     if (busy) return; busy = true;
     document.querySelectorAll('#app-main fieldset').forEach(e => { e.disabled = true; });
     try { await operation(); } catch (e) { message(e.message); }
-    finally { busy = false; document.querySelectorAll('#app-main fieldset').forEach(e => { e.disabled = false; }); }
+    finally { busy = false; document.querySelectorAll('#app-main fieldset').forEach(e => { e.disabled = false; }); $('cp-catalog-save').disabled = !pendingCatalog; }
   }
   function period() { return { since: $('cp-since').value, until: $('cp-until').value }; }
   function renderOptions() {
@@ -23,7 +23,7 @@
     for (const p of options) {
       const label = document.createElement('label'), check = document.createElement('input'), text = document.createElement('span'), input = document.createElement('input');
       check.type = 'checkbox'; check.checked = selected.some(v => v.itemId === p.itemId); check.dataset.itemId = p.itemId;
-      text.textContent = p.name + ' · ' + p.itemId;
+      text.textContent = p.name + ' · ' + p.itemId + (p.source ? ' · 수수료 ' + p.commissionRate + '% · 입출고 ' + won(p.inboundFee) + ' · 배송 ' + won(p.deliveryFee) + (p.costSince ? ' · 원가 기준 ' + p.costSince : '') : '');
       input.type = 'number'; input.min = '0'; input.step = '0.01'; input.placeholder = '개당 원가 미등록'; input.value = p.unitCost ?? ''; input.dataset.costId = p.itemId; input.setAttribute('aria-label', p.name + ' 개당 원가');
       label.append(check, text, input); $('cp-products').append(label);
     }
@@ -76,7 +76,7 @@
     const values = [['주문 API 판매금액 · 반품 미확정', won(gross)], ['확인한 매출', won(summary.netSales)], ['입력 비용 반영 예상 이익', won(summary.profit)], ['매출·비용 확인', summary.completeDays + ' / ' + summary.totalDays + '일·배송방식']];
     for (const [label, text] of values) { const card = document.createElement('div'), small = document.createElement('small'), strong = document.createElement('strong'); card.className = 'cp-metric'; small.textContent = label; strong.textContent = text; card.append(small, strong); $('cp-summary').append(card); }
     for (const r of rows) {
-      const tr = rowText([r.date, channels[r.channel], r.quantity ?? '—', won(r.gross), won(r.entry?.netSales), won(r.profit), r.stale ? '주문 변경 · 재확인 필요' : r.complete ? '입력 비용 확인' : r.fetchedAt ? '비용 미확인' : 'API 미수집']);
+      const tr = rowText([r.date, channels[r.channel], r.quantity ?? '—', won(r.gross), won(r.estimatedProductCost), won(r.estimatedCommission), won(r.estimatedFulfillment), won(r.entry?.netSales), won(r.profit), r.stale ? '주문 변경 · 재확인 필요' : r.complete ? '입력 비용 확인' : r.fetchedAt ? '비용 미확인' : 'API 미수집']);
       const td = document.createElement('td'), button = document.createElement('button'); button.type = 'button'; button.textContent = '비용 입력'; button.addEventListener('click', () => edit(r)); td.append(button); tr.append(td); $('cp-daily').append(tr);
     }
     $('cp-note').textContent = report.note;
@@ -99,6 +99,54 @@
     renderHistory(v.history);
     renderOptions(); return v;
   }
+  let pendingCatalog = null;
+  async function unzip(buffer){
+    const v=new DataView(buffer),bytes=new Uint8Array(buffer),decoder=new TextDecoder();let end=-1;
+    for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(v.getUint32(i,true)===0x06054b50){end=i;break;}
+    if(end<0)throw Error('엑셀 압축 구조를 읽지 못했습니다. .xlsx로 다시 저장하세요.');
+    const count=v.getUint16(end+10,true);let offset=v.getUint32(end+16,true),total=0;const files=new Map();if(count>2000)throw Error('엑셀 파일에 항목이 너무 많습니다.');
+    for(let i=0;i<count;i++){
+      if(offset+46>bytes.length||v.getUint32(offset,true)!==0x02014b50)throw Error('엑셀 파일이 손상되었습니다.');
+      const method=v.getUint16(offset+10,true),size=v.getUint32(offset+20,true),expanded=v.getUint32(offset+24,true),nameLength=v.getUint16(offset+28,true),extra=v.getUint16(offset+30,true),comment=v.getUint16(offset+32,true),local=v.getUint32(offset+42,true),name=decoder.decode(bytes.slice(offset+46,offset+46+nameLength));offset+=46+nameLength+extra+comment;
+      if(!/^xl\/(worksheets\/sheet\d+\.xml|sharedStrings\.xml|styles\.xml)$/.test(name))continue;
+      total+=expanded;if(total>40000000||expanded>20000000)throw Error('엑셀 내용이 너무 큽니다. 기간을 나누어 내려받으세요.');
+      if(local+30>bytes.length||v.getUint32(local,true)!==0x04034b50)throw Error('엑셀 내부 파일이 손상되었습니다.');
+      const start=local+30+v.getUint16(local+26,true)+v.getUint16(local+28,true);if(start+size>bytes.length)throw Error('엑셀 내부 길이가 올바르지 않습니다.');
+      let data=bytes.slice(start,start+size);if(method===8){const reader=new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(),chunks=[];let length=0;while(true){const part=await reader.read();if(part.done)break;length+=part.value.length;if(length>expanded||length>20000000){await reader.cancel();throw Error('엑셀 압축 크기가 올바르지 않습니다.');}chunks.push(part.value);}data=new Uint8Array(length);let position=0;for(const chunk of chunks){data.set(chunk,position);position+=chunk.length;}}else if(method!==0)throw Error('지원하지 않는 엑셀 압축 방식입니다.');
+      files.set(name,decoder.decode(data));
+    }
+    return files;
+  }
+  function xml(text){const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('엑셀 XML을 읽지 못했습니다.');return doc;}
+  async function readGrids(file){
+    if(file.size>8*1024*1024)throw Error('파일은 8MB 이하로 넣으세요.');const buffer=await file.arrayBuffer(),bytes=new Uint8Array(buffer);
+    if(bytes[0]===0x50&&bytes[1]===0x4b){
+      const files=await unzip(buffer),shared=files.has('xl/sharedStrings.xml')?[...xml(files.get('xl/sharedStrings.xml')).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
+      const styles=files.has('xl/styles.xml')?xml(files.get('xl/styles.xml')):null,dateFormats=new Set([14,15,16,17,18,19,20,21,22]);
+      if(styles)for(const el of styles.getElementsByTagName('numFmt'))if(/[yd]/i.test(el.getAttribute('formatCode')||''))dateFormats.add(+el.getAttribute('numFmtId'));
+      const xfs=styles?.getElementsByTagName('cellXfs')[0],dateStyles=xfs?[...xfs.children].map(x=>dateFormats.has(+x.getAttribute('numFmtId'))):[];
+      return [...files].filter(([name])=>name.startsWith('xl/worksheets/')).slice(0,20).map(([,text])=>[...xml(text).getElementsByTagName('row')].map(row=>{const cells=[];for(const c of row.getElementsByTagName('c')){const letters=(c.getAttribute('r')||'A1').match(/^[A-Z]+/)[0];let index=0;for(const ch of letters)index=index*26+ch.charCodeAt(0)-64;const type=c.getAttribute('t'),value=c.getElementsByTagName('v')[0]?.textContent??'';let result=type==='s'?shared[+value]||'':type==='inlineStr'?[...c.getElementsByTagName('t')].map(t=>t.textContent).join(''):value;if(type!=='s'&&type!=='inlineStr'&&value&&dateStyles[+c.getAttribute('s')])result=new Date(Date.UTC(1899,11,30)+Math.floor(+value)*86400000).toISOString().slice(0,10);cells[index-1]=result;}return cells;}));
+    }
+    throw Error('상품현황.xlsx 파일을 선택하세요.');
+  }
+  $('cp-catalog-file').addEventListener('change',()=>{pendingCatalog=null;$('cp-catalog-save').disabled=true;});
+  $('cp-catalog-preview').addEventListener('click',()=>work(async()=>{
+    pendingCatalog=null; const file=$('cp-catalog-file').files[0]; if(!file)throw Error('상품현황.xlsx를 선택하세요.');
+    const grids=await readGrids(file), grid=grids.find(g=>g.some(r=>r.includes('옵션ID')&&r.includes('원가')));
+    if(!grid)throw Error('옵션ID·원가 열이 있는 상품현황 파일이 필요합니다.');
+    const h=grid.findIndex(r=>r.includes('옵션ID')&&r.includes('원가')), headers=grid[h], idx=k=>headers.indexOf(k);
+    for(const k of ['구분','상품명','마켓 수수료','입출고 요금','배송비'])if(idx(k)<0)throw Error(k+' 열이 없습니다.');
+    const numeric=(r,k)=>{const raw=r[idx(k)];if(raw==null||String(raw).trim()==='')throw Error(k+' 값이 비어 있습니다.');const n=Number(String(raw).replace(/,/g,''));if(!Number.isFinite(n)||n<0)throw Error(k+' 값이 올바르지 않습니다.');return n;};
+    const products=grid.slice(h+1).filter(r=>r[idx('옵션ID')]).map(r=>({itemId:String(r[idx('옵션ID')]),name:[r[idx('상품명')],r[idx('옵션명')]].filter(Boolean).join(' · '),unitCost:numeric(r,'원가'),commissionRate:numeric(r,'마켓 수수료'),inboundFee:numeric(r,'입출고 요금'),deliveryFee:numeric(r,'배송비'),costSince:r[idx('기준일자(원가)')]||null}));
+    if(!products.length||new Set(products.map(p=>p.itemId)).size!==products.length)throw Error('옵션이 없거나 옵션ID가 중복됩니다.');
+    pendingCatalog=products;$('cp-catalog-status').textContent=products.length+'개 옵션 매칭 준비 · 원가 등록 '+products.filter(p=>p.unitCost>0).length+'개 · 원가 0원 확인 필요 '+products.filter(p=>p.unitCost===0).length+'개. 매칭 저장을 누르면 기존 원가가 갱신됩니다.';
+  }));
+  $('cp-catalog-save').addEventListener('click',()=>work(async()=>{
+    if(!pendingCatalog)throw Error('먼저 파일 확인을 누르세요.');
+    const v=await request('catalog-import',{products:pendingCatalog});selected=v.products;dirtyScope=false;editor=null;pendingCatalog=null;
+    await loadOptions();await loadReport();$('cp-catalog-status').textContent=v.imported+'개 옵션 저장 완료 · 원가 확인 필요 '+v.missingCost+'개';
+    message('원가 매칭을 저장했습니다. 원가 기준일 이전 주문은 원가 미확인으로 표시합니다.');
+  }));
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   $('cp-since').value = $('cp-until').value = $('cp-date').value = today;
   for (const name of ['cp-since', 'cp-until', 'cp-date']) $(name).max = today;
