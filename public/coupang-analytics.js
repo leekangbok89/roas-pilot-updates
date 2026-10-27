@@ -74,6 +74,7 @@
     document.querySelectorAll('.ca-subnav a').forEach(link => { const url = new URL(link.href); url.search = queryString(); link.href = url.pathname + url.search; });
   }
   function clearResults() {
+    window.CoupangThumbnails?.setContext(null);
     report = null; groups = []; productDailyPage = 0; productDailyCache = null; $('ca-summary').replaceChildren(); $('ca-coverage').textContent = '선택한 기간으로 저장 자료를 조회해 주세요.';
     if (view === 'dashboard') {
       $('ca-chart').replaceChildren(element('p', '조회한 자료가 여기에 표시됩니다.', 'ca-empty'));
@@ -95,7 +96,7 @@
       const results = await Promise.allSettled([request('analytics?' + queryString() + '&view=' + encodeURIComponent(view)), ...(view === 'sales' ? [request('workspace')] : [])]);
       if (sequence !== loadSequence) return;
       if (results[0].status === 'rejected') throw results[0].reason;
-      report = results[0].value;
+      report = results[0].value; window.CoupangThumbnails?.setContext(report);
       if (view === 'sales') updateGroupChoices(results[1]);
       render(); history.replaceState(null, '', location.pathname + '?' + queryString());
       message(isNumber(displayedValue(report.summary, 'sales')) ? '저장 자료 조회 완료 · ' + report.since + ' ~ ' + report.until + ' · ' + channels[queryValues().channel] + (isPartialValue(report.summary, 'sales') ? ' · 수집된 매출을 먼저 표시합니다. 일부 날짜·배송 방식·상품 자료는 미수집입니다.' : '') : '조회 기간에 저장된 주문·손익 파일이 없습니다. 주문을 수집하거나 셀하 손익 엑셀을 가져와 주세요.');
@@ -268,7 +269,7 @@
     const start = productDailyPage * productDailyPageSize;
     for (const row of rows.slice(start, start + productDailyPageSize)) {
       const previous = lookup.get(dateShift(row.date, -1) + ':' + row.channel + ':' + row.productId), comparable = previous && previous.source === row.source && row.source !== 'mixed';
-      const tr = element('tr'); addCell(tr, row.date); addCell(tr, channels[row.channel]); addCell(tr, row.name, 'ca-name'); appendValueCell(tr, row, 'quantity');
+      const tr = element('tr'); addCell(tr, row.date); addCell(tr, channels[row.channel]); const nameCell = addCell(tr, row.name, 'ca-name'); window.CoupangThumbnails?.decorate(nameCell, { productId: row.productId, name: row.name }); appendValueCell(tr, row, 'quantity');
       addCell(tr, changeText(row.quantity, comparable ? previous.quantity : null)); appendValueCell(tr, row, 'sales'); addCell(tr, changeText(row.sales, comparable ? previous.sales : null)); addCell(tr).append(sourceBadge(row)); host.append(tr);
     }
     if (!rows.length) { const tr = element('tr'), td = addCell(tr, undefined, 'ca-empty'); td.colSpan = 8; td.append(noSalesContent()); host.append(tr); }
@@ -350,11 +351,11 @@
       star.addEventListener('click', () => { if (favoriteIds.has(group.id)) favoriteIds.delete(group.id); else favoriteIds.add(group.id); saveSetting('favorites', [...favoriteIds]); renderSales(); }); addCell(tr).append(star);
       const toggle = element('button', expanded.has(group.id) ? '−' : '+', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기'));
       toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); renderSales(); }); addCell(tr).append(toggle);
-      addCell(tr, group.id); addCell(tr, group.channel); const nameCell = addCell(tr, undefined, 'ca-name'); nameCell.append(element('strong', group.name), element('small', group.options.length + '개 옵션'));
+      addCell(tr, group.id); addCell(tr, group.channel); const nameCell = addCell(tr, undefined, 'ca-name'); nameCell.append(element('strong', group.name), element('small', group.options.length + '개 옵션')); window.CoupangThumbnails?.decorate(nameCell, { productId: group.id, name: group.name });
       appendNumbers(tr, group); addCell(tr).append(sourceBadge(group)); host.append(tr);
       if (expanded.has(group.id)) for (const option of group.options) {
         const optionRow = element('tr', undefined, 'ca-option-row'); addCell(optionRow, ''); addCell(optionRow, '↳'); addCell(optionRow, option.id); addCell(optionRow, channels[option.channel]);
-        const optionCell = addCell(optionRow, undefined, 'ca-name'); optionCell.append(element('strong', option.optionName), element('small', option.name)); appendNumbers(optionRow, option); addCell(optionRow).append(sourceBadge(option)); host.append(optionRow);
+        const optionCell = addCell(optionRow, undefined, 'ca-name'); optionCell.append(element('strong', option.optionName), element('small', option.name)); window.CoupangThumbnails?.decorate(optionCell, { itemId: option.id, productId: group.id, name: option.optionName }); appendNumbers(optionRow, option); addCell(optionRow).append(sourceBadge(option)); host.append(optionRow);
       }
     }
     if (!shown.length) { const tr = element('tr'), td = addCell(tr, groups.length ? '검색 조건에 맞는 상품이 없습니다.' : '상품 자료가 없습니다. 자료·연결 관리에서 집계 상품을 선택하고 주문을 수집하거나 손익 파일을 넣어 주세요.', 'ca-empty'); td.colSpan = 6 + fields.length; host.append(tr); }

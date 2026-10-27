@@ -53,10 +53,25 @@ function normalize(raw, channel, date) {
       gross: channel === 'growth' ? gross * quantity : gross };
   });
 }
+// API CDN paths are public image metadata. Relative vendor_inventory paths use
+// Coupang's image CDN convention; browser load errors retain the placeholder.
+function safeThumbnailUrl(value) {
+  if (typeof value !== 'string' || !value || value.length > 2048 || /[\s\\\u0000-\u001f\u007f%?#]/.test(value)) return null;
+  let raw = value;
+  if (/^vendor_inventory\//.test(raw)) raw = 'https://image1.coupangcdn.com/image/' + raw;
+  if (!/^https?:\/\/image[0-9]+\.coupangcdn\.com\/image\/[A-Za-z0-9/_\-.]+\.(?:jpg|jpeg|png|webp)$/i.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.pathname.split('/').some(part => part === '.' || part === '..') || raw.split('/').some(part => part === '.' || part === '..')) return null;
+    url.protocol = 'https:'; return url.href;
+  } catch { return null; }
+}
 function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...args), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   const privateFile = path.join(baseDir, '.roas-private', 'coupang.dpapi');
   const root = path.join(baseDir, '.roas-data', 'coupang');
   let busy = false, lastRequest = 0, historyActive = false, historyTask = null, automaticStarted = false;
+  let thumbnailActive = null, thumbnailTask = null;
+  const productUri = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
   function read(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw fail(500, '쿠팡 저장 자료를 읽을 수 없습니다.'); } }
   function config() {
     if (!fs.existsSync(privateFile)) throw fail(409, '먼저 쿠팡 API 정보를 등록하세요.');
@@ -143,7 +158,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (!Array.isArray(savedGroups)) throw fail(500, '저장한 상품 그룹을 읽을 수 없습니다.');
     const selected = new Set(s.products.map(p => p.itemId));
     const groups = savedGroups.map(group => ({ id: group.id, name: group.name, itemIds: group.itemIds.filter(itemId => selected.has(itemId)) }));
-    return { configured: true, scopeKey: s.key, revision: hash({ vendorId: c.vendorId, scope: s, groups: savedGroups }), products: s.products, groups };
+    return { configured: true, vendorKey: hash(c.vendorId), scopeKey: s.key, revision: hash({ vendorId: c.vendorId, scope: s, groups: savedGroups }), products: s.products, groups };
   }
   function workspace() {
     if (!fs.existsSync(privateFile)) return { configured: false, scopeKey: '', revision: null, products: [], groups: [] };
@@ -192,6 +207,134 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     // Groups are a display filter and never alter the financial selection scope.
     atomic(path.join(dir(c), 'groups.json'), JSON.stringify(groups));
     return workspaceState(c);
+  }
+  const thumbnailErrors = {
+    auth: '상품 이미지 인증에 실패했습니다. 자료·연결 관리에서 API 키·허용 IP·연동업체 설정을 확인한 뒤 다시 가져오세요.',
+    rate: '쿠팡 API 요청 한도에 도달했습니다. 기존 이미지는 보존하며 잠시 후 다시 가져올 수 있습니다.',
+    changed: '연결 정보나 집계 상품이 변경되어 이미지 가져오기를 중단했습니다. 최신 자료로 다시 조회하세요.',
+    limit: '상품 이미지 조회 한도에 도달했습니다. 확인한 이미지는 보존했습니다.',
+    api: '일부 상품 이미지를 확인하지 못했습니다. 기존 이미지는 보존하며 잠시 후 다시 가져올 수 있습니다.'
+  };
+  function thumbnailFile(c) { return path.join(dir(c), 'thumbnails.json'); }
+  function thumbnailCache(c) {
+    const raw = read(thumbnailFile(c), {}), entries = new Map();
+    if (raw.vendorId && raw.vendorId !== c.vendorId) throw fail(500, '저장된 상품 이미지의 판매자를 확인하세요.');
+    for (const entry of Array.isArray(raw.entries) ? raw.entries.slice(-2000) : []) {
+      const url = safeThumbnailUrl(entry?.thumbnailUrl);
+      if (id(entry?.itemId) && url) entries.set(String(entry.itemId), { itemId: String(entry.itemId), productId: id(entry.productId) ? String(entry.productId) : null, thumbnailUrl: url, checkedAt: typeof entry.checkedAt === 'string' ? entry.checkedAt.slice(0, 30) : null });
+    }
+    const attempt = raw.attempt && typeof raw.attempt === 'object' ? raw.attempt : null;
+    return { entries, attempt };
+  }
+  function thumbnailStatus() {
+    const idle = { running: false, status: 'idle', completed: 0, total: 0, error: null };
+    if (!fs.existsSync(privateFile)) return { configured: false, vendorKey: null, scopeKey: '', needsSync: false, items: [], job: idle };
+    const c = config(), s = scope(c), cache = thumbnailCache(c);
+    const live = thumbnailActive && thumbnailActive.credentialKey === hash(c) && thumbnailActive.scopeKey === s.key;
+    const attempt = live ? thumbnailActive.job : cache.attempt?.scopeKey === s.key ? cache.attempt : null;
+    const statuses = ['waiting', 'running', 'completed', 'partial', 'failed', 'cancelled'];
+    const running = !!(live && thumbnailActive.job.running);
+    const status = attempt && statuses.includes(attempt.status) ? !running && ['waiting', 'running'].includes(attempt.status) ? 'paused' : attempt.status : 'idle';
+    const job = { running, status, completed: Number.isInteger(attempt?.completed) && attempt.completed >= 0 ? Math.min(attempt.completed, 500) : 0,
+      total: Number.isInteger(attempt?.total) && attempt.total >= 0 ? Math.min(attempt.total, 500) : 0, error: thumbnailErrors[attempt?.errorCode] || null };
+    const missing = s.products.some(p => !cache.entries.has(p.itemId));
+    const age = Number.isFinite(attempt?.at) ? now() - attempt.at : Infinity;
+    const cooldown = status === 'failed' ? 30 * 60000 : DAY;
+    const needsSync = !!s.products.length && missing && !running && (!attempt || status === 'paused' || status === 'cancelled' || age >= cooldown);
+    const items = s.products.map(p => ({ itemId: p.itemId, productId: p.productId || cache.entries.get(p.itemId)?.productId || null, thumbnailUrl: cache.entries.get(p.itemId)?.thumbnailUrl || null }));
+    return { configured: true, vendorKey: hash(c.vendorId), scopeKey: s.key, needsSync, items, job };
+  }
+  function startThumbnails(v = {}) {
+    const c = config(), s = requireScope(c);
+    if (v.vendorKey !== hash(c.vendorId) || v.scopeKey !== s.key) throw fail(409, '연결 정보나 집계 상품이 변경되었습니다. 최신 자료를 다시 조회하세요.');
+    if (v.force !== undefined && typeof v.force !== 'boolean') throw fail(400, '상품 이미지 요청 형식을 확인하세요.');
+    const current = thumbnailStatus();
+    if (current.job.running || !v.force && !current.needsSync) return current;
+    const cache = thumbnailCache(c), selected = new Map(s.products.map(p => [p.itemId, p]));
+    const state = { credentialKey: hash(c), scopeKey: s.key, job: { scopeKey: s.key, at: now(), running: true, status: busy || historyActive ? 'waiting' : 'running', completed: 0, total: 0, errorCode: null } };
+    thumbnailActive = state;
+    const checkCurrent = () => {
+      if (thumbnailActive !== state || hash(config()) !== state.credentialKey || scope(c).key !== s.key) throw Object.assign(fail(409, thumbnailErrors.changed), { thumbnailCode: 'changed' });
+    };
+    const persist = () => {
+      checkCurrent();
+      // Keep every current selected option when bounding older cached images.
+      const entries = [...cache.entries.values()].sort((a, b) => Number(selected.has(a.itemId)) - Number(selected.has(b.itemId))).slice(-2000);
+      atomic(thumbnailFile(c), JSON.stringify({ version: 1, vendorId: c.vendorId, entries, attempt: state.job }));
+    };
+    const guard = async () => {
+      checkCurrent();
+      while (busy || historyActive) { state.job.status = 'waiting'; await sleep(2000); checkCurrent(); }
+      state.job.status = 'running';
+    };
+    const productGet = async (uri, params, kind) => { await guard(); const value = await get(c, uri, params, kind, guard); checkCurrent(); return value; };
+    persist();
+    thumbnailTask = (async () => {
+      let partial = false, limited = false;
+      try {
+        const candidates = new Map(), knownProducts = new Set(s.products.map(p => p.productId).filter(id).map(String));
+        const allKnown = s.products.every(p => id(p.productId));
+        for (const businessTypes of ['', 'rocketGrowth']) {
+          const tokens = new Set(); let next = '';
+          for (let page = 0; page < 100; page++) {
+            const value = await productGet(productUri, { vendorId: c.vendorId, maxPerPage: '100', ...(businessTypes ? { businessTypes } : {}), ...(next ? { nextToken: next } : {}) }, 'product-list');
+            for (const row of value.data) {
+              if (!row || !id(row.sellerProductId) || row.vendorId !== undefined && row.vendorId !== c.vendorId) throw fail(502, '상품 목록을 확인할 수 없습니다.');
+              if (allKnown && id(row.productId) && !knownProducts.has(String(row.productId))) continue;
+              const candidateId = String(row.sellerProductId), priority = id(row.productId) && knownProducts.has(String(row.productId));
+              if (candidates.has(candidateId)) { if (priority) candidates.set(candidateId, true); continue; }
+              if (candidates.size < 500) candidates.set(candidateId, priority);
+              else {
+                limited = true;
+                // Prefer a confirmed exposed-product match over an unknown summary,
+                // while retaining a bounded subset that can still make progress.
+                const replace = priority ? [...candidates].find(([, known]) => !known) : null;
+                if (replace) { candidates.delete(replace[0]); candidates.set(candidateId, true); }
+              }
+            }
+            next = value.nextToken || '';
+            if (!next) break;
+            if (typeof next !== 'string' || next.length > 2048 || tokens.has(next)) throw fail(502, '상품 목록 페이지를 확인할 수 없습니다.');
+            tokens.add(next);
+            if (page === 99) { limited = true; break; }
+          }
+        }
+        state.job.total = candidates.size; persist();
+        for (const sellerProductId of candidates.keys()) {
+          try {
+            const { data } = await productGet(productUri + '/' + sellerProductId, {}, 'product-detail');
+            if (data.vendorId !== c.vendorId || String(data.sellerProductId) !== sellerProductId || !Array.isArray(data.items) || data.items.length > 1000) throw Object.assign(fail(502, '상품 판매자나 옵션을 확인할 수 없습니다.'), { thumbnailFatal: true });
+            const updates = new Map();
+            for (const item of data.items) {
+              if (!item || typeof item !== 'object') continue;
+              const identifiers = [item.vendorItemId, ...['rocketGrowthItemData', 'marketplaceItemData', 'marketPlaceItemData', 'rocketGrowthItem', 'marketPlaceItem'].map(key => item[key]?.vendorItemId)].filter(id).map(String);
+              const images = (Array.isArray(item.images) ? item.images : []).filter(image => image?.imageType === 'REPRESENTATION').sort((a, b) => (Number.isFinite(a.imageOrder) ? a.imageOrder : Infinity) - (Number.isFinite(b.imageOrder) ? b.imageOrder : Infinity));
+              let url = null;
+              for (const image of images) { url = safeThumbnailUrl(image.cdnPath) || safeThumbnailUrl(image.vendorPath); if (url) break; }
+              if (!url) continue;
+              for (const itemId of new Set(identifiers)) if (selected.has(itemId)) {
+                if (updates.has(itemId) && updates.get(itemId).thumbnailUrl !== url) throw Object.assign(fail(502, '상품 이미지 중복을 확인할 수 없습니다.'), { thumbnailFatal: true });
+                updates.set(itemId, { itemId, productId: selected.get(itemId).productId || (id(data.productId) ? String(data.productId) : null), thumbnailUrl: url, checkedAt: new Date(now()).toISOString() });
+              }
+            }
+            for (const [itemId, entry] of updates) cache.entries.set(itemId, entry);
+          } catch (error) {
+            if (error.thumbnailFatal || error.thumbnailCode || [401, 403, 429].includes(error.upstreamStatus) || error.status === 409) throw error;
+            partial = true;
+          }
+          state.job.completed++; persist();
+        }
+        if (s.products.some(p => !cache.entries.has(p.itemId))) partial = true;
+        state.job.status = partial || limited ? 'partial' : 'completed'; state.job.errorCode = limited ? 'limit' : partial ? 'api' : null;
+      } catch (error) {
+        state.job.status = error.thumbnailCode === 'changed' ? 'cancelled' : 'failed';
+        state.job.errorCode = error.thumbnailCode || ([401, 403].includes(error.upstreamStatus) ? 'auth' : error.upstreamStatus === 429 ? 'rate' : 'api');
+      } finally {
+        state.job.running = false;
+        try { persist(); } catch {}
+      }
+    })();
+    return thumbnailStatus();
   }
   // Only fixed categories leave this process; upstream bodies may contain keys,
   // customer fields, or arbitrary text and must never be returned or persisted.
@@ -278,16 +421,19 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       return result;
     } finally { busy = false; }
   }
-  async function get(c, uri, params) {
+  async function get(c, uri, params, kind = 'orders', beforeRequest = null) {
     const allowed = ['/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets'];
-    if (!allowed.includes(uri)) throw fail(400, '지원하지 않는 쿠팡 조회입니다.');
+    const productAllowed = kind === 'product-list' ? uri === productUri : kind === 'product-detail' && uri.startsWith(productUri + '/') && id(uri.slice(productUri.length + 1));
+    if (kind === 'orders' ? !allowed.includes(uri) : !productAllowed) throw fail(400, '지원하지 않는 쿠팡 조회입니다.');
     const query = new URLSearchParams(params).toString();
     for (let attempt = 0; attempt < 3; attempt++) {
-    await sleep(Math.max(0, 1300 - (now() - lastRequest))); lastRequest = now();
+    await sleep(Math.max(0, 1300 - (now() - lastRequest)));
+    if (beforeRequest) await beforeRequest();
+    lastRequest = now();
     let r;
     try { r = await fetchImpl('https://api-gateway.coupang.com' + uri + '?' + query, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(25000), headers: { Authorization: signature(c, uri, query, now()), 'X-Requested-By': c.vendorId, Accept: 'application/json' } }); }
     catch { if (attempt < 2) { await sleep(1000 * 2 ** attempt); continue; } throw fail(502, '쿠팡 API에 연결하지 못했습니다. 인터넷 연결을 확인하세요.'); }
-    if ((r.status === 429 || r.status >= 500) && attempt < 2) { await r.body?.cancel?.(); await sleep(2000 * 2 ** attempt); continue; }
+    if ((r.status === 429 || r.status >= 500) && attempt < 2 && (kind === 'orders' || r.status !== 429)) { await r.body?.cancel?.(); await sleep(2000 * 2 ** attempt); continue; }
     if (!r.ok) {
       if ([401, 403].includes(r.status)) {
         const diagnosis = await authDiagnosis(r);
@@ -297,7 +443,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       throw Object.assign(fail(r.status === 429 ? 429 : 502, '쿠팡 API 조회 실패 (HTTP ' + r.status + '). 기존 저장 자료는 유지됩니다.'), { upstreamStatus: r.status });
     }
     let v; try { v = await r.json(); } catch { throw fail(502, '쿠팡 API 응답 형식을 확인할 수 없습니다.'); }
-    if (v?.code !== 200 || !Array.isArray(v.data)) throw fail(502, '쿠팡 API가 정상 목록을 반환하지 않았습니다.');
+    if (kind === 'orders' ? v?.code !== 200 || !Array.isArray(v.data) : v?.code !== 'SUCCESS' || (kind === 'product-list' ? !Array.isArray(v.data) : !v.data || typeof v.data !== 'object' || Array.isArray(v.data))) throw fail(502, '쿠팡 API가 정상 자료를 반환하지 않았습니다.');
     return v;
     }
   }
@@ -695,7 +841,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       item.adReturnOnSpend = Number.isFinite(item.adNetProfit) && Number.isFinite(item.advertising) && item.advertising > 0 ? item.adNetProfit / item.advertising * 100 : null;
       items.push(item);
     }
-    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, workspaceRevision: workspaceState(c).revision, daily, items, summary,
+    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary,
       ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
       coverage: { fileScopeDays: daily.filter(d => d.sourceScope.mode === 'file').length, sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
       importedDates: seenImports.map(d => d.date), lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
@@ -723,6 +869,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, diagnose, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
-module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };
+module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };

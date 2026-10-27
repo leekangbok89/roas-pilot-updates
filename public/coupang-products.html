@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ROAS Pilot | 쿠팡 상품 관리</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/coupang-analytics.css"><link rel="stylesheet" href="/coupang-products.css"><script src="/coupang-products.js" defer></script></head>
+<title>ROAS Pilot | 쿠팡 상품 관리</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/coupang-thumbnails.css"><script src="/coupang-thumbnails.js" defer></script><link rel="stylesheet" href="/coupang-analytics.css"><link rel="stylesheet" href="/coupang-products.css"><script src="/coupang-products.js" defer></script></head>
 <body data-app-page="coupang" data-coupang-view="products">
   <div class="app-nav-rail" id="app-nav-rail">
     <button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -36,7 +36,8 @@
       <p class="helper">저장된 집계 대상 상품을 보여줍니다. 원가 미등록과 확인된 0원은 구분하며, 수정한 원가는 API 주문의 참고 원가 계산에 반영됩니다. 가져온 손익 파일의 이익금은 그대로 보존합니다.</p>
     </section>
     <section class="panel" aria-labelledby="cpm-title">
-      <div class="ca-panel-head"><div><h2 id="cpm-title">상품·옵션 목록</h2><p class="helper">상품을 펼쳐 옵션별 원가·수수료·배송비를 수정하세요.</p></div><div class="ca-toolbar"><button id="cpm-expand" type="button">옵션 모두 펼치기</button><a class="ca-text-link" href="/coupang.html#cp-catalog">상품현황 엑셀 가져오기 ↗</a></div></div>
+      <div class="ca-panel-head"><div><h2 id="cpm-title">상품·옵션 목록</h2><p class="helper">상품을 펼쳐 옵션별 원가·수수료·배송비를 수정하세요.</p></div><div class="ca-toolbar"><button id="cth-refresh" type="button" disabled>상품 이미지 새로고침</button><button id="cpm-expand" type="button">옵션 모두 펼치기</button><a class="ca-text-link" href="/coupang.html#cp-catalog">상품현황 엑셀 가져오기 ↗</a></div></div>
+      <p id="cth-status" class="helper cth-status" role="status" aria-live="polite">저장한 상품 이미지를 확인합니다.</p>
       <div class="cpm-selection ca-toolbar"><strong id="cpm-selected">선택 0개 옵션</strong><label>선택 옵션을 담을 그룹<select id="cpm-assign"><option value="">그룹 선택</option></select></label><button id="cpm-add-members" type="button" disabled>그룹에 추가</button><button id="cpm-remove-members" type="button" disabled>그룹에서 제외</button><button id="cpm-clear-selection" type="button" disabled>선택 해제</button></div>
       <p id="cpm-count" class="helper" role="status"></p>
       <div class="ca-scroll cpm-scroll" tabindex="0" aria-label="상품 관리 표 가로 스크롤"><table class="ca-table cpm-table"><thead><tr><th><input id="cpm-select-visible" type="checkbox" aria-label="조회된 옵션 모두 선택"></th><th class="ca-name">상품 / 옵션</th><th>배송 방식</th><th>판매가</th><th>개당 원가</th><th>수수료율</th><th>입출고 요금</th><th>배송비</th><th>원가 기준일</th><th>관리</th></tr></thead><tbody id="cpm-body"><tr><td colspan="10" class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>

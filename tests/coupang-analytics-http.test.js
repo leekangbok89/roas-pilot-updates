@@ -27,10 +27,14 @@ test('legacy installs serve Coupang workspace pages and authenticate analytics, 
               const chunks=[];response.on('data',chunk=>chunks.push(chunk));response.on('end',()=>resolve({status:response.statusCode,text:Buffer.concat(chunks).toString()}));
             });request.on('error',reject);request.end(body===undefined?undefined:JSON.stringify(body));
           });
-          for(const asset of ['coupang-dashboard.html','coupang-sales.html','coupang-analytics.js','coupang-analytics.css','coupang-sheets.js','coupang-products.html','coupang-products.js','coupang-products.css','coupang-ads.html','coupang-ads.js','coupang-ads.css']) {
+          for(const asset of ['coupang-dashboard.html','coupang-sales.html','coupang-analytics.js','coupang-analytics.css','coupang-sheets.js','coupang-products.html','coupang-products.js','coupang-products.css','coupang-ads.html','coupang-ads.js','coupang-ads.css','coupang-thumbnails.js','coupang-thumbnails.css']) {
             const r=await req('/'+asset);assert.equal(r.status,200,asset);assert.ok(r.text.length>100,asset+' must exist in embedded upgrade assets');
           }
           assert.equal((await req('/api/coupang/analytics?since=2026-10-25&until=2026-10-25')).status,409);
+          const imageStatus=await req('/api/coupang/thumbnails');assert.equal(imageStatus.status,200);assert.equal(JSON.parse(imageStatus.text).configured,false);
+          assert.equal((await req('/api/coupang/thumbnails',{}, {...headers,origin:'https://evil.invalid'})).status,403);
+          assert.equal((await req('/api/coupang/thumbnails',{}, {host:'127.0.0.1:3000','content-type':'application/json'})).status,403);
+
           assert.equal((await req('/api/coupang/analytics',{})).status,405);
           assert.equal((await req('/api/coupang/sales-import',{}, {...headers,origin:'https://evil.invalid'})).status,403);
           assert.equal((await req('/api/coupang/sales-import',{}, {host:'127.0.0.1:3000','content-type':'application/json'})).status,403);
@@ -38,6 +42,9 @@ test('legacy installs serve Coupang workspace pages and authenticate analytics, 
           assert.equal((await req('/api/coupang/catalog-import',{products:[{itemId:'123',productId:'456',name:'예시 상품',channel:'growth',unitCost:1000,commissionRate:10,inboundFee:100,deliveryFee:200}]})).status,200);
           const workspace=JSON.parse((await req('/api/coupang/workspace')).text);
           assert.equal(workspace.configured,true);assert.equal(workspace.products.length,1);
+          const configuredImages=JSON.parse((await req('/api/coupang/thumbnails')).text);assert.equal(configuredImages.vendorKey,workspace.vendorKey);assert.equal(configuredImages.scopeKey,workspace.scopeKey);
+          assert.equal((await req('/api/coupang/thumbnails',{vendorKey:'wrong-vendor',scopeKey:workspace.scopeKey})).status,409);
+
           assert.equal((await req('/api/coupang/workspace',{})).status,405);
           assert.equal((await req('/api/coupang/product-update')).status,405);
           const edit={scopeKey:workspace.scopeKey,revision:workspace.revision,itemId:'123',unitCost:2000,commissionRate:10,inboundFee:100,deliveryFee:200,costSince:null};
