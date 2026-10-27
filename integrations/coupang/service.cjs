@@ -70,6 +70,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   const privateFile = path.join(baseDir, '.roas-private', 'coupang.dpapi');
   const root = path.join(baseDir, '.roas-data', 'coupang');
   let busy = false, lastRequest = 0, historyActive = false, historyTask = null, refreshActive = false, refreshTask = null;
+  let startupRefreshRequested = false, startupRefreshDone = false;
   let thumbnailActive = null, thumbnailTask = null;
   const productUri = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
   function read(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw fail(500, '쿠팡 저장 자료를 읽을 수 없습니다.'); } }
@@ -498,7 +499,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const c = config(), days = range(v.since, v.until, now(), 7);
     if (!CHANNELS.includes(v.channel)) throw fail(400, '배송 방식을 확인하세요.');
     if (busy || (historyActive || refreshActive) && !internal) throw fail(409, '쿠팡 자료를 수집 중입니다.'); busy = true;
-    const result = { savedDays: [], channel: v.channel };
+    const result = { savedDays: [], channel: v.channel, verification: { newDays: [], changedDays: [], unchangedDays: [] } };
     try {
       {
         let rows;
@@ -514,7 +515,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
         rows.sort((a, b) => a.key.localeCompare(b.key));
         for (const date of days) {
         const snap = { date, channel: v.channel, vendorId: c.vendorId, fetchedAt: new Date(now()).toISOString(), rows: rows.filter(row => row.date === date).map(({ date: ignored, ...row }) => row) };
+        const previous = snapshot(c, date, v.channel);
+        const kind = !previous || previous.vendorId !== c.vendorId || !Array.isArray(previous.rows) ? 'newDays'
+          : hash(previous.rows) === hash(snap.rows) ? 'unchangedDays' : 'changedDays';
         atomic(path.join(dir(c), 'orders', date + '-' + v.channel + '.json'), JSON.stringify(snap)); result.savedDays.push(date);
+        result.verification[kind].push(date);
         }
       }
       const stateFile = path.join(dir(c), 'state.json'); atomic(stateFile, JSON.stringify({ ...read(stateFile, {}), [v.channel]: new Date(now()).toISOString() }));
@@ -602,14 +607,14 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { enabled: true, intervalMinutes: 60, status: 'idle', ...state, running: refreshActive,
       ...(interrupted ? { status: 'paused', error: '이전 자동 수집 중 프로그램이 종료됐습니다. 최근 7일 수집을 다시 실행하세요.' } : {}) };
   }
-  function refresh(v = {}) {
+  function refresh(v = {}, trigger = 'manual') {
     const c = config(); requireScope(c);
     if (refreshActive) return { started: false, reason: 'running', automatic: automaticStatus(c) };
     if (busy || historyActive) throw fail(409, '쿠팡 자료를 수집 중입니다. 완료 후 최근 7일 수집을 실행하세요.');
     const channels = v.channels === undefined ? CHANNELS : v.channels;
     if (!Array.isArray(channels) || !channels.length || channels.some(ch => !CHANNELS.includes(ch)) || new Set(channels).size !== channels.length) throw fail(400, '수집할 배송 방식을 확인하세요.');
     const file = path.join(dir(c), 'automatic.json'), previous = read(file, {}), stamp = new Date(now()).toISOString();
-    const state = { ...previous, enabled: true, intervalMinutes: 60, running: true, status: 'running',
+    const state = { ...previous, enabled: true, intervalMinutes: 60, running: true, status: 'running', trigger,
       since: kstDay(now() - 6 * DAY), until: kstDay(now()), lastStartedAt: stamp,
       nextRunAt: new Date(now() + 60 * 60000).toISOString(), error: null,
       channels: Object.fromEntries(channels.map(ch => [ch, { status: 'pending', savedDays: [], error: null }])) };
@@ -622,7 +627,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           state.channels[ch].status = 'running'; atomic(file, JSON.stringify(state));
           try {
             const result = await sync({ since: state.since, until: state.until, channel: ch }, true);
-            state.channels[ch] = { status: 'completed', savedDays: result.savedDays, error: null, savedAt: new Date(now()).toISOString() };
+            state.channels[ch] = { status: 'completed', savedDays: result.savedDays, verification: result.verification, error: null, savedAt: new Date(now()).toISOString() };
           } catch (error) { state.channels[ch] = { status: 'failed', savedDays: [], error: error.message }; }
           atomic(file, JSON.stringify(state));
         }
@@ -639,12 +644,19 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     refreshTask.catch(() => {});
     return { started: true, automatic: automaticStatus(c) };
   }
-  async function automatic() {
+  async function automatic(v = {}) {
+    if (v.startup === true) {
+      if (startupRefreshDone) return { started: false, reason: 'startup-already-checked' };
+      startupRefreshRequested = true;
+    }
     if (refreshActive || historyActive || busy || !fs.existsSync(privateFile)) return { started: false, reason: 'busy-or-unconfigured' };
     const c = config(); if (!scope(c).products.length) return { started: false, reason: 'products-not-selected' };
     const state = read(path.join(dir(c), 'automatic.json'), {}), last = Date.parse(state.lastStartedAt || '');
-    if (state.running !== true && Number.isFinite(last) && now() - last < 60 * 60000) return { started: false, reason: 'not-due', automatic: automaticStatus(c) };
-    const result = refresh(); await refreshTask;
+    const startup = startupRefreshRequested && !startupRefreshDone;
+    if (!startup && state.running !== true && Number.isFinite(last) && now() - last < 60 * 60000) return { started: false, reason: 'not-due', automatic: automaticStatus(c) };
+    const result = refresh({}, startup ? 'startup' : 'scheduled');
+    if (startup) { startupRefreshDone = true; startupRefreshRequested = false; }
+    await refreshTask;
     return { ...result, automatic: automaticStatus(c) };
   }
   function products(v) {

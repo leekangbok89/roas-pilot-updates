@@ -83,9 +83,18 @@
     const channelErrors = Object.entries(automatic.channels || {}).filter(([, value]) => value?.status === 'failed').map(([key, value]) => (channels[key] || key) + ': ' + (value.error || '수집 실패'));
     const error = typeof automatic.error === 'string' && automatic.error ? automatic.error : channelErrors.join(' · ');
     const title = !status?.configured ? '쿠팡 연결 필요' : running ? '주문 수집·저장 중' : automatic.status === 'partial' ? '일부 저장 완료 · 오류 확인' : automatic.status === 'failed' || automatic.status === 'paused' ? '최근 갱신 중단 · 오류 확인' : automatic.enabled === false ? '자동 갱신 꺼짐' : '최근 7일 매시간 자동 저장';
+    const verified = new Map();
+    for (const channel of Object.values(automatic.channels || {})) for (const [field, priority] of [['unchangedDays', 1], ['newDays', 2], ['changedDays', 3]]) {
+      for (const date of Array.isArray(channel?.verification?.[field]) ? channel.verification[field] : []) {
+        if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && priority > (verified.get(date) || 0)) verified.set(date, priority);
+      }
+    }
+    const datesFor = priority => [...verified].filter(([, value]) => value === priority).map(([date]) => date).sort();
+    const newDates = datesFor(2), changedDates = datesFor(3), sameDates = datesFor(1);
+    const verification = verified.size ? '확인 결과 · 신규 저장 ' + newDates.length + '일 · 변경 ' + changedDates.length + '일' + (changedDates.length ? ' (' + changedDates.map(date => date.slice(5)).join(', ') + ')' : '') + ' · 동일 ' + sameDates.length + '일 · 배송 방식별 확인분, 날짜 중복 제외' : '';
     return { running, title, error, disabled: !status?.configured || running, finishedAt: automatic.lastFinishedAt || null,
       detail: '최근 실행 ' + localTimestamp(automatic.lastStartedAt) + ' · 최근 완료 ' + localTimestamp(automatic.lastCompletedAt) + (automatic.enabled === false ? '' : ' · 다음 확인 ' + localTimestamp(automatic.nextRunAt)),
-      range: automatic.since && automatic.until ? '갱신 대상 ' + automatic.since + ' ~ ' + automatic.until : '오늘을 포함한 최근 7일을 갱신합니다.' };
+      range: automatic.since && automatic.until ? '갱신 대상 ' + automatic.since + ' ~ ' + automatic.until : '오늘을 포함한 최근 7일을 갱신합니다.', verification };
   }
   function renderStorageInfo() {
     const host = $('ca-storage-status'); if (!host) return;
@@ -99,7 +108,7 @@
     pipelineStatus = status;
     const state = pipelineState(status), host = $('ca-auto-state'); if (!host) return state;
     host.textContent = state.title; host.dataset.error = String(!!state.error);
-    $('ca-auto-detail').textContent = state.range + ' · ' + state.detail;
+    $('ca-auto-detail').textContent = state.range + ' · ' + state.detail + (state.verification ? '\n' + state.verification : '');
     $('ca-auto-error').textContent = state.error; $('ca-auto-error').hidden = !state.error;
     $('ca-refresh-orders').disabled = pipelineRefreshing || state.disabled;
     return state;

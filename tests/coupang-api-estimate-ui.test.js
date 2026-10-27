@@ -27,6 +27,21 @@ test('pipeline distinguishes missing connection, running, partial failure and ho
   assert.equal(partial.disabled, false);
   assert.match(h.pipelineState({ configured: true, automatic: { status: 'paused', error: '중단 후 재시작' } }).title, /중단/);
 });
+test('refresh verification deduplicates delivery dates and keeps any changed date out of unchanged totals', () => {
+  const { h } = helpers();
+  const state = h.pipelineState({ configured: true, automatic: { status: 'completed', lastCompletedAt: '2026-10-27T12:00:00Z', channels: {
+    growth: { verification: { newDays: ['2026-10-27'], changedDays: ['2026-10-25'], unchangedDays: ['2026-10-24', '2026-10-26'] } },
+    seller: { verification: { newDays: ['2026-10-27'], changedDays: ['2026-10-26', '2026-10-25'], unchangedDays: ['2026-10-24'] } }
+  } } });
+  assert.match(state.verification, /신규 저장 1일/);
+  assert.match(state.verification, /변경 2일 \(10-25, 10-26\)/);
+  assert.match(state.verification, /동일 1일/);
+  assert.match(state.verification, /배송 방식별 확인분, 날짜 중복 제외/);
+  assert.match(state.detail, /최근 완료/);
+  const unchanged = h.pipelineState({ configured: true, automatic: { lastCompletedAt: '2026-10-27T13:00:00Z', channels: { growth: { verification: { unchangedDays: ['2026-10-27'] } } } } });
+  assert.match(unchanged.verification, /변경 0일.*동일 1일/);
+  assert.notEqual(unchanged.detail, state.detail, 'Verification time must advance even when order data is unchanged');
+});
 test('estimates aggregate separately from exact source profit and preserve missing cost inputs', () => {
   const { h } = helpers();
   const rows = [
