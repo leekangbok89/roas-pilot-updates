@@ -941,6 +941,7 @@ async function verifySplitRoas(requests) {
   const scopes = ['Meta · 전체 연결 계정', 'Meta · 자사몰 광고', 'Meta · 스마트스토어 광고'];
   const card = key => page.locator('#summary-cards .summary-card[data-summary-key="' + key + '"]');
   const assertRoas = async (expected, message) => {
+    await page.locator('#summary-connections').evaluate(node => { node.open = true; });
     for (const [index, key] of keys.entries()) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
       assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : expected[index].toFixed(1) + '%', message + ': ' + key);
@@ -1084,6 +1085,7 @@ async function verifySplitSpend(requests) {
   const configured = [...keys, ...roasKeys, ...Array(6).fill('')];
   const card = key => page.locator('#summary-cards .summary-card[data-summary-key="' + key + '"]');
   const assertSpend = async (expected, message) => {
+    await page.locator('#summary-connections').evaluate(node => { node.open = true; });
     for (const [index, key] of keys.entries()) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
       assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);

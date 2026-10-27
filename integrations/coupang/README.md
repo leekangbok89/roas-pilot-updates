@@ -61,3 +61,9 @@ API 예상 이익은 저장된 주문금액에서 상품별 등록 원가·수�
 - https://developers.coupang.com/ko/api/rocket-growth/rg-order-apilist-query
 - https://developers.coupang.com/ko/api/shipments/po-list-query-paging-by-day
 - https://developers.coupang.com/en/getting-started/creating-hmac-signature
+
+## 일일 매출 보고서
+
+기본 표는 일자·매출·이익금·광고비·기타비용·순이익금 6개 열을 가로 스크롤 없이 표시합니다. 세부 항목 버튼으로 판매량과 추정 비용 등을 펼칩니다. 기타비용은 수수료와 입출고·배송비를 합산해 하루 단위로 반올림하며, 상품원가와 함께 이익금에 이미 반영되어 순이익에서 다시 공제하지 않습니다. 순이익금은 이익금에서 매출성장 광고비를 차감하며 신규고객확보 광고비는 별도입니다. API 자료만 있는 날짜는 등록 요금으로 계산한 이익·비용에 예상 표시를 붙이고, 광고비가 없으면 순이익을 확정하지 않습니다. 합계는 확인된 날짜의 합계이며 미수집 날짜는 0으로 바꾸지 않습니다.
+
+손익 설정 JSON(`roas-coupang-sales-v1`)에는 기존 `reports`와 별도로 `dailyTotals`를 넣을 수 있습니다. 각 합계는 `date`, `sales`, `profitBeforeAds`, `advertising`, `otherCosts`를 포함하며 순이익은 서버가 재계산합니다. 전체 배송과 저장 당시 상품 범위가 일치할 때만 적용하며 옵션·배송 방식별 자료에 배분하지 않습니다. 같은 날짜 원본의 금융값이 바뀌면 기존 확인 합계는 해제됩니다. 선택사항인 `catalog.products`는 미리보기에서 고지한 뒤 상품 원가·요금 설정에 함께 적용됩니다. 원가 저장 후 일별 자료 저장에 실패하면 화면에 부분 저장 상태를 알립니다.

@@ -31,7 +31,7 @@ body[data-coupang-view] .app-main button{padding:4px 8px}
 .ca-card small{display:block;line-height:1.4}
 .ca-card strong{display:block;font-size:25px;line-height:1.3;margin:4px 0 2px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
 .ca-card p{font-size:12px!important;line-height:1.45!important}
-.ca-dashboard-grid{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.25fr);gap:8px;align-items:stretch}
+.ca-dashboard-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-items:start}
 .ca-dashboard-grid>.panel{min-width:0}
 .ca-panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
 .ca-panel-head .ca-toolbar{align-items:center}
@@ -64,7 +64,10 @@ body[data-coupang-view] .app-main .ca-table :is(th,td){font-size:15px!important;
 .ca-empty a{display:inline-block;margin-top:7px}
 .ca-table .ca-totals-row td{background:var(--app-surface-soft);font-weight:800;border-bottom:2px solid var(--app-border)}
 .ca-table .ca-totals-row td:first-child{white-space:normal!important}
-.ca-daily-table{min-width:1150px}
+.ca-daily-table{min-width:620px;table-layout:fixed}
+.ca-daily-table.ca-daily-expanded{min-width:2400px;table-layout:auto}
+.ca-daily-table:not(.ca-daily-expanded) :is(th,td):first-child{width:115px}
+.ca-daily-table .ca-daily-estimate{font-size:11px!important;color:var(--app-muted)}
 .ca-daily-panel .ca-scroll{max-height:397px}
 .ca-source{display:inline-flex;align-items:center;border-radius:5px;padding:2px 6px;background:var(--app-surface-soft);font-size:12px;line-height:1.45;font-weight:600;white-space:nowrap}
 .ca-source[data-source=sellha]{background:var(--app-accent-soft);color:var(--app-link)}

@@ -3,6 +3,7 @@ body[data-app-page="coupang"] *{box-sizing:border-box}
 .cp-form{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:6px;margin:12px 0}
 .cp-form label,.cp-toolbar label{display:grid;gap:6px}
 .cp-form input{width:100%;min-width:0}
+#cp-catalog-file{max-width:100%;min-width:0}
 .cp-toolbar fieldset,.cp-form fieldset,fieldset.cp-plain{border:0;padding:0;margin:0;min-width:0}
 .cp-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:16px 0}
 .cp-metric{border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);padding:10px}
