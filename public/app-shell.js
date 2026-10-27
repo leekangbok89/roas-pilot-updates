@@ -163,7 +163,7 @@
       var coupangLink = document.createElement('a');
       coupangLink.className = 'app-nav-link';
       coupangLink.dataset.appRoute = 'coupang';
-      coupangLink.href = '/coupang.html';
+      coupangLink.href = '/coupang-dashboard.html';
       coupangLink.textContent = '쿠팡 수익 분석';
       var costItem = nav.querySelector('[data-app-route="cost"]');
       if (costItem) nav.insertBefore(coupangLink, costItem);

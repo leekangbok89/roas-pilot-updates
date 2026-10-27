@@ -100,45 +100,10 @@
     renderOptions(); return v;
   }
   let pendingCatalog = null;
-  async function unzip(buffer){
-    const v=new DataView(buffer),bytes=new Uint8Array(buffer),decoder=new TextDecoder();let end=-1;
-    for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(v.getUint32(i,true)===0x06054b50){end=i;break;}
-    if(end<0)throw Error('엑셀 압축 구조를 읽지 못했습니다. .xlsx로 다시 저장하세요.');
-    const count=v.getUint16(end+10,true);let offset=v.getUint32(end+16,true),total=0;const files=new Map();if(count>2000)throw Error('엑셀 파일에 항목이 너무 많습니다.');
-    for(let i=0;i<count;i++){
-      if(offset+46>bytes.length||v.getUint32(offset,true)!==0x02014b50)throw Error('엑셀 파일이 손상되었습니다.');
-      const method=v.getUint16(offset+10,true),size=v.getUint32(offset+20,true),expanded=v.getUint32(offset+24,true),nameLength=v.getUint16(offset+28,true),extra=v.getUint16(offset+30,true),comment=v.getUint16(offset+32,true),local=v.getUint32(offset+42,true),name=decoder.decode(bytes.slice(offset+46,offset+46+nameLength));offset+=46+nameLength+extra+comment;
-      if(!/^xl\/(worksheets\/sheet\d+\.xml|sharedStrings\.xml|styles\.xml)$/.test(name))continue;
-      total+=expanded;if(total>40000000||expanded>20000000)throw Error('엑셀 내용이 너무 큽니다. 기간을 나누어 내려받으세요.');
-      if(local+30>bytes.length||v.getUint32(local,true)!==0x04034b50)throw Error('엑셀 내부 파일이 손상되었습니다.');
-      const start=local+30+v.getUint16(local+26,true)+v.getUint16(local+28,true);if(start+size>bytes.length)throw Error('엑셀 내부 길이가 올바르지 않습니다.');
-      let data=bytes.slice(start,start+size);if(method===8){const reader=new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(),chunks=[];let length=0;while(true){const part=await reader.read();if(part.done)break;length+=part.value.length;if(length>expanded||length>20000000){await reader.cancel();throw Error('엑셀 압축 크기가 올바르지 않습니다.');}chunks.push(part.value);}data=new Uint8Array(length);let position=0;for(const chunk of chunks){data.set(chunk,position);position+=chunk.length;}}else if(method!==0)throw Error('지원하지 않는 엑셀 압축 방식입니다.');
-      files.set(name,decoder.decode(data));
-    }
-    return files;
-  }
-  function xml(text){const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('엑셀 XML을 읽지 못했습니다.');return doc;}
-  async function readGrids(file){
-    if(file.size>8*1024*1024)throw Error('파일은 8MB 이하로 넣으세요.');const buffer=await file.arrayBuffer(),bytes=new Uint8Array(buffer);
-    if(bytes[0]===0x50&&bytes[1]===0x4b){
-      const files=await unzip(buffer),shared=files.has('xl/sharedStrings.xml')?[...xml(files.get('xl/sharedStrings.xml')).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
-      const styles=files.has('xl/styles.xml')?xml(files.get('xl/styles.xml')):null,dateFormats=new Set([14,15,16,17,18,19,20,21,22]);
-      if(styles)for(const el of styles.getElementsByTagName('numFmt'))if(/[yd]/i.test(el.getAttribute('formatCode')||''))dateFormats.add(+el.getAttribute('numFmtId'));
-      const xfs=styles?.getElementsByTagName('cellXfs')[0],dateStyles=xfs?[...xfs.children].map(x=>dateFormats.has(+x.getAttribute('numFmtId'))):[];
-      return [...files].filter(([name])=>name.startsWith('xl/worksheets/')).slice(0,20).map(([,text])=>[...xml(text).getElementsByTagName('row')].map(row=>{const cells=[];for(const c of row.getElementsByTagName('c')){const letters=(c.getAttribute('r')||'A1').match(/^[A-Z]+/)[0];let index=0;for(const ch of letters)index=index*26+ch.charCodeAt(0)-64;const type=c.getAttribute('t'),value=c.getElementsByTagName('v')[0]?.textContent??'';let result=type==='s'?shared[+value]||'':type==='inlineStr'?[...c.getElementsByTagName('t')].map(t=>t.textContent).join(''):value;if(type!=='s'&&type!=='inlineStr'&&value&&dateStyles[+c.getAttribute('s')])result=new Date(Date.UTC(1899,11,30)+Math.floor(+value)*86400000).toISOString().slice(0,10);cells[index-1]=result;}return cells;}));
-    }
-    throw Error('상품현황.xlsx 파일을 선택하세요.');
-  }
   $('cp-catalog-file').addEventListener('change',()=>{pendingCatalog=null;$('cp-catalog-save').disabled=true;});
   $('cp-catalog-preview').addEventListener('click',()=>work(async()=>{
     pendingCatalog=null; const file=$('cp-catalog-file').files[0]; if(!file)throw Error('상품현황.xlsx를 선택하세요.');
-    const grids=await readGrids(file), grid=grids.find(g=>g.some(r=>r.includes('옵션ID')&&r.includes('원가')));
-    if(!grid)throw Error('옵션ID·원가 열이 있는 상품현황 파일이 필요합니다.');
-    const h=grid.findIndex(r=>r.includes('옵션ID')&&r.includes('원가')), headers=grid[h], idx=k=>headers.indexOf(k);
-    for(const k of ['구분','상품명','마켓 수수료','입출고 요금','배송비'])if(idx(k)<0)throw Error(k+' 열이 없습니다.');
-    const numeric=(r,k)=>{const raw=r[idx(k)];if(raw==null||String(raw).trim()==='')throw Error(k+' 값이 비어 있습니다.');const n=Number(String(raw).replace(/,/g,''));if(!Number.isFinite(n)||n<0)throw Error(k+' 값이 올바르지 않습니다.');return n;};
-    const products=grid.slice(h+1).filter(r=>r[idx('옵션ID')]).map(r=>({itemId:String(r[idx('옵션ID')]),name:[r[idx('상품명')],r[idx('옵션명')]].filter(Boolean).join(' · '),unitCost:numeric(r,'원가'),commissionRate:numeric(r,'마켓 수수료'),inboundFee:numeric(r,'입출고 요금'),deliveryFee:numeric(r,'배송비'),costSince:r[idx('기준일자(원가)')]||null}));
-    if(!products.length||new Set(products.map(p=>p.itemId)).size!==products.length)throw Error('옵션이 없거나 옵션ID가 중복됩니다.');
+    const {products}=await window.CoupangSheets.parseCatalog(file);
     pendingCatalog=products;$('cp-catalog-status').textContent=products.length+'개 옵션 매칭 준비 · 원가 등록 '+products.filter(p=>p.unitCost>0).length+'개 · 원가 0원 확인 필요 '+products.filter(p=>p.unitCost===0).length+'개. 매칭 저장을 누르면 기존 원가가 갱신됩니다.';
   }));
   $('cp-catalog-save').addEventListener('click',()=>work(async()=>{
