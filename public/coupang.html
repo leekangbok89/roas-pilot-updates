@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROAS Pilot | 쿠팡 수익 분석</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/coupang.css"><script src="/coupang.js" defer></script></head>
+<body data-app-page="coupang">
+  <div class="app-nav-rail" id="app-nav-rail">
+    <button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button>
+  </div>
+  <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert>
+    <div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div>
+    <nav id="app-nav" class="app-nav" aria-label="워크스페이스">
+      <a class="app-nav-link" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a>
+      <a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a>
+      <a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a>
+      <a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a>
+      <a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a>
+      <a class="app-nav-link active" data-app-route="ga4" href="/ga4.html" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/><path d="m7 8 5-3 5 1"/></svg><span>GA4 유입 분석</span></a>
+      <a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a>
+    </nav>
+    <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <header class="app-page-head"><div><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">로켓그로스 중심으로, 판매자배송의 매출과 비용을 함께 확인합니다.</p></div></header>
+    <p id="cp-message" class="cp-notice" role="status" aria-live="polite">쿠팡 연결을 확인합니다.</p>
+    <details class="panel" id="cp-connection" open><summary>쿠팡 API 연결 · <span id="cp-identity">미연결</span></summary>
+      <p class="helper">쿠팡 WING에서 발급한 업체코드·Access Key·Secret Key를 등록하세요. 키는 이 PC의 Windows 계정으로 암호화합니다. API 허용 IP는 실제 인터넷 공인 IP를 사용합니다.</p>
+      <form id="cp-connect" autocomplete="off"><fieldset><div class="cp-form">
+        <label>업체코드 · Vendor ID<input id="cp-vendor" placeholder="A00012345" required maxlength="21" spellcheck="false"></label>
+        <label>Access Key<input id="cp-access" type="password" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
+        <label>Secret Key<input id="cp-secret" type="password" autocomplete="new-password" required maxlength="512" spellcheck="false"></label>
+      </div><button class="primary" type="submit">암호화 저장</button></fieldset></form>
+    </details>
+    <section class="panel"><h2>조회 기간과 주문 수집</h2>
+      <form id="cp-query"><fieldset class="cp-toolbar"><label>시작일<input id="cp-since" type="date" required></label><label>종료일<input id="cp-until" type="date" required></label>
+        <label>배송 방식<select id="cp-channel"><option value="growth">로켓그로스</option><option value="seller">판매자배송</option><option value="all">전체</option></select></label>
+        <button type="submit">저장 자료 조회</button><button id="cp-sync-growth" type="button">그로스 주문 API 수집</button><button id="cp-sync-seller" type="button">판매자배송 주문 API 수집</button>
+      </fieldset></form>
+      <p class="helper">저장 자료 조회는 API를 호출하지 않습니다. 주문 수집은 한 번에 최대 7일입니다. 그로스는 출고 이후 주문만 반환하며, 판매자배송의 반품 완료 주문은 주문 API에서 빠질 수 있습니다. 주문 금액을 확정 매출로 간주하지 않습니다.</p>
+    </section>
+    <details class="panel" open><summary>집계할 위마망 상품 선택</summary>
+      <p class="helper">주문 수집 후 위마망 옵션만 체크하고 저장하세요. 트루버·다른 브랜드는 체크하지 않습니다. 원가는 관세·수입운송비 등을 포함한 개당 원가를 등록하세요. 원가 미등록은 0원으로 계산하지 않습니다.</p>
+      <fieldset><div id="cp-products" class="cp-products"></div><button id="cp-save-scope" class="primary" type="button">선택한 위마망 상품 저장</button></fieldset>
+      <form id="cp-add"><fieldset><div class="cp-form"><label>직접 추가 · 옵션 ID<input id="cp-item-id" inputmode="numeric" maxlength="20" required></label><label>상품명<input id="cp-item-name" maxlength="300" required></label><div class="cp-actions"><button type="submit">옵션 추가</button></div></div></fieldset></form>
+    </details>
+    <div id="cp-summary" class="cp-summary"></div><p id="cp-missing" class="helper"></p>
+    <section class="panel"><h2>날짜별 매출과 예상 이익</h2><div class="cp-scroll"><table><thead><tr><th>날짜</th><th>배송 방식</th><th>API 판매수량</th><th>API 판매금액</th><th>확인한 매출</th><th>예상 이익</th><th>확인 상태</th><th>비용 관리</th></tr></thead><tbody id="cp-daily"></tbody></table></div></section>
+    <details id="cp-ledger" class="panel"><summary>매출·비용 입력 및 확인</summary>
+      <p class="helper">선택한 위마망 상품에 해당하는 금액만 입력하세요. 환불 반영 매출은 판매일 기준으로 통일하고 판매자 부담 할인을 반영하세요. 쿠팡 광고비는 실제 사용액과 부가세를 포함하세요. 이미 포함한 비용을 다시 차감하지 않습니다. 수입비를 원가에 넣었다면 입고 운송비에 중복 입력하지 않습니다.</p>
+      <form id="cp-cost-form"><fieldset><div class="cp-toolbar"><label>대상 날짜<input id="cp-date" type="date" required></label><label>배송 방식<select id="cp-cost-channel"><option value="growth">로켓그로스</option><option value="seller">판매자배송</option></select></label><button id="cp-cost-date-load" type="button">이 날짜의 입력값 불러오기</button></div>
+        <div id="cp-cost-fields" class="cp-form"></div>
+        <p class="helper">상품 원가가 등록되어 있으면 API 수량 기준 원가를 초안으로 채웁니다. 환불·재입고·폐기·포장비 등을 확인해 수정하세요. 로켓그로스 입출고비에 배송비가 포함되어 있으면 별도 배송비는 0으로 입력하세요. 비용이 없으면 0을 명시하세요.</p>
+        <label class="cp-review"><input id="cp-reviewed" type="checkbox" required><span>선택한 위마망 상품의 취소·반품·할인과 비용 누락·중복을 확인했습니다.</span></label>
+        <button class="primary" type="submit">매출·비용 저장하고 이익 계산</button>
+      </fieldset></form>
+    </details>
+    <p id="cp-note" class="helper">예상 이익은 확인한 매출과 입력한 비용 범위로 계산합니다. API 주문 합계와 실제 정산금은 구분합니다.</p>
+  </main></body></html>

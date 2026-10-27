@@ -159,6 +159,16 @@
       if (displayItem) nav.insertBefore(searchLink, displayItem);
       else nav.appendChild(searchLink);
     }
+    if (nav && !nav.querySelector('[data-app-route="coupang"]')) {
+      var coupangLink = document.createElement('a');
+      coupangLink.className = 'app-nav-link';
+      coupangLink.dataset.appRoute = 'coupang';
+      coupangLink.href = '/coupang.html';
+      coupangLink.textContent = '쿠팡 수익 분석';
+      var costItem = nav.querySelector('[data-app-route="cost"]');
+      if (costItem) nav.insertBefore(coupangLink, costItem);
+      else nav.appendChild(coupangLink);
+    }
     var links = Array.from(document.querySelectorAll('.app-nav-link'));
     links.forEach(function (link) {
       if (link.querySelector('svg')) return;
@@ -240,7 +250,7 @@
       window.addEventListener('popstate', function () { renderRoute(requestedRoute(), false); });
       renderRoute(requestedRoute(), false);
     } else {
-      markActive(['cost','ga4','experiments','display','detail','changes','search'].indexOf(page) >= 0 ? page : 'overview');
+      markActive(['cost','ga4','experiments','display','detail','changes','search','coupang'].indexOf(page) >= 0 ? page : 'overview');
       body.classList.add('app-route-ready');
     }
   }

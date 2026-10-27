@@ -17,7 +17,7 @@ const shellAssets=['public/app-shell.css','public/app-shell.js'];
 const scenarios=['fresh-install','legacy-v72-upgrade','incomplete-v73-recovery'];
 const base='http://127.0.0.1:3000';
 const accountIds={naver:'111111',cafe:'222222'};
-const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','광고 변경 기록','검색광고 분석','네이버 GFA 분석','원가관리','상세페이지 분석','설정 관리'];
+const expectedLabels=['한눈에 보기','광고별 진단','날짜별 비교','광고 변경 기록','검색광고 분석','네이버 GFA 분석','쿠팡 수익 분석','원가관리','상세페이지 분석','설정 관리'];
 const selectors={rail:'#app-nav-rail',sidebar:'#app-drawer',toggle:'#app-nav-toggle',links:'#app-nav .app-nav-link[data-app-route]',title:'.app-page-title',main:'#app-main.app-main',theme:'#app-theme-toggle'};
 const routes=[{url:'/visual-overview.html',active:'한눈에 보기'},{url:'/#ads-section',active:'광고별 진단'},{url:'/cost-management.html',active:'원가관리'}];
 let child,browser,page,temp,scenario,serverLog='',checks=0;
