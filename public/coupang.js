@@ -72,15 +72,16 @@
   function render() {
     $('cp-summary').replaceChildren(); $('cp-daily').replaceChildren(); if (!report) return;
     const rows = activeRows(), summary = report.summaries[$('cp-channel').value];
-    const allApi = rows.every(r => r.gross !== null), gross = allApi ? rows.reduce((s, r) => s + r.gross, 0) : null;
-    const values = [['주문 API 판매금액 · 반품 미확정', won(gross)], ['확인한 매출', won(summary.netSales)], ['입력 비용 반영 예상 이익', won(summary.profit)], ['매출·비용 확인', summary.completeDays + ' / ' + summary.totalDays + '일·배송방식']];
+    const collected = rows.filter(r => Number.isFinite(r.gross)), allApi = collected.length === rows.length;
+    const gross = collected.length ? collected.reduce((sum, r) => sum + r.gross, 0) : null;
+    const values = [[allApi ? '주문 API 판매금액 · 반품 미확정' : '주문 API 판매금액 · 수집분 · 반품 미확정', won(gross)], ['확인한 매출', won(summary.netSales)], ['입력 비용 반영 예상 이익', won(summary.profit)], ['매출·비용 확인', summary.completeDays + ' / ' + summary.totalDays + '일·배송방식']];
     for (const [label, text] of values) { const card = document.createElement('div'), small = document.createElement('small'), strong = document.createElement('strong'); card.className = 'cp-metric'; small.textContent = label; strong.textContent = text; card.append(small, strong); $('cp-summary').append(card); }
     for (const r of rows) {
       const tr = rowText([r.date, channels[r.channel], r.quantity ?? '—', won(r.gross), won(r.estimatedProductCost), won(r.estimatedCommission), won(r.estimatedFulfillment), won(r.entry?.netSales), won(r.profit), r.stale ? '주문 변경 · 재확인 필요' : r.complete ? '입력 비용 확인' : r.fetchedAt ? '비용 미확인' : 'API 미수집']);
       const td = document.createElement('td'), button = document.createElement('button'); button.type = 'button'; button.textContent = '비용 입력'; button.addEventListener('click', () => edit(r)); td.append(button); tr.append(td); $('cp-daily').append(tr);
     }
     $('cp-note').textContent = report.note;
-    $('cp-missing').textContent = summary.complete ? '선택 기간의 입력 비용을 모두 반영했습니다.' : '미확인 날짜가 있어 기간 전체 이익을 표시하지 않습니다. 비용이 없는 날도 매출·비용에 0을 입력하고 확인해 주세요.';
+    $('cp-missing').textContent = (!allApi ? 'API 저장 자료 ' + collected.length + '/' + rows.length + '일·배송방식 · 매출은 수집된 자료만 합산하며 미수집분은 0원으로 보지 않습니다. ' : '') + (summary.complete ? '선택 기간의 입력 비용을 모두 반영했습니다.' : '미확인 날짜가 있어 기간 전체 이익을 표시하지 않습니다. 비용이 없는 날도 매출·비용에 0을 입력하고 확인해 주세요.');
   }
   async function loadReport() {
     if (!selected.length) { report = null; render(); message('트루버·위마망 상품을 선택하고 저장하세요.'); return; }

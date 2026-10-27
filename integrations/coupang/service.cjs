@@ -345,16 +345,23 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const fields = ['quantity', 'sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit'];
     const sum = (rows, field) => rows.every(r => Number.isFinite(r[field])) ? rows.reduce((total, row) => total + row[field], 0) : null;
     const empty = () => Object.fromEntries(fields.map(k => [k, null]));
+    // Retain strict totals, while making the known sales portion visible when
+    // another date, option, or delivery channel has not been collected yet.
+    const availableFields = ['sales', 'quantity'];
+    const addAvailable = (a, b) => Number.isFinite(a) ? a + (Number.isFinite(b) ? b : 0) : Number.isFinite(b) ? b : null;
+    const available = rows => Object.fromEntries(availableFields.map(key => [key, rows.reduce((total, row) => addAvailable(total, row.available ? row.available[key] : row[key]), null)]));
     const items = [], itemTotals = new Map(), productTotals = new Map(), daily = [], seenImports = [], imports = new Map(), observedChannels = new Map();
     const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
     function addItem(row) {
+      row.available = available([row]);
       if (!view) { items.push(row); return; }
       const key = row.channel + ':' + row.itemId;
       let total = itemTotals.get(key);
       if (!total) {
-        total = { ...row, date: null, since: v.since, until: v.until, days: 1 }; itemTotals.set(key, total);
+        total = { ...row, available: { ...row.available }, date: null, since: v.since, until: v.until, days: 1 }; itemTotals.set(key, total);
       } else {
         for (const field of itemFields) total[field] = Number.isFinite(total[field]) && Number.isFinite(row[field]) ? total[field] + row[field] : null;
+        for (const field of availableFields) total.available[field] = addAvailable(total.available[field], row.available[field]);
         for (const field of ['unitCost', 'salePrice', 'inventory']) if (total[field] !== row[field]) total[field] = null;
         if (total.source !== row.source) total.source = 'mixed';
         total.days++;
@@ -364,10 +371,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       let product = productTotals.get(productKey);
       if (!product) {
         product = { date: row.date, channel: row.channel, productId: row.productId, name: row.name,
-          quantity: row.quantity, sales: row.sales, source: row.source, hasData: row.source !== 'missing' };
+          quantity: row.quantity, sales: row.sales, available: { ...row.available }, source: row.source, hasData: row.source !== 'missing' };
         productTotals.set(productKey, product);
       } else {
         for (const field of ['quantity', 'sales']) product[field] = Number.isFinite(product[field]) && Number.isFinite(row[field]) ? product[field] + row[field] : null;
+        for (const field of availableFields) product.available[field] = addAvailable(product.available[field], row.available[field]);
         if (product.source !== row.source) product.source = 'mixed';
         product.hasData ||= row.source !== 'missing';
       }
@@ -417,7 +425,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           for (const p of expected) if (!importedRows.some(r => r.itemId === p.itemId)) addItem(missingItem(p, date, ch));
           const sales = sum(importedRows, 'sales'), profitBeforeAds = sum(importedRows, 'profitBeforeAds'), advertising = sum(importedRows, 'advertising');
           const sourceNetProfit = profitBeforeAds - advertising;
-          parts.push({ ...empty(), channel: ch, source: 'sellha', quantity: covered ? sum(importedRows, 'quantity') : null,
+          parts.push({ ...empty(), available: { sales, quantity: sum(importedRows, 'quantity') }, channel: ch, source: 'sellha', quantity: covered ? sum(importedRows, 'quantity') : null,
             sales: covered ? sales : null, profitBeforeAds: covered ? profitBeforeAds : null, advertising: covered ? advertising : null,
             sourceNetProfit: covered ? sourceNetProfit : null, acquisitionAdvertising: acquisition,
             netProfit: covered && Number.isFinite(acquisition) ? sourceNetProfit - acquisition : null,
@@ -453,9 +461,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       }
       const sources = new Set(parts.map(p => p.source));
       const source = sources.size > 1 ? 'mixed' : [...sources][0];
-      daily.push({ date, source, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), complete: parts.every(p => p.complete), channels: parts });
+      for (const part of parts) if (!part.available) part.available = available([part]);
+      daily.push({ date, source, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), available: available(parts), complete: parts.every(p => p.complete), channels: parts });
     }
-    const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), complete: daily.every(d => d.complete) };
+    const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), available: available(daily), complete: daily.every(d => d.complete) };
     if (view) for (const item of itemTotals.values()) {
       item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
       items.push(item);

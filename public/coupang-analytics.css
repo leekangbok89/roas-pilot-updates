@@ -107,3 +107,6 @@ body[data-coupang-view].ca-compact .app-main .ca-table :is(th,td){padding:6px 8p
 @media(max-width:1100px){.ca-dashboard-grid{grid-template-columns:minmax(0,1fr)}.ca-cards{grid-template-columns:repeat(3,minmax(0,1fr))}.ca-daily-panel .ca-scroll{max-height:420px}}
 @media(max-width:650px){body[data-coupang-view] .app-main .panel{padding:12px}.ca-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ca-card{padding:12px}.ca-card strong{font-size:22px}.ca-subnav{gap:0}.ca-subnav a{padding:10px 12px;font-size:14px}.ca-toolbar{gap:8px}.ca-toolbar label{min-width:0}.ca-search-label{min-width:100%;max-width:none}.ca-date-arrow{display:none}.ca-columns{margin-left:auto}.ca-chart{min-height:250px}.ca-chart svg{min-height:250px}.ca-column-options{max-width:calc(100vw - 60px)}.ca-manage-link{display:none}.ca-panel-head{align-items:start}.ca-panel-head .ca-toolbar{gap:6px}.ca-panel-head button{font-size:13px!important;padding:5px 8px!important}}
 @media(prefers-reduced-motion:no-preference){.ca-subnav a,.ca-star{transition:background-color 120ms ease}}
+
+.ca-partial-note{font-size:11px!important;font-weight:600;color:var(--app-warning)!important;white-space:nowrap!important}
+.ca-source-partial{outline:1px solid var(--app-warning-line)}
