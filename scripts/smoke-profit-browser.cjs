@@ -945,7 +945,7 @@ async function verifySplitRoas(requests) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
       assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : expected[index].toFixed(1) + '%', message + ': ' + key);
       assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
-      assert.equal(await connection(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each ROAS card identifies its fixed Meta source');
+      assert.equal(await connection(key).locator('.summary-card-scope').textContent(), scopes[index], 'Each ROAS card identifies its fixed Meta source');
     }
   };
   const showRoasAudit = async () => {
@@ -1000,8 +1000,8 @@ async function verifySplitRoas(requests) {
   await range('2026-09-01', '2026-09-04');
   await assertRoas([1200000 / 90000 * 100, 600000 / 30000 * 100, 600000 / 60000 * 100], 'ROAS includes all selected-period spend even when some purchase values are unknown');
   for (const key of keys) {
-    assert.equal(await connection(key).locator('.summary-card-badge').innerText(), '확인분');
-    assert.match(await connection(key).locator('.summary-card-state').innerText(), /3\/4일/);
+    assert.equal(await connection(key).locator('.summary-card-badge').textContent(), '확인분');
+    assert.match(await connection(key).locator('.summary-card-state').textContent(), /3\/4일/);
   }
   check('ROAS: saved selections survive reload; fixed account scopes use confirmed purchase values divided by full-period spend');
 
@@ -1014,7 +1014,7 @@ async function verifySplitRoas(requests) {
   const duplicateInsights = requests.slice(duplicateStart).filter(req => new URL(req.url).pathname === '/api/insights');
   assert.equal(duplicateInsights.length, 1, 'One shared account is requested once');
   assert.equal(new URL(duplicateInsights[0].url).searchParams.get('account'), accountIds.naver);
-  for (const key of ['mallRoas', 'smartstoreRoas']) assert.match(await connection(key).locator('.summary-card-state').innerText(), /동일 광고계정.*채널 구분 필요/);
+  for (const key of ['mallRoas', 'smartstoreRoas']) assert.match(await connection(key).locator('.summary-card-state').textContent(), /동일 광고계정.*채널 구분 필요/);
   for (const [ids, expected, absent] of [
     [{ naver: accountIds.naver, cafe: '' }, [1500, null, 1500], ['mallRoas']],
     [{ naver: '', cafe: accountIds.cafe }, [3000, 3000, null], ['smartstoreRoas']],
@@ -1023,7 +1023,7 @@ async function verifySplitRoas(requests) {
     await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), ids);
     await range('2026-09-04');
     await assertRoas(expected, 'Disconnected accounts remain unavailable rather than zero');
-    for (const key of absent) assert.equal(await connection(key).locator('.summary-card-state').innerText(), '광고계정 미연결');
+    for (const key of absent) assert.equal(await connection(key).locator('.summary-card-state').textContent(), '광고계정 미연결');
   }
   await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
   await range('2026-09-04');
@@ -1036,7 +1036,7 @@ async function verifySplitRoas(requests) {
     await assertRoas([60, 60, 60], 'Full spend prevents 6000% inflation for ' + (sameDay ? 'different ads on one day' : 'different dates'));
     assert.equal(await page.locator('#spend').innerText(), money(2000));
     assert.equal(await page.locator('#revenue').innerText(), money(1200));
-    for (const key of keys) assert.equal(await connection(key).locator('.summary-card-badge').innerText(), '확인분', 'A partially observed purchase value remains explicitly partial');
+    for (const key of keys) assert.equal(await connection(key).locator('.summary-card-badge').textContent(), '확인분', 'A partially observed purchase value remains explicitly partial');
     await showRoasAudit();
     for (const key of keys) {
       assert.equal(await auditCell(key, 'revenue').isVisible(), true, 'Expanded calculation evidence is actually visible');
@@ -1057,7 +1057,7 @@ async function verifySplitRoas(requests) {
   await assertRoas([1200 / 1010 * 100, 6000, 60], 'Missing dates show explicitly partial saved-data ratios');
   await showRoasAudit();
   for (const key of ['roas', 'mallRoas']) {
-    assert.match(await connection(key).locator('.summary-card-state').innerText(), /광고비 미확인 1\/2일.*전체 기간 미확정/);
+    assert.match(await connection(key).locator('.summary-card-state').textContent(), /광고비 미확인 1\/2일.*전체 기간 미확정/);
     assert.ok((await auditCell(key, 'spend').innerText()).includes(money(key === 'roas' ? 1010 : 10)));
     assert.match(await auditCell(key, 'spend').innerText(), /확인분/, 'Incomplete spend is never presented as the full denominator');
     assert.match(await auditCell(key, 'value').innerText(), /확인분/);
@@ -1088,7 +1088,7 @@ async function verifySplitSpend(requests) {
       assert.equal(await card(key).count(), 1, key + ': one configured card');
       assert.equal(await card(key).locator('strong').innerText(), expected[index] == null ? '—' : money(expected[index]), message + ': ' + key);
       assert.equal(await card(key).locator('.summary-card-label').innerText(), labels[index]);
-      assert.equal(await connection(key).locator('.summary-card-scope').innerText(), scopes[index], 'Each spend card identifies its fixed account scope');
+      assert.equal(await connection(key).locator('.summary-card-scope').textContent(), scopes[index], 'Each spend card identifies its fixed account scope');
     }
   };
   assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,'The removed fixed spend breakdown stays absent');
@@ -1160,8 +1160,8 @@ async function verifySplitSpend(requests) {
   await assertSpend([1000, 10, 1010], 'Missing spend days retain only the known spend sum with explicit partial status');
   assert.equal(await connection('smartstoreSpend').locator('.summary-card-badge').count(), 0);
   for (const key of ['mallSpend', 'spend']) {
-    assert.equal(await connection(key).locator('.summary-card-badge').innerText(), '확인분');
-    assert.match(await connection(key).locator('.summary-card-state').innerText(), /확인 [12]\/2일.*광고비 일부 미확인/);
+    assert.equal(await connection(key).locator('.summary-card-badge').textContent(), '확인분');
+    assert.match(await connection(key).locator('.summary-card-state').textContent(), /확인 [12]\/2일.*광고비 일부 미확인/);
   }
   check('spend: verified empty dates show zero; unknown/zero purchases do not exclude spend; missing dates show the known sum with a partial badge and collection guidance');
 
@@ -1171,7 +1171,7 @@ async function verifySplitSpend(requests) {
   await range('2026-09-04');
   await assertSpend([null, null, 20000], 'A shared account contributes once to integrated spend and cannot be split by channel');
   assert.equal(requests.slice(duplicateStart).filter(req => new URL(req.url).pathname === '/api/insights').length, 1, 'The shared account is fetched only once');
-  for (const key of ['smartstoreSpend', 'mallSpend']) assert.match(await connection(key).locator('.summary-card-state').innerText(), /동일 광고계정.*구분/);
+  for (const key of ['smartstoreSpend', 'mallSpend']) assert.match(await connection(key).locator('.summary-card-state').textContent(), /동일 광고계정.*구분/);
   for (const [ids, expected, absent] of [
     [{ naver: accountIds.naver, cafe: '' }, [20000, null, 20000], ['mallSpend']],
     [{ naver: '', cafe: accountIds.cafe }, [null, 10000, 10000], ['smartstoreSpend']],
@@ -1180,7 +1180,7 @@ async function verifySplitSpend(requests) {
     await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), ids);
     await range('2026-09-04');
     await assertSpend(expected, 'Unconnected advertising accounts remain unavailable');
-    for (const key of absent) assert.match(await connection(key).locator('.summary-card-state').innerText(), /광고계정 미연결/);
+    for (const key of absent) assert.match(await connection(key).locator('.summary-card-state').textContent(), /광고계정 미연결/);
   }
   await page.evaluate(ids => localStorage.setItem('roas-account-ids', JSON.stringify(ids)), accountIds);
   await range('2026-09-04');
