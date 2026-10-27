@@ -74,6 +74,26 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function snapshot(c, date, channel) { return read(path.join(dir(c), 'orders', date + '-' + channel + '.json'), null); }
   const basis = snap => snap ? hash(snap.rows) : 'no-api-data';
   function ledgerFile(c, s) { return path.join(dir(c), 'ledgers', s.key + '.json'); }
+  function productMetadata(p) {
+    const extra = {};
+    if (Object.hasOwn(p, 'productId')) {
+      if (p.productId !== null && !id(p.productId)) throw fail(400, '상품 ID를 확인하세요.');
+      extra.productId = p.productId === null ? null : String(p.productId);
+    }
+    for (const key of ['productName', 'optionName']) if (Object.hasOwn(p, key)) {
+      if (typeof p[key] !== 'string' || p[key].length > 300) throw fail(400, '상품명·옵션명을 확인하세요.');
+      extra[key] = p[key].trim();
+    }
+    if (Object.hasOwn(p, 'salePrice')) {
+      if (p.salePrice !== null && money(p.salePrice) === null) throw fail(400, '판매가를 확인하세요.');
+      extra.salePrice = p.salePrice === null ? null : money(p.salePrice);
+    }
+    if (Object.hasOwn(p, 'channel')) {
+      if (p.channel !== null && !CHANNELS.includes(p.channel)) throw fail(400, '상품 배송 방식을 확인하세요.');
+      extra.channel = p.channel;
+    }
+    return extra;
+  }
   function status() {
     if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
     const c = config(), s = scope(c);
@@ -90,7 +110,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (!Array.isArray(v?.products) || !v.products.length || v.products.length > 500) throw fail(400, '트루버·위마망 옵션을 1개 이상 선택하세요.');
     const products = v.products.map(p => {
       if (!id(p?.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300 || (p.unitCost !== null && money(p.unitCost) === null)) throw fail(400, '옵션 ID·상품명·원가를 확인하세요.');
-      return { ...scope(c).products.find(old=>old.itemId===String(p.itemId)), itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
+      return { ...scope(c).products.find(old=>old.itemId===String(p.itemId)), ...productMetadata(p), itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
     }).sort((a, b) => a.itemId.localeCompare(b.itemId));
     if (new Set(products.map(p => p.itemId)).size !== products.length) throw fail(400, '중복 옵션 ID를 제거하세요.');
     // Costs belong to exactly this set of products; changing unit costs does not erase a reconciled ledger.
@@ -103,7 +123,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       if (!id(p.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300) throw fail(400, '옵션 ID·상품명을 확인하세요.');
       for (const k of ['unitCost','commissionRate','inboundFee','deliveryFee']) if (money(p[k]) === null) throw fail(400, '원가·수수료·배송비에 숫자가 필요합니다.');
       if (Number(p.commissionRate) > 100 || p.costSince && !validDay(p.costSince)) throw fail(400, '수수료율·원가 기준일을 확인하세요.');
-      return { itemId:String(p.itemId), name:p.name.trim(), unitCost:Number(p.unitCost)>0?Number(p.unitCost):null,
+      return { ...productMetadata(p), itemId:String(p.itemId), name:p.name.trim(), unitCost:Number(p.unitCost)>0?Number(p.unitCost):null,
         commissionRate:Number(p.commissionRate), inboundFee:Number(p.inboundFee), deliveryFee:Number(p.deliveryFee),
         costSince:p.costSince||null, source:'상품현황', importedAt:new Date(now()).toISOString() };
     });
@@ -286,6 +306,165 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     entries[key] = { date: v.date, channel: v.channel, scopeKey: s.key, ...amounts, reviewed: true, basis: basis(snap), savedAt: new Date(now()).toISOString() };
     atomic(file, JSON.stringify(entries)); return { saved: true };
   }
+  // A Sellha export is a complete one-day replacement. It never adds to the
+  // order API, and product header rows are deliberately not accepted here.
+  function importSales(v) {
+    const c = config(), s = requireScope(c);
+    range(v?.date, v?.date, now());
+    if (v.date < kstDay(now() - 365 * DAY)) throw fail(400, '최근 1년의 일별 손익 자료를 넣으세요.');
+    if (!Array.isArray(v.rows) || !v.rows.length || v.rows.length > 2000) throw fail(400, '손익 옵션 행은 1~2000개여야 합니다.');
+    const number = (value, nullable, negative, integer = false) => {
+      if (nullable && (value === undefined || value === null)) return null;
+      if (!['number', 'string'].includes(typeof value) || String(value).trim() === '') throw fail(400, '손익 자료에 필요한 숫자가 비어 있습니다.');
+      const n = Number(value);
+      if (!Number.isFinite(n) || Math.abs(n) > 1e12 || !negative && n < 0 || integer && !Number.isSafeInteger(n)) throw fail(400, '손익 금액·판매량을 확인하세요.');
+      return n;
+    };
+    const rows = v.rows.map(p => {
+      if (!p || !id(p.itemId) || !id(p.productId) || !CHANNELS.includes(p.channel) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300 || p.optionName !== undefined && (typeof p.optionName !== 'string' || p.optionName.length > 300)) throw fail(400, '손익 자료의 상품·옵션 ID·이름·배송 방식을 확인하세요.');
+      return { productId: String(p.productId), itemId: String(p.itemId), channel: p.channel, name: p.name.trim(), optionName: (p.optionName || '').trim(),
+        quantity: number(p.quantity, false, true, true), sales: number(p.sales, false, true), profitBeforeAds: number(p.profitBeforeAds, false, true), advertising: number(p.advertising, false, false),
+        adQuantity: number(p.adQuantity, true, true, true), organicQuantity: number(p.organicQuantity, true, true, true), adSales: number(p.adSales, true, true), adProfitBeforeAds: number(p.adProfitBeforeAds, true, true) };
+    });
+    if (new Set(rows.map(p => p.channel + ':' + p.itemId)).size !== rows.length) throw fail(400, '손익 자료의 옵션 ID·배송 방식이 중복됩니다.');
+    if (v.acquisitionAdvertising !== undefined && (!v.acquisitionAdvertising || typeof v.acquisitionAdvertising !== 'object' || Array.isArray(v.acquisitionAdvertising))) throw fail(400, '신규고객확보 광고비를 확인하세요.');
+    const acquisitionAdvertising = Object.fromEntries(CHANNELS.map(ch => [ch, number(v.acquisitionAdvertising?.[ch], true, false)]));
+    const importedAt = new Date(now()).toISOString();
+    const file = path.join(dir(c), 'sales', v.date + '.json'), replaced = fs.existsSync(file);
+    atomic(file, JSON.stringify({ date: v.date, vendorId: c.vendorId, rows, acquisitionAdvertising, acquisitionScopeKey: s.key, importedAt }));
+    const chosen = new Set(s.products.map(p => p.itemId));
+    return { saved: true, date: v.date, imported: rows.length, matched: rows.filter(p => chosen.has(p.itemId)).length, excluded: rows.filter(p => !chosen.has(p.itemId)).length, replaced, importedAt };
+  }
+  function analytics(v) {
+    const c = config(), days = range(v.since, v.until, now()), s = requireScope(c), channel = v.channel || 'all';
+    if (![...CHANNELS, 'all'].includes(channel)) throw fail(400, '조회 배송 방식을 확인하세요.');
+    const view = v.view || null;
+    if (view && !['dashboard', 'sales'].includes(view)) throw fail(400, '분석 화면을 확인하세요.');
+    const selectedChannels = channel === 'all' ? CHANNELS : [channel], chosen = new Map(s.products.map(p => [p.itemId, { ...p }]));
+    const ledgerRows = new Map(report(v).daily.map(r => [r.date + ':' + r.channel, r]));
+    const fields = ['quantity', 'sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit'];
+    const sum = (rows, field) => rows.every(r => Number.isFinite(r[field])) ? rows.reduce((total, row) => total + row[field], 0) : null;
+    const empty = () => Object.fromEntries(fields.map(k => [k, null]));
+    const items = [], itemTotals = new Map(), productTotals = new Map(), daily = [], seenImports = [], imports = new Map(), observedChannels = new Map();
+    const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
+    function addItem(row) {
+      if (!view) { items.push(row); return; }
+      const key = row.channel + ':' + row.itemId;
+      let total = itemTotals.get(key);
+      if (!total) {
+        total = { ...row, date: null, since: v.since, until: v.until, days: 1 }; itemTotals.set(key, total);
+      } else {
+        for (const field of itemFields) total[field] = Number.isFinite(total[field]) && Number.isFinite(row[field]) ? total[field] + row[field] : null;
+        for (const field of ['unitCost', 'salePrice', 'inventory']) if (total[field] !== row[field]) total[field] = null;
+        if (total.source !== row.source) total.source = 'mixed';
+        total.days++;
+      }
+      if (view !== 'dashboard') return;
+      const productKey = row.date + ':' + row.channel + ':' + row.productId;
+      let product = productTotals.get(productKey);
+      if (!product) {
+        product = { date: row.date, channel: row.channel, productId: row.productId, name: row.name,
+          quantity: row.quantity, sales: row.sales, source: row.source, hasData: row.source !== 'missing' };
+        productTotals.set(productKey, product);
+      } else {
+        for (const field of ['quantity', 'sales']) product[field] = Number.isFinite(product[field]) && Number.isFinite(row[field]) ? product[field] + row[field] : null;
+        if (product.source !== row.source) product.source = 'mixed';
+        product.hasData ||= row.source !== 'missing';
+      }
+    }
+    for (const date of days) {
+      const imported = read(path.join(dir(c), 'sales', date + '.json'), null); imports.set(date, imported);
+      if (imported && imported.vendorId !== c.vendorId) throw fail(500, '저장된 손익 자료의 판매자가 일치하지 않습니다.');
+      for (const r of imported?.rows || []) if (chosen.has(r.itemId)) {
+        const p = chosen.get(r.itemId); p.productId ||= r.productId; p.productName ||= r.name; p.optionName ||= r.optionName;
+        if (!observedChannels.has(r.itemId)) observedChannels.set(r.itemId, new Set());
+        observedChannels.get(r.itemId).add(r.channel);
+      }
+    }
+    function estimates(p, quantity, sales, date) {
+      return { unitCost: p.unitCost ?? null, salePrice: p.salePrice ?? null, inventory: null,
+        estimatedProductCost: Number.isFinite(p.unitCost) && (!p.costSince || date >= p.costSince) ? quantity * p.unitCost : null,
+        estimatedCommission: Number.isFinite(p.commissionRate) ? sales * p.commissionRate / 100 : null,
+        estimatedFulfillment: Number.isFinite(p.inboundFee) && Number.isFinite(p.deliveryFee) ? quantity * (p.inboundFee + p.deliveryFee) : null };
+    }
+    function applicable(p, ch) { return p.channel ? p.channel === ch : !observedChannels.has(p.itemId) || observedChannels.get(p.itemId).has(ch); }
+    function missingItem(p, date, ch) {
+      return { date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', source: 'missing',
+        quantity: null, adQuantity: null, organicQuantity: null, sales: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
+        sourceNetProfit: null, netProfit: null, adNetProfit: null, roas: null, unitCost: p.unitCost ?? null, salePrice: p.salePrice ?? null, inventory: null,
+        estimatedProductCost: null, estimatedCommission: null, estimatedFulfillment: null };
+    }
+    for (const date of days) {
+      const imported = imports.get(date);
+      if (imported) seenImports.push({ date, importedAt: imported.importedAt });
+      const parts = [];
+      for (const ch of selectedChannels) {
+        const ledger = ledgerRows.get(date + ':' + ch), snap = snapshot(c, date, ch);
+        const importedRows = (imported?.rows || []).filter(r => r.channel === ch && chosen.has(r.itemId));
+        // Export rows identify an option's delivery type even for older catalog
+        // imports that did not yet persist channel metadata.
+        const expected = [...chosen.values()].filter(p => applicable(p, ch));
+        const covered = !!imported && expected.every(p => importedRows.some(r => r.itemId === p.itemId));
+        if (importedRows.length || imported && expected.length === 0) {
+          const savedAcquisition = imported.acquisitionScopeKey === s.key ? imported.acquisitionAdvertising[ch] : null;
+          const acquisition = Number.isFinite(savedAcquisition) ? savedAcquisition : expected.length === 0 && importedRows.length === 0 ? 0 : null;
+          for (const r of importedRows) {
+            const p = chosen.get(r.itemId);
+            addItem({ ...r, date, source: 'sellha', sourceNetProfit: r.profitBeforeAds - r.advertising, netProfit: acquisition === 0 ? r.profitBeforeAds - r.advertising : null,
+              adNetProfit: r.adProfitBeforeAds === null ? null : r.adProfitBeforeAds - r.advertising,
+              roas: r.advertising > 0 && r.adSales !== null ? r.adSales / r.advertising * 100 : null, ...estimates(p, r.quantity, r.sales, date) });
+          }
+          for (const p of expected) if (!importedRows.some(r => r.itemId === p.itemId)) addItem(missingItem(p, date, ch));
+          const sales = sum(importedRows, 'sales'), profitBeforeAds = sum(importedRows, 'profitBeforeAds'), advertising = sum(importedRows, 'advertising');
+          const sourceNetProfit = profitBeforeAds - advertising;
+          parts.push({ ...empty(), channel: ch, source: 'sellha', quantity: covered ? sum(importedRows, 'quantity') : null,
+            sales: covered ? sales : null, profitBeforeAds: covered ? profitBeforeAds : null, advertising: covered ? advertising : null,
+            sourceNetProfit: covered ? sourceNetProfit : null, acquisitionAdvertising: acquisition,
+            netProfit: covered && Number.isFinite(acquisition) ? sourceNetProfit - acquisition : null,
+            complete: covered && Number.isFinite(acquisition), matchedProducts: importedRows.length, expectedProducts: expected.length });
+          continue;
+        }
+        if (snap) {
+          const grouped = new Map();
+          for (const r of snap.rows || []) if (chosen.has(r.itemId)) {
+            const previous = grouped.get(r.itemId) || { quantity: 0, sales: 0 };
+            previous.quantity += r.quantity; previous.sales += r.gross; grouped.set(r.itemId, previous);
+          }
+          for (const p of chosen.values()) {
+            if (!applicable(p, ch) && !grouped.has(p.itemId)) continue;
+            const values = grouped.get(p.itemId) || { quantity: 0, sales: 0 };
+            addItem({ date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', ...values,
+              adQuantity: null, organicQuantity: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
+              sourceNetProfit: null, netProfit: null, adNetProfit: null, roas: null, source: 'api', ...estimates(p, values.quantity, values.sales, date) });
+          }
+        } else {
+          for (const p of expected) addItem(missingItem(p, date, ch));
+        }
+        if (ledger?.complete) {
+          const entry = ledger.entry, otherCosts = ['inbound', 'delivery', 'storage', 'returns', 'other'].reduce((n, k) => n + entry[k], 0);
+          parts.push({ ...empty(), channel: ch, source: 'ledger', quantity: ledger.quantity, sales: entry.netSales,
+            profitBeforeAds: ledger.profit + entry.advertising, advertising: entry.advertising, otherCosts,
+            sourceNetProfit: ledger.profit, netProfit: ledger.profit, complete: true });
+        } else if (snap) {
+          parts.push({ ...empty(), channel: ch, source: 'api', quantity: ledger.quantity, sales: ledger.gross, complete: false });
+        } else {
+          parts.push({ ...empty(), channel: ch, source: 'missing', complete: false });
+        }
+      }
+      const sources = new Set(parts.map(p => p.source));
+      const source = sources.size > 1 ? 'mixed' : [...sources][0];
+      daily.push({ date, source, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), complete: parts.every(p => p.complete), channels: parts });
+    }
+    const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), complete: daily.every(d => d.complete) };
+    if (view) for (const item of itemTotals.values()) {
+      item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
+      items.push(item);
+    }
+    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, daily, items, summary,
+      ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
+      coverage: { sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
+      importedDates: seenImports.map(d => d.date), lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
+  }
   function report(v) {
     const c = config(), days = range(v.since, v.until, now()), s = requireScope(c), entries = read(ledgerFile(c, s), {}), chosen = new Map(s.products.map(p => [p.itemId, p]));
     const daily = days.flatMap(date => CHANNELS.map(channel => {
@@ -309,6 +488,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, saveScope, importCatalog, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, saveScope, importCatalog, importSales, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
 module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };
