@@ -751,7 +751,7 @@ async function verifySummaryCardDrag(requests) {
   const card = slot => page.locator('#summary-cards [data-summary-slot="' + slot + '"]');
   const drag = async (from, to) => {
     // Use native browser mouse events and its real DataTransfer across grid rows.
-    await card(from).locator('.summary-card-move').dragTo(card(to), { targetPosition: { x: 30, y: 55 } });
+    await card(from).locator('.summary-card-move').dragTo(card(to), { targetPosition: { x: 30, y: 20 } });
   };
   const requestStart = requests.length;
   await drag(0, 7);
@@ -760,7 +760,7 @@ async function verifySummaryCardDrag(requests) {
   assert.deepEqual(await saved(), reordered, 'Normal view saves the new order immediately');
   await drag(7, 0);
   assert.deepEqual(await keys(), original, 'Dragging backward across rows restores the order');
-  await card(0).dragTo(card(7), { sourcePosition: { x: 30, y: 70 }, targetPosition: { x: 30, y: 55 } });
+  await card(0).dragTo(card(7), { sourcePosition: { x: 30, y: 20 }, targetPosition: { x: 30, y: 20 } });
   assert.deepEqual(await saved(), reordered, 'Dragging the card body also reorders without requiring the handle');
   await drag(7, 0);
   await drag(0, 0);
@@ -948,6 +948,7 @@ async function verifySplitRoas(requests) {
     }
   };
   const showRoasAudit = async () => {
+    await page.locator('#summary-connections').evaluate(node => { node.open = true; });
     const audit = page.locator('#summary-roas-audit');
     if (!(await audit.evaluate(details => details.open))) await audit.locator(':scope > summary').click();
     assert.match(await audit.innerText(), /전체 광고비/, 'The visible calculation explanation identifies the full-spend denominator');
@@ -1116,7 +1117,7 @@ async function verifySplitSpend(requests) {
     if (index) assert.ok(box.x >= layout[index - 1].right - 1, 'Adjacent spend/ROAS cards do not overlap');
   }
   assert.deepEqual(requests.slice(requestStart).filter(req => new URL(req.url).pathname.startsWith('/api/')), [], 'Selecting and saving spend cards does not request data');
-  if (await page.locator('#summary-roas-audit').evaluate(details => details.open)) await page.locator('#summary-roas-audit > summary').click();
+  await page.locator('#summary-roas-audit').evaluate(details => { details.open = false; });
   await metricCardScreenshot('cards-three-spend-three-roas-1440');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await idle();
