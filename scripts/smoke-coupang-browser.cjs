@@ -19,6 +19,7 @@ async function main() {
   assert.equal((await fetch(base + '/api/coupang/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
   assert.equal((await fetch(base + '/api/coupang/report', { method: 'POST' })).status, 405);
   assert.equal((await fetch(base + '/api/coupang/history')).status, 409);
+  assert.equal((await fetch(base + '/api/coupang/history', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-ROAS-Local-Action': 'yes' }, body: JSON.stringify({ since: '2026-10-01', until: '2026-10-07', channels: ['growth'] }) })).status, 409, 'An authorized start must reach the service, rather than being rejected by the GET-only route');
   assert.equal((await fetch(base + '/api/coupang/history', { method: 'POST', headers: { Origin: 'https://evil.invalid' }, body: '{}' })).status, 403);
   browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Seoul' });

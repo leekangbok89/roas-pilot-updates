@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/display-analysis.html','public/visual-overview.html','public/cost-management.html','public/other-ad-costs.js','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html','public/detail-analysis.html','public/detail-analysis.js','public/detail-tracker.js','public/ad-changes.html','public/ad-changes.js','public/ad-changes.css','public/naver-search.html','public/naver-search.js','public/naver-search.css','public/naver-analysis.js','public/gfa-data.js','public/gfa-analysis.js','public/coupang.html','public/coupang.js','public/coupang.css'];
-const appVersion='2.8.148';
+const appVersion='2.8.149';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -3398,8 +3398,7 @@ const server=http.createServer(async (req,res)=> {
       if(!host||!origin)return json(res,403,{error:'이 PC의 ROAS Pilot 화면에서만 쿠팡을 사용할 수 있습니다.'});
       const route=u.pathname.slice('/api/coupang/'.length);
       const query={since:u.searchParams.get('since'),until:u.searchParams.get('until')};
-      if(['status','products','report','history'].includes(route)){
-        if(req.method!=='GET')return json(res,405,{error:'Method not allowed'});
+      if(req.method==='GET'&&['status','products','report','history'].includes(route)){
         return json(res,200,route==='status'?coupang.status():route==='history'?coupang.historyStatus():coupang[route](query));
       }
       if(['credentials','scope','sync','ledger','history','history-pause'].includes(route)){
@@ -3411,6 +3410,7 @@ const server=http.createServer(async (req,res)=> {
         const method={credentials:'saveCredentials',scope:'saveScope',sync:'sync',ledger:'saveLedger',history:'startHistory','history-pause':'pauseHistory'}[route];
         return json(res,200,await coupang[method](body));
       }
+      if(['status','products','report'].includes(route))return json(res,405,{error:'Method not allowed'});
       return json(res,404,{error:'Not found'});
     }
     if(u.pathname==='/api/naver/ad-spend'){
