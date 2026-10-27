@@ -24,6 +24,12 @@
     <nav class="ca-subnav" aria-label="쿠팡 분석 메뉴"><a href="/coupang-dashboard.html" aria-current="page">대시보드</a><a href="/coupang-products.html">상품 관리</a><a href="/coupang-sales.html">매출 분석</a><a href="/coupang-ads.html">광고 분석</a><a href="/coupang.html">자료·연결 관리</a></nav>
 
     <p id="ca-message" class="ca-notice" role="status" aria-live="polite">저장된 쿠팡 자료를 불러옵니다.</p>
+    <section class="panel ca-auto-panel" aria-labelledby="ca-auto-title">
+      <div class="ca-panel-head"><div><h2 id="ca-auto-title">주문 자동 저장</h2><p id="ca-auto-state" class="helper" role="status">저장 상태를 확인합니다.</p></div><button id="ca-refresh-orders" type="button" disabled>API 최근 7일 수집·저장</button></div>
+      <p id="ca-auto-detail" class="helper">프로그램이 켜져 있는 동안 최근 7일 주문을 매시간 갱신합니다. 조회와 계산은 저장된 자료를 사용합니다.</p>
+      <p id="ca-storage-status" class="helper">선택 기간의 저장 범위를 확인합니다.</p>
+      <p id="ca-auto-error" class="helper ca-auto-error" role="status" hidden></p>
+    </section>
     <section class="panel ca-filter-panel" aria-label="쿠팡 조회 조건">
       <form id="ca-query"><fieldset class="ca-toolbar">
         <label>시작일<input id="ca-since" type="date" required></label>
@@ -43,6 +49,7 @@
       <p id="ca-coverage" class="helper">기본 조회 기간은 오늘을 제외한 최근 7일입니다.</p>
     </section>
     <div id="ca-summary" class="ca-cards" aria-label="쿠팡 기간 합계"></div>
+    <p id="ca-estimate-status" class="helper ca-estimate-status">예상 이익은 저장된 주문과 등록 비용을 기준으로 계산합니다.</p>
 
     <div class="ca-dashboard-grid">
       <section class="panel ca-chart-panel" aria-labelledby="ca-chart-title">
@@ -63,7 +70,7 @@
     </section>
 
     <details id="ca-import" class="panel ca-import-panel">
-      <summary>셀하 손익 엑셀 가져오기 · 신규고객확보 광고비 확인</summary>
+      <summary>기존 손익 파일 비교·보정 · 선택사항</summary>
       <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 광고 판매량·이익금·광고비·순이익을 일별로 확인한 뒤 저장합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
       <fieldset>
         <div class="ca-toolbar ca-import-toolbar"><label class="ca-file-label">손익 결과 파일<input id="ca-file" type="file" accept=".xlsx,.json" multiple aria-label="셀하 손익 엑셀 또는 쿠팡 손익 설정 파일"></label><button id="ca-preview" type="button">파일 확인</button></div>
@@ -78,6 +85,6 @@
         <div class="ca-toolbar"><button id="ca-save" class="primary" type="button" disabled>손익 자료 저장</button><p id="ca-import-status" role="status" aria-live="polite">파일을 선택하고 확인해 주세요.</p></div>
       </fieldset>
     </details>
-    <div class="ca-method-note"><strong>금액 읽는 방법</strong><p>셀하 이익금에는 원가·수수료 등 광고 외 비용이 이미 반영되어 있습니다. 셀하 순이익은 이익금에서 매출성장 광고비를 뺀 값이며 신규고객확보 광고비를 제외합니다. 대시보드의 추가 광고비 반영 순이익에서 신규고객확보 광고비를 한 번 더 반영합니다.</p><p>API 주문금액은 반품·정산 미확정 자료입니다. 매출·판매량은 수집분을 먼저 표시하며 일부 미수집 여부를 함께 알립니다. 수집하지 않은 값은 <strong>—</strong>로 표시합니다. 재고는 현재 연결 자료에서 제공하지 않습니다.</p></div>
+    <div class="ca-method-note"><strong>금액 읽는 방법</strong><p>셀하 이익금에는 원가·수수료 등 광고 외 비용이 이미 반영되어 있습니다. 셀하 순이익은 이익금에서 매출성장 광고비를 뺀 값이며 신규고객확보 광고비를 제외합니다. 대시보드의 추가 광고비 반영 순이익에서 신규고객확보 광고비를 한 번 더 반영합니다.</p><p>주문은 날짜별로 저장하고 등록한 원가·수수료율·입출고·배송비를 적용해 광고비 차감 전 예상 이익을 계산합니다. 원가나 요금이 빠지면 계산 대기 사유를 표시합니다. API 주문금액은 반품·정산 미확정 자료입니다. 매출·판매량은 수집분을 먼저 표시하며 일부 미수집 여부를 함께 알립니다. 수집하지 않은 값은 <strong>—</strong>로 표시합니다. 재고는 현재 연결 자료에서 제공하지 않습니다.</p></div>
   </main>
 </body></html>

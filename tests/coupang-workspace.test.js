@@ -47,8 +47,14 @@ test('product edits preserve selection, identities, financial scope, reconciled 
   for (const key of ['name', 'productId', 'productName', 'optionName', 'source', 'importedAt', 'salePrice', 'channel']) assert.equal(updated[key], original[key]);
   assert.equal(updated.unitCost, 4000); assert.equal(updated.costSince, '2026-10-20');
   assert.equal(fs.readFileSync(ledgerPath, 'utf8'), savedLedger);
-  assert.deepEqual(s.analytics(query).summary, beforeAnalytics.summary);
-  assert.equal(s.analytics(query).summary.netProfit, 8300);
+  const afterSummary = s.analytics(query).summary;
+  const confirmedSummary = value => Object.fromEntries(Object.entries(value).filter(([key]) => !key.startsWith('estimated') && !['estimateSource', 'missingInputs', 'missingInputReasons'].includes(key)));
+  assert.deepEqual(confirmedSummary(afterSummary), confirmedSummary(beforeAnalytics.summary));
+  assert.equal(beforeAnalytics.summary.estimatedProfitBeforeAds, 11400);
+  assert.equal(afterSummary.estimatedProductCost, 8000); assert.equal(afterSummary.estimatedCommission, 2400); assert.equal(afterSummary.estimatedFulfillment, 900);
+  assert.equal(afterSummary.estimatedProfitBeforeAds, 8700); assert.equal(afterSummary.estimateSource, 'sellha');
+  assert.deepEqual(service().analytics(query).summary, afterSummary);
+  assert.equal(afterSummary.netProfit, 8300);
   assert.equal(s.analytics(query).items[0].netProfit, null, 'unallocated acquisition advertising remains unallocated');
   assert.deepEqual(service().workspace(), next);
   assert.ok(!JSON.stringify(next).includes(credentials.accessKey));

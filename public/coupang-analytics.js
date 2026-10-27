@@ -4,13 +4,14 @@
   const view = document.body.dataset.coupangView;
   const channels = { all: '전체 배송', growth: '로켓그로스', seller: '판매자배송' };
   const sourceNames = { sellha: '셀하 손익 파일', ledger: '확인한 매출·비용', api: 'API 주문 · 반품 미확정', missing: '자료 없음' };
-  const moneyFields = new Set(['sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'unitCost', 'salePrice', 'otherCosts', 'acquisitionAdvertising', 'nonAdvertisingCosts']);
-  const summable = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
+  const moneyFields = new Set(['sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'unitCost', 'salePrice', 'otherCosts', 'acquisitionAdvertising', 'nonAdvertisingCosts', 'estimatedProfitBeforeAds']);
+  const summable = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds'];
   const series = [
     { key: 'sales', label: '매출', color: '#508fd1' },
     { key: 'profitBeforeAds', label: '이익금 · 광고비 차감 전', color: '#d75c78' },
     { key: 'advertising', label: '매출성장 광고비', color: '#c29b28' },
-    { key: 'sourceNetProfit', label: '셀하 순이익 · 신규광고 제외', color: '#25966c' }
+    { key: 'sourceNetProfit', label: '셀하 순이익 · 신규광고 제외', color: '#25966c' },
+    { key: 'estimatedProfitBeforeAds', label: '예상 이익 · 광고비 차감 전', color: '#8a70c8' }
   ];
   const columns = [
     { key: 'inventory', label: '재고', note: '현재 수집 자료에 재고가 없으면 표시하지 않습니다.' },
@@ -23,13 +24,15 @@
     { key: 'adProfitBeforeAds', label: '광고 집행 이익금' }, { key: 'adNetProfit', label: '광고 집행 순이익', note: '광고 집행 이익금 − 매출성장 광고비. 신규고객확보 광고비 제외' },
     { key: 'adReturnOnSpend', label: '광고 집행 순이익률', note: '광고 집행 순이익 ÷ 광고 집행비 × 100. 광고비가 0이면 미확인' },
     { key: 'unitCost', label: '개당 원가' }, { key: 'salePrice', label: '등록 판매가' },
-    { key: 'estimatedProductCost', label: 'API 추정 상품원가' }, { key: 'estimatedCommission', label: 'API 추정 수수료' },
-    { key: 'estimatedFulfillment', label: 'API 추정 입출고·배송비' }
+    { key: 'estimatedProductCost', label: '예상 상품원가' }, { key: 'estimatedCommission', label: '예상 수수료' },
+    { key: 'estimatedFulfillment', label: '예상 입출고·배송비' },
+    { key: 'estimatedProfitBeforeAds', label: '예상 이익 · 광고비 차감 전', note: '저장된 판매금액 − 등록 원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·추가 정산비용 미확정' }
   ];
-  ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'].forEach(k => moneyFields.add(k));
-  const defaultColumns = columns.filter(c => !['salePrice', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'].includes(c.key)).map(c => c.key);
+  ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds'].forEach(k => moneyFields.add(k));
+  const defaultColumns = columns.filter(c => !['salePrice'].includes(c.key)).map(c => c.key);
   let report = null, groups = [], pendingImport = null, loading = false, loadSequence = 0, parseSequence = 0, importSaving = false;
   let savedGroups = [];
+  let pipelinePending = false, pipelineRefreshing = false, pipelineNeedsReload = false, pipelineTimer = null, pipelineStopped = false, pipelineStatus = null, lastRefreshFinishedAt = undefined;
   let productDailyPage = 0, productDailyCache = null;
   const productDailyPageSize = 100;
   let expanded = new Set(), favoriteIds = new Set(readSetting('favorites', [])), visibleColumns = new Set(readSetting('columns', defaultColumns));
@@ -63,6 +66,73 @@
   function dateShift(date, days) { return new Date(Date.parse(date) + days * 86400000).toISOString().slice(0, 10); }
   function queryValues() { return { since: $('ca-since').value, until: $('ca-until').value, channel: $('ca-channel').value }; }
   function queryString() { return new URLSearchParams(queryValues()).toString(); }
+  function estimateMissingText(row) {
+    const reasons = Array.isArray(row?.missingInputReasons) ? row.missingInputReasons.filter(value => typeof value === 'string') : [];
+    if (reasons.length) return '계산 대기 · ' + reasons.slice(0, 3).join(' · ') + (reasons.length > 3 ? ' 외' : '');
+    const names = { orders: '주문 미수집', unitCost: '상품 원가 미등록', costSince: '해당 날짜 원가 미등록', commissionRate: '수수료율 미등록', inboundFee: '입출고 요금 미등록', deliveryFee: '배송비 미등록' };
+    const inputs = Array.isArray(row?.missingInputs) ? row.missingInputs : [];
+    return inputs.length ? '계산 대기 · ' + [...new Set(inputs.map(key => names[key]).filter(Boolean))].join(' · ') : '저장된 주문과 등록 원가·수수료·배송비가 필요합니다.';
+  }
+  function localTimestamp(value) {
+    const time = typeof value === 'string' ? Date.parse(value) : NaN;
+    return Number.isFinite(time) ? new Date(time).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '아직 없음';
+  }
+  function pipelineState(status) {
+    const automatic = status?.automatic || {}, history = status?.history || {};
+    const running = status?.busy === true || automatic.running === true || history.running === true;
+    const channelErrors = Object.entries(automatic.channels || {}).filter(([, value]) => value?.status === 'failed').map(([key, value]) => (channels[key] || key) + ': ' + (value.error || '수집 실패'));
+    const error = typeof automatic.error === 'string' && automatic.error ? automatic.error : channelErrors.join(' · ');
+    const title = !status?.configured ? '쿠팡 연결 필요' : running ? '주문 수집·저장 중' : automatic.status === 'partial' ? '일부 저장 완료 · 오류 확인' : automatic.status === 'failed' || automatic.status === 'paused' ? '최근 갱신 중단 · 오류 확인' : automatic.enabled === false ? '자동 갱신 꺼짐' : '최근 7일 매시간 자동 저장';
+    return { running, title, error, disabled: !status?.configured || running, finishedAt: automatic.lastFinishedAt || null,
+      detail: '최근 실행 ' + localTimestamp(automatic.lastStartedAt) + ' · 최근 완료 ' + localTimestamp(automatic.lastCompletedAt) + (automatic.enabled === false ? '' : ' · 다음 확인 ' + localTimestamp(automatic.nextRunAt)),
+      range: automatic.since && automatic.until ? '갱신 대상 ' + automatic.since + ' ~ ' + automatic.until : '오늘을 포함한 최근 7일을 갱신합니다.' };
+  }
+  function renderStorageInfo() {
+    const host = $('ca-storage-status'); if (!host) return;
+    const storage = report?.storage;
+    host.textContent = storage ? '선택 기간 저장 ' + (storage.storedDays || 0) + '/' + (storage.expectedDays || 0) + '일·배송방식 · 최근 저장 주문일 ' + (storage.latestOrderDate || '아직 없음') + ' · 마지막 저장 ' + localTimestamp(storage.lastSavedAt) : '선택 기간의 저장 범위를 확인합니다.';
+    const note = $('ca-estimate-status'); if (!note) return;
+    const summary = report?.summary || {};
+    note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(summary.advertising) ? ' 광고비가 연결되지 않아 광고비와 최종 순이익은 —로 표시합니다.' : ' 광고비와 확인한 순이익은 별도 항목으로 표시합니다.');
+  }
+  function renderPipeline(status) {
+    pipelineStatus = status;
+    const state = pipelineState(status), host = $('ca-auto-state'); if (!host) return state;
+    host.textContent = state.title; host.dataset.error = String(!!state.error);
+    $('ca-auto-detail').textContent = state.range + ' · ' + state.detail;
+    $('ca-auto-error').textContent = state.error; $('ca-auto-error').hidden = !state.error;
+    $('ca-refresh-orders').disabled = pipelineRefreshing || state.disabled;
+    return state;
+  }
+  function schedulePipeline(running) {
+    clearTimeout(pipelineTimer);
+    if (!pipelineStopped && !document.hidden) pipelineTimer = setTimeout(loadPipelineStatus, running ? 5000 : 60000);
+  }
+  async function loadPipelineStatus() {
+    if (pipelinePending || pipelineStopped || !$('ca-auto-state')) return;
+    pipelinePending = true;
+    try {
+      const wasRunning = pipelineState(pipelineStatus).running, state = renderPipeline(await request('status'));
+      const changed = lastRefreshFinishedAt !== undefined && (state.finishedAt && state.finishedAt !== lastRefreshFinishedAt || wasRunning && !state.running && state.finishedAt);
+      lastRefreshFinishedAt = state.finishedAt;
+      if (changed) pipelineNeedsReload = true;
+      if (pipelineNeedsReload && !loading && !importSaving) { pipelineNeedsReload = false; await load(); }
+      schedulePipeline(state.running || pipelineNeedsReload);
+    } catch (error) {
+      $('ca-auto-state').textContent = '자동 저장 상태 확인 필요'; $('ca-auto-error').textContent = error.message; $('ca-auto-error').hidden = false; $('ca-refresh-orders').disabled = true; schedulePipeline(false);
+    } finally { pipelinePending = false; }
+  }
+  async function refreshOrders() {
+    if (pipelineRefreshing || pipelineState(pipelineStatus).disabled) return;
+    pipelineRefreshing = true; $('ca-refresh-orders').disabled = true;
+    try {
+      const result = await request('refresh', {});
+      if (result.automatic) renderPipeline({ ...pipelineStatus, busy: result.started === true, automatic: result.automatic });
+      message(result.started === false ? '진행 중인 수집이 있습니다. 저장된 자료는 계속 조회할 수 있습니다.' : '최근 7일 주문 수집·저장을 시작했습니다. 완료되면 저장 자료로 다시 계산합니다.');
+      await loadPipelineStatus();
+    } catch (error) { message(error.message, true); $('ca-auto-error').textContent = error.message; $('ca-auto-error').hidden = false; }
+    finally { pipelineRefreshing = false; if (pipelineStatus) renderPipeline(pipelineStatus); schedulePipeline(pipelineState(pipelineStatus).running); }
+  }
   async function request(route, body) {
     const response = await fetch('/api/coupang/' + route, body === undefined ? { credentials: 'same-origin' } : {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-ROAS-Local-Action': 'yes' }, body: JSON.stringify(body)
@@ -75,7 +145,7 @@
   }
   function clearResults() {
     window.CoupangThumbnails?.setContext(null);
-    report = null; groups = []; productDailyPage = 0; productDailyCache = null; $('ca-summary').replaceChildren(); $('ca-coverage').textContent = '선택한 기간으로 저장 자료를 조회해 주세요.';
+    report = null; groups = []; productDailyPage = 0; productDailyCache = null; renderStorageInfo(); $('ca-summary').replaceChildren(); $('ca-coverage').textContent = '선택한 기간으로 저장 자료를 조회해 주세요.';
     if (view === 'dashboard') {
       $('ca-chart').replaceChildren(element('p', '조회한 자료가 여기에 표시됩니다.', 'ca-empty'));
       $('ca-daily-body').replaceChildren(); $('ca-product-daily-body').replaceChildren(); $('ca-chart-tooltip').hidden = true;
@@ -98,8 +168,8 @@
       if (results[0].status === 'rejected') throw results[0].reason;
       report = results[0].value; window.CoupangThumbnails?.setContext(report);
       if (view === 'sales') updateGroupChoices(results[1]);
-      render(); history.replaceState(null, '', location.pathname + '?' + queryString());
-      message(isNumber(displayedValue(report.summary, 'sales')) ? '저장 자료 조회 완료 · ' + report.since + ' ~ ' + report.until + ' · ' + channels[queryValues().channel] + (isPartialValue(report.summary, 'sales') ? ' · 수집된 매출을 먼저 표시합니다. 일부 날짜·배송 방식·상품 자료는 미수집입니다.' : '') : '조회 기간에 저장된 주문·손익 파일이 없습니다. 주문을 수집하거나 셀하 손익 엑셀을 가져와 주세요.');
+      render(); renderStorageInfo(); history.replaceState(null, '', location.pathname + '?' + queryString());
+      message(isNumber(displayedValue(report.summary, 'sales')) ? '저장 자료 조회 완료 · ' + report.since + ' ~ ' + report.until + ' · ' + channels[queryValues().channel] + (isPartialValue(report.summary, 'sales') ? ' · 수집된 매출을 먼저 표시합니다. 일부 날짜·배송 방식·상품 자료는 미수집입니다.' : '') : '조회 기간에 저장된 주문이 없습니다. 쿠팡 연결과 집계 상품을 확인한 뒤 최근 7일 주문을 수집·저장해 주세요.');
     } catch (error) {
       if (sequence !== loadSequence) return;
       message(error.message + ' 연결과 집계 상품은 ‘자료·연결 관리’에서 확인할 수 있습니다.', true);
@@ -121,7 +191,8 @@
   function renderCards() {
     const summary = report.summary || {}, host = $('ca-summary'); host.replaceChildren();
     for (const [key, title, note] of [
-      ['sales', '매출', '셀하 할인 후 매출 / API 주문금액'],
+      ['sales', '매출', '저장된 주문 / 확인한 손익 자료'],
+      ['estimatedProfitBeforeAds', 'API 예상 이익 · 광고비 차감 전', '등록 원가·수수료·물류비 반영 · 광고·반품·추가 비용 미확정'],
       ['profitBeforeAds', '이익금', '매출성장 광고비 차감 전'],
       ['advertising', '매출성장 광고비', '셀하 파일의 광고 집행비'],
       ['sourceNetProfit', '셀하 순이익', '신규고객확보 광고비 제외'],
@@ -129,14 +200,15 @@
       ['netProfit', '전체 광고비 반영 순이익', '추가 광고비 확인한 날짜만 계산']
     ]) {
       const partial = isPartialValue(summary, key), amount = displayedValue(summary, key);
-      const card = element('div', undefined, 'ca-card ca-card-' + key), label = element('small', title + (partial ? ' · 수집분' : '')), value = element('strong', won(amount));
+      const displayTitle = key === 'estimatedProfitBeforeAds' && summary.estimateSource === 'sellha' ? '등록 비용 기준 예상 이익 · 광고비 차감 전' : title;
+      const card = element('div', undefined, 'ca-card ca-card-' + key), label = element('small', displayTitle + (partial ? ' · 수집분' : '')), value = element('strong', won(amount));
       if (isNumber(amount) && amount < 0) value.className = 'ca-negative';
-      card.append(label, value, element('small', partial ? '일부 미수집 · 확인된 매출만 합산 / 전체 기간 미확정' : note)); host.append(card);
+      card.append(label, value, element('small', partial ? '일부 미수집 · 확인된 매출만 합산 / 전체 기간 미확정' : key === 'estimatedProfitBeforeAds' && !isNumber(amount) ? estimateMissingText(summary) : note)); host.append(card);
     }
     const coverage = report.coverage || {}, imported = Array.isArray(report.importedDates) ? report.importedDates : [];
     const last = report.lastImportedAt ? new Date(report.lastImportedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : null;
     $('ca-coverage').textContent = '조회 ' + report.since + ' ~ ' + report.until + ' · 셀하 파일 ' + (coverage.sellhaDays || 0) + '일 · API 자료 ' + (coverage.apiDays || 0) + '일 / ' + (coverage.totalDays || report.daily.length) + '일' +
-      (imported.length ? ' · 셀하 저장 기간 ' + imported[0] + ' ~ ' + imported.at(-1) : ' · 셀하 파일 미등록') + (last ? ' · 마지막 저장 ' + last : '') + (coverage.fileScopeDays > 0 ? ' · 엑셀 포함 옵션 기준 · 기존/추후 추가한 다른 옵션은 해당 원본 합계에 포함하지 않습니다.' : '') + (isNumber(displayedValue(summary, 'sales')) ? ' · 수집된 매출은 누락 자료와 구분해 표시합니다. 미수집 부분은 0원으로 계산하지 않습니다.' : ' · 조회 기간에 저장된 주문·손익 파일이 없습니다. 주문 수집 또는 손익 엑셀 가져오기를 이용하세요.');
+      (imported.length ? ' · 셀하 저장 기간 ' + imported[0] + ' ~ ' + imported.at(-1) : ' · 셀하 파일 미등록') + (last ? ' · 마지막 저장 ' + last : '') + (coverage.fileScopeDays > 0 ? ' · 엑셀 포함 옵션 기준 · 기존/추후 추가한 다른 옵션은 해당 원본 합계에 포함하지 않습니다.' : '') + (isNumber(displayedValue(summary, 'sales')) ? ' · 수집된 매출은 누락 자료와 구분해 표시합니다. 미수집 부분은 0원으로 계산하지 않습니다.' : ' · 조회 기간에 저장된 주문·손익 파일이 없습니다. 연결 확인 후 최근 7일 주문 수집·저장을 이용하세요.');
   }
   function sourceBadge(row) {
     const partial = isPartialValue(row, 'sales') || isPartialValue(row, 'quantity');
@@ -149,13 +221,12 @@
     const value = displayedValue(row, key), td = addCell(tr, valueText(value, key), 'ca-number');
     if (isNumber(value) && value < 0) td.classList.add('ca-negative');
     if (isPartialValue(row, key)) td.append(element('small', '수집분 · 일부 미수집', 'ca-partial-note'));
+    if (key === 'estimatedProfitBeforeAds' && !isNumber(value)) { const reason = estimateMissingText(row); td.title = reason; }
     return td;
   }
   function noSalesContent() {
     const content = element('div'); content.append(element('p', '조회 기간에 저장된 주문·손익 파일이 없습니다.'));
-    const collect = element('a', '주문 수집·연결 관리'), upload = element('a', '손익 엑셀 가져오기');
-    collect.href = '/coupang.html'; upload.href = '#ca-import'; upload.style.marginLeft = '12px';
-    upload.addEventListener('click', () => { $('ca-import').open = true; }); content.append(collect, upload); return content;
+    const collect = element('a', '주문 수집·연결 관리'); collect.href = '/coupang.html'; content.append(collect); return content;
   }
   function render() {
     renderCards();
@@ -220,7 +291,7 @@
     host.append(svg); $('ca-chart-detail').textContent = '그래프에 마우스를 올리거나 Tab과 방향키로 날짜별 값을 확인할 수 있습니다. 자료가 없는 날짜의 선은 연결하지 않습니다. 일부 미수집일은 수집된 매출만 표시합니다.';
   }
   const dailyColumns = [
-    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규고객확보 광고비'], ['netProfit', '전체 광고비 반영 순이익']
+    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['estimatedProductCost', '예상 상품원가'], ['estimatedCommission', '예상 수수료'], ['estimatedFulfillment', '예상 입출고·배송비'], ['estimatedProfitBeforeAds', '예상 이익 · 광고비 차감 전'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규고객확보 광고비'], ['netProfit', '전체 광고비 반영 순이익']
   ];
   let dailySort = { key: 'date', ascending: false };
   function compareValues(a, b, key, ascending) {
@@ -285,6 +356,8 @@
     result.available = { sales: availableSum(rows, 'sales'), quantity: availableSum(rows, 'quantity') };
     result.adReturnOnSpend = result.advertising > 0 && isNumber(result.adNetProfit) ? result.adNetProfit / result.advertising * 100 : null;
     result.roas = isNumber(result.advertising) && result.advertising > 0 && isNumber(result.adSales) ? result.adSales / result.advertising * 100 : null;
+    result.missingInputs = [...new Set(rows.flatMap(row => Array.isArray(row.missingInputs) ? row.missingInputs : []))];
+    result.missingInputReasons = [...new Set(rows.flatMap(row => Array.isArray(row.missingInputReasons) ? row.missingInputReasons : []))];
     for (const key of ['unitCost', 'salePrice', 'inventory']) result[key] = rows.length && rows.every(r => isNumber(r[key]) && r[key] === rows[0][key]) ? rows[0][key] : null;
     result.source = rows.every(r => r.source === rows[0]?.source) ? rows[0]?.source : 'mixed'; return result;
   }
@@ -519,4 +592,10 @@
   });
   markPreset(matchingPreset === undefined ? null : matchingPreset);
   $('ca-channel').value = ['all', 'growth', 'seller'].includes(initial.get('channel')) ? initial.get('channel') : 'all'; load();
+  if ($('ca-refresh-orders')) {
+    $('ca-refresh-orders').addEventListener('click', refreshOrders); loadPipelineStatus();
+    window.addEventListener('pagehide', () => { pipelineStopped = true; clearTimeout(pipelineTimer); });
+    window.addEventListener('pageshow', () => { if (pipelineStopped) { pipelineStopped = false; loadPipelineStatus(); } });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(pipelineTimer); else loadPipelineStatus(); });
+  }
 })();

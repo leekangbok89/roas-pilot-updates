@@ -69,7 +69,7 @@ function safeThumbnailUrl(value) {
 function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...args), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   const privateFile = path.join(baseDir, '.roas-private', 'coupang.dpapi');
   const root = path.join(baseDir, '.roas-data', 'coupang');
-  let busy = false, lastRequest = 0, historyActive = false, historyTask = null, automaticStarted = false;
+  let busy = false, lastRequest = 0, historyActive = false, historyTask = null, refreshActive = false, refreshTask = null;
   let thumbnailActive = null, thumbnailTask = null;
   const productUri = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
   function read(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw fail(500, '쿠팡 저장 자료를 읽을 수 없습니다.'); } }
@@ -112,10 +112,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function status() {
     if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
     const c = config(), s = scope(c);
-    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: read(path.join(dir(c), 'automatic.json'), {}), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
+    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive || refreshActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: automaticStatus(c), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
   }
   function saveCredentials(v) {
-    if (busy || historyActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
+    if (busy || historyActive || refreshActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
     const c = credentials(v); let encrypted;
     try { encrypted = protect('encrypt', JSON.stringify(c)); } catch { throw fail(500, 'Windows 계정 암호화에 실패했습니다. 기존 연결은 유지됩니다.'); }
     atomic(privateFile, encrypted);
@@ -399,7 +399,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   }
   async function diagnose(v = {}) {
     const c = config();
-    if (busy || historyActive) throw fail(409, '쿠팡 자료를 수집 중입니다. 일시정지 후 연결 진단을 실행하세요.');
+    if (busy || historyActive || refreshActive) throw fail(409, '쿠팡 자료를 수집 중입니다. 일시정지 후 연결 진단을 실행하세요.');
     const channel = v.channel || 'all';
     if (![...CHANNELS, 'all'].includes(channel)) throw fail(400, '진단할 배송 방식을 확인하세요.');
     const date = kstDay(now() - DAY), checkedAt = new Date(now()).toISOString(), checks = [];
@@ -470,7 +470,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   async function sync(v, internal = false) {
     const c = config(), days = range(v.since, v.until, now(), 7);
     if (!CHANNELS.includes(v.channel)) throw fail(400, '배송 방식을 확인하세요.');
-    if (busy || historyActive && !internal) throw fail(409, '쿠팡 자료를 수집 중입니다.'); busy = true;
+    if (busy || (historyActive || refreshActive) && !internal) throw fail(409, '쿠팡 자료를 수집 중입니다.'); busy = true;
     const result = { savedDays: [], channel: v.channel };
     try {
       {
@@ -512,7 +512,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function startHistory(v = {}, source = 'manual') {
     const c = config();
     if (historyActive) { if (v.resume === true) return historyStatus(); throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.'); }
-    if (busy) throw fail(409, '쿠팡 자료를 수집 중입니다.');
+    if (busy || refreshActive) throw fail(409, '쿠팡 자료를 수집 중입니다.');
     let job;
     if (v.resume === true) {
       job = read(historyFile(c), null);
@@ -569,20 +569,56 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     historyTask.catch(() => {}); // Keep an I/O failure observable to waiters without an unhandled rejection.
     return historyStatus();
   }
+  function automaticStatus(c) {
+    const state = read(path.join(dir(c), 'automatic.json'), {});
+    const interrupted = state.running === true && !refreshActive;
+    return { enabled: true, intervalMinutes: 60, status: 'idle', ...state, running: refreshActive,
+      ...(interrupted ? { status: 'paused', error: '이전 자동 수집 중 프로그램이 종료됐습니다. 최근 7일 수집을 다시 실행하세요.' } : {}) };
+  }
+  function refresh(v = {}) {
+    const c = config(); requireScope(c);
+    if (refreshActive) return { started: false, reason: 'running', automatic: automaticStatus(c) };
+    if (busy || historyActive) throw fail(409, '쿠팡 자료를 수집 중입니다. 완료 후 최근 7일 수집을 실행하세요.');
+    const channels = v.channels === undefined ? CHANNELS : v.channels;
+    if (!Array.isArray(channels) || !channels.length || channels.some(ch => !CHANNELS.includes(ch)) || new Set(channels).size !== channels.length) throw fail(400, '수집할 배송 방식을 확인하세요.');
+    const file = path.join(dir(c), 'automatic.json'), previous = read(file, {}), stamp = new Date(now()).toISOString();
+    const state = { ...previous, enabled: true, intervalMinutes: 60, running: true, status: 'running',
+      since: kstDay(now() - 6 * DAY), until: kstDay(now()), lastStartedAt: stamp,
+      nextRunAt: new Date(now() + 60 * 60000).toISOString(), error: null,
+      channels: Object.fromEntries(channels.map(ch => [ch, { status: 'pending', savedDays: [], error: null }])) };
+    atomic(file, JSON.stringify(state)); refreshActive = true;
+    // Refresh orders into the existing durable daily store. The long-history
+    // checkpoint is independent and must survive a recent refresh unchanged.
+    refreshTask = Promise.resolve().then(async () => {
+      try {
+        for (const ch of channels) {
+          state.channels[ch].status = 'running'; atomic(file, JSON.stringify(state));
+          try {
+            const result = await sync({ since: state.since, until: state.until, channel: ch }, true);
+            state.channels[ch] = { status: 'completed', savedDays: result.savedDays, error: null, savedAt: new Date(now()).toISOString() };
+          } catch (error) { state.channels[ch] = { status: 'failed', savedDays: [], error: error.message }; }
+          atomic(file, JSON.stringify(state));
+        }
+        const failed = channels.filter(ch => state.channels[ch].status === 'failed');
+        state.status = failed.length === channels.length ? 'failed' : failed.length ? 'partial' : 'completed';
+        state.error = failed.map(ch => (ch === 'growth' ? '로켓그로스' : '판매자배송') + ': ' + state.channels[ch].error).join('\n') || null;
+        if (!failed.length) state.lastCompletedAt = new Date(now()).toISOString();
+      } finally {
+        state.running = false; state.lastFinishedAt = new Date(now()).toISOString();
+        try { atomic(file, JSON.stringify(state)); } finally { refreshActive = false; }
+      }
+      return automaticStatus(c);
+    });
+    refreshTask.catch(() => {});
+    return { started: true, automatic: automaticStatus(c) };
+  }
   async function automatic() {
-    if (automaticStarted || historyActive || busy || !fs.existsSync(privateFile)) return { started: false };
-    const c = config(), baseline = read(path.join(dir(c), 'backfill.json'), {}), channels = CHANNELS.filter(ch => baseline[ch]?.completedAt);
-    if (!channels.length) return { started: false, reason: 'initial-year-incomplete' };
-    const pending = read(historyFile(c), null);
-    if (pending && pending.kind !== 'startup' && pending.status !== 'completed') return { started: false, reason: 'unfinished-collection' };
-    automaticStarted = true;
-    const file = path.join(dir(c), 'automatic.json'), state = read(file, {}), until = kstDay(now()), since = kstDay(now() - 6 * DAY);
-    atomic(file, JSON.stringify({ ...state, lastStartedAt: new Date(now()).toISOString(), since, until, error: null }));
-    startHistory({ since, until, channels }, 'startup');
-    await historyTask;
-    const result = historyStatus();
-    atomic(file, JSON.stringify({ ...read(file, {}), ...(result.status === 'completed' ? { lastCompletedAt: new Date(now()).toISOString() } : {}), error: result.error || null }));
-    return { started: true, history: result };
+    if (refreshActive || historyActive || busy || !fs.existsSync(privateFile)) return { started: false, reason: 'busy-or-unconfigured' };
+    const c = config(); if (!scope(c).products.length) return { started: false, reason: 'products-not-selected' };
+    const state = read(path.join(dir(c), 'automatic.json'), {}), last = Date.parse(state.lastStartedAt || '');
+    if (state.running !== true && Number.isFinite(last) && now() - last < 60 * 60000) return { started: false, reason: 'not-due', automatic: automaticStatus(c) };
+    const result = refresh(); await refreshTask;
+    return { ...result, automatic: automaticStatus(c) };
   }
   function products(v) {
     const c = config(), days = range(v.since, v.until, now()), found = new Map(scope(c).products.map(p => [p.itemId, p]));
@@ -700,7 +736,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (view && !['dashboard', 'sales'].includes(view)) throw fail(400, '분석 화면을 확인하세요.');
     const selectedChannels = channel === 'all' ? CHANNELS : [channel], chosen = new Map(s.products.map(p => [p.itemId, { ...p }]));
     const ledgerRows = new Map(report(v).daily.map(r => [r.date + ':' + r.channel, r]));
-    const fields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'nonAdvertisingCosts', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit'];
+    const fields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'nonAdvertisingCosts', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit', ...estimateFields()];
     const sum = (rows, field) => rows.every(r => Number.isFinite(r[field])) ? rows.reduce((total, row) => total + row[field], 0) : null;
     const empty = () => Object.fromEntries(fields.map(k => [k, null]));
     // Retain strict totals, while making the known sales portion visible when
@@ -709,7 +745,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const addAvailable = (a, b) => Number.isFinite(a) ? a + (Number.isFinite(b) ? b : 0) : Number.isFinite(b) ? b : null;
     const available = rows => Object.fromEntries(availableFields.map(key => [key, rows.reduce((total, row) => addAvailable(total, row.available ? row.available[key] : row[key]), null)]));
     const items = [], itemTotals = new Map(), productTotals = new Map(), daily = [], seenImports = [], imports = new Map(), observedChannels = new Map();
-    const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
+    const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds'];
     function addItem(row) {
       row.available = available([row]);
       if (!view) { items.push(row); return; }
@@ -720,6 +756,9 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       } else {
         for (const field of itemFields) total[field] = Number.isFinite(total[field]) && Number.isFinite(row[field]) ? total[field] + row[field] : null;
         for (const field of availableFields) total.available[field] = addAvailable(total.available[field], row.available[field]);
+        total.missingInputs = [...new Set([...(total.missingInputs || []), ...(row.missingInputs || [])])];
+        total.missingInputReasons = total.missingInputs.map(estimateReason);
+        if (total.estimateSource !== row.estimateSource) total.estimateSource = 'mixed';
         for (const field of ['unitCost', 'salePrice', 'inventory']) if (total[field] !== row[field]) total[field] = null;
         if (total.source !== row.source) total.source = 'mixed';
         total.days++;
@@ -747,18 +786,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
         observedChannels.get(r.itemId).add(r.channel);
       }
     }
-    function estimates(p, quantity, sales, date) {
+    function estimates(p, quantity, sales, date, estimateSource) {
       return { unitCost: p.unitCost ?? null, salePrice: p.salePrice ?? null, inventory: null,
-        estimatedProductCost: Number.isFinite(p.unitCost) && (!p.costSince || date >= p.costSince) ? quantity * p.unitCost : null,
-        estimatedCommission: Number.isFinite(p.commissionRate) ? sales * p.commissionRate / 100 : null,
-        estimatedFulfillment: Number.isFinite(p.inboundFee) && Number.isFinite(p.deliveryFee) ? quantity * (p.inboundFee + p.deliveryFee) : null };
+        ...estimateCosts(p, quantity, sales, date), estimateSource };
     }
     function applicable(p, ch) { return p.channel ? p.channel === ch : !observedChannels.has(p.itemId) || observedChannels.get(p.itemId).has(ch); }
     function missingItem(p, date, ch) {
       return { date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', source: 'missing',
         quantity: null, adQuantity: null, organicQuantity: null, sales: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
         sourceNetProfit: null, netProfit: null, adNetProfit: null, nonAdvertisingCosts: null, adReturnOnSpend: null, roas: null, unitCost: p.unitCost ?? null, salePrice: p.salePrice ?? null, inventory: null,
-        estimatedProductCost: null, estimatedCommission: null, estimatedFulfillment: null };
+        ...estimateCosts(p, null, null, date), estimateSource: null };
     }
     for (const date of days) {
       const imported = imports.get(date);
@@ -784,12 +821,12 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
             const p = chosen.get(r.itemId);
             addItem({ ...r, date, source: 'sellha', nonAdvertisingCosts: r.sales - r.profitBeforeAds, adReturnOnSpend: r.advertising > 0 && Number.isFinite(r.adProfitBeforeAds) ? (r.adProfitBeforeAds - r.advertising) / r.advertising * 100 : null, sourceNetProfit: r.profitBeforeAds - r.advertising, netProfit: acquisition === 0 ? r.profitBeforeAds - r.advertising : null,
               adNetProfit: r.adProfitBeforeAds === null ? null : r.adProfitBeforeAds - r.advertising,
-              roas: r.advertising > 0 && r.adSales !== null ? r.adSales / r.advertising * 100 : null, ...estimates(p, r.quantity, r.sales, date) });
+              roas: r.advertising > 0 && r.adSales !== null ? r.adSales / r.advertising * 100 : null, ...estimates(p, r.quantity, r.sales, date, 'sellha') });
           }
           for (const p of expected) if (!importedRows.some(r => r.itemId === p.itemId)) addItem(missingItem(p, date, ch));
           const sales = sum(importedRows, 'sales'), profitBeforeAds = sum(importedRows, 'profitBeforeAds'), advertising = sum(importedRows, 'advertising');
           const sourceNetProfit = profitBeforeAds - advertising;
-          parts.push({ ...empty(), available: { sales, quantity: sum(importedRows, 'quantity') }, channel: ch, source: 'sellha', sourceScope, quantity: covered ? sum(importedRows, 'quantity') : null,
+          parts.push({ ...empty(), available: { sales, quantity: sum(importedRows, 'quantity') }, channel: ch, source: 'sellha', sourceScope, ...aggregateEstimates(covered ? importedRows.map(r => ({ ...estimateCosts(chosen.get(r.itemId), r.quantity, r.sales, date), estimateSource: 'sellha' })) : [{ ...estimateCosts({}, null, null, date), estimateSource: 'sellha' }]), quantity: covered ? sum(importedRows, 'quantity') : null,
             sales: covered ? sales : null, profitBeforeAds: covered ? profitBeforeAds : null, advertising: covered ? advertising : null,
             ...Object.fromEntries(['adQuantity', 'organicQuantity', 'adSales', 'adProfitBeforeAds'].map(key => [key, covered ? sum(importedRows, key) : null])),
             adNetProfit: covered && sum(importedRows, 'adProfitBeforeAds') !== null ? sum(importedRows, 'adProfitBeforeAds') - advertising : null,
@@ -809,31 +846,31 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
             const values = grouped.get(p.itemId) || { quantity: 0, sales: 0 };
             addItem({ date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', ...values,
               adQuantity: null, organicQuantity: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
-              sourceNetProfit: null, netProfit: null, adNetProfit: null, nonAdvertisingCosts: null, adReturnOnSpend: null, roas: null, source: 'api', ...estimates(p, values.quantity, values.sales, date) });
+              sourceNetProfit: null, netProfit: null, adNetProfit: null, nonAdvertisingCosts: null, adReturnOnSpend: null, roas: null, source: 'api', ...estimates(p, values.quantity, values.sales, date, 'api') });
           }
         } else {
           for (const p of expected) addItem(missingItem(p, date, ch));
         }
         if (ledger?.complete) {
           const entry = ledger.entry, otherCosts = ['inbound', 'delivery', 'storage', 'returns', 'other'].reduce((n, k) => n + entry[k], 0);
-          parts.push({ ...empty(), channel: ch, source: 'ledger', quantity: ledger.quantity, sales: entry.netSales,
+          parts.push({ ...empty(), channel: ch, source: 'ledger', ...estimateValues(ledger), quantity: ledger.quantity, sales: entry.netSales,
             profitBeforeAds: ledger.profit + entry.advertising, nonAdvertisingCosts: entry.netSales - ledger.profit - entry.advertising, advertising: entry.advertising, otherCosts,
             sourceNetProfit: ledger.profit, netProfit: ledger.profit, complete: true });
         } else if (snap) {
-          parts.push({ ...empty(), channel: ch, source: 'api', quantity: ledger.quantity, sales: ledger.gross, complete: false });
+          parts.push({ ...empty(), channel: ch, source: 'api', ...estimateValues(ledger), quantity: ledger.quantity, sales: ledger.gross, complete: false });
         } else {
-          parts.push({ ...empty(), channel: ch, source: 'missing', complete: false });
+          parts.push({ ...empty(), channel: ch, source: 'missing', ...estimateCosts({}, null, null, date), estimateSource: null, complete: false });
         }
       }
       const sources = new Set(parts.map(p => p.source));
       const source = sources.size > 1 ? 'mixed' : [...sources][0];
       const roas = row => Number.isFinite(row.adSales) && Number.isFinite(row.advertising) && row.advertising > 0 ? row.adSales / row.advertising * 100 : null;
       const adReturnOnSpend = row => Number.isFinite(row.adNetProfit) && Number.isFinite(row.advertising) && row.advertising > 0 ? row.adNetProfit / row.advertising * 100 : null;
-      for (const part of parts) { if (!part.available) part.available = available([part]); part.roas = roas(part); part.adReturnOnSpend = adReturnOnSpend(part); }
-      const day = { date, source, sourceScope, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), available: available(parts), complete: parts.every(p => p.complete), channels: parts };
+      for (const part of parts) { part.fetchedAt = ledgerRows.get(date + ':' + part.channel)?.fetchedAt || null; if (!part.available) part.available = available([part]); part.roas = roas(part); part.adReturnOnSpend = adReturnOnSpend(part); }
+      const day = { date, source, sourceScope, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), ...aggregateEstimates(parts), available: available(parts), complete: parts.every(p => p.complete), channels: parts };
       day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); daily.push(day);
     }
-    const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), available: available(daily), complete: daily.every(d => d.complete) };
+    const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), ...aggregateEstimates(daily), available: available(daily), complete: daily.every(d => d.complete) };
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
     summary.adReturnOnSpend = Number.isFinite(summary.adNetProfit) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adNetProfit / summary.advertising * 100 : null;
     if (view) for (const item of itemTotals.values()) {
@@ -841,10 +878,46 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       item.adReturnOnSpend = Number.isFinite(item.adNetProfit) && Number.isFinite(item.advertising) && item.advertising > 0 ? item.adNetProfit / item.advertising * 100 : null;
       items.push(item);
     }
-    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary,
+    const savedParts = daily.flatMap(day => day.channels.filter(part => part.fetchedAt).map(part => ({ date: day.date, fetchedAt: part.fetchedAt })));
+    const storage = { latestOrderDate: savedParts.map(part => part.date).sort().at(-1) || null, lastSavedAt: savedParts.map(part => part.fetchedAt).sort().at(-1) || null, storedDays: savedParts.length, expectedDays: days.length * selectedChannels.length };
+    return { since: v.since, until: v.until, channel, storage, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary,
       ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
       coverage: { fileScopeDays: daily.filter(d => d.sourceScope.mode === 'file').length, sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
       importedDates: seenImports.map(d => d.date), lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
+  }
+  function estimateFields() { return ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds']; }
+  function estimateReason(key) {
+    return { orders: '저장된 주문 자료 없음', unitCost: '개당 원가 미등록', costSince: '해당 날짜에 적용할 원가 없음', commissionRate: '판매수수료율 미등록', inboundFee: '개당 입출고 요금 미등록', deliveryFee: '개당 배송비 미등록' }[key] || key;
+  }
+  function estimateCosts(product, quantity, sales, date) {
+    const missingInputs = [];
+    if (!Number.isFinite(quantity) || !Number.isFinite(sales)) {
+      return { ...Object.fromEntries(estimateFields().map(key => [key, null])), missingInputs: ['orders'], missingInputReasons: [estimateReason('orders')] };
+    }
+    const costApplies = !product.costSince || date >= product.costSince;
+    if (quantity !== 0) {
+      if (!Number.isFinite(product.unitCost)) missingInputs.push('unitCost');
+      if (!costApplies) missingInputs.push('costSince');
+      if (!Number.isFinite(product.inboundFee)) missingInputs.push('inboundFee');
+      if (!Number.isFinite(product.deliveryFee)) missingInputs.push('deliveryFee');
+    }
+    if (sales !== 0 && !Number.isFinite(product.commissionRate)) missingInputs.push('commissionRate');
+    const estimatedProductCost = quantity === 0 ? 0 : Number.isFinite(product.unitCost) && costApplies ? quantity * product.unitCost : null;
+    const estimatedCommission = sales === 0 ? 0 : Number.isFinite(product.commissionRate) ? sales * product.commissionRate / 100 : null;
+    const estimatedFulfillment = quantity === 0 ? 0 : Number.isFinite(product.inboundFee) && Number.isFinite(product.deliveryFee) ? quantity * (product.inboundFee + product.deliveryFee) : null;
+    const costs = [estimatedProductCost, estimatedCommission, estimatedFulfillment];
+    return { estimatedProductCost, estimatedCommission, estimatedFulfillment,
+      estimatedProfitBeforeAds: costs.every(Number.isFinite) ? sales - costs.reduce((total, value) => total + value, 0) : null,
+      missingInputs, missingInputReasons: missingInputs.map(estimateReason) };
+  }
+  function aggregateEstimates(rows) {
+    const missingInputs = [...new Set(rows.flatMap(row => row.missingInputs || []))];
+    const sources = [...new Set(rows.map(row => row.estimateSource).filter(Boolean))];
+    return { ...Object.fromEntries(estimateFields().map(key => [key, rows.every(row => Number.isFinite(row[key])) ? rows.reduce((total, row) => total + row[key], 0) : null])),
+      missingInputs, missingInputReasons: missingInputs.map(estimateReason), estimateSource: sources.length > 1 ? 'mixed' : sources[0] || null };
+  }
+  function estimateValues(row) {
+    return { ...Object.fromEntries(estimateFields().map(key => [key, row[key]])), missingInputs: row.missingInputs, missingInputReasons: row.missingInputReasons, estimateSource: row.estimateSource };
   }
   function report(v) {
     const c = config(), days = range(v.since, v.until, now()), s = requireScope(c), entries = read(ledgerFile(c, s), {}), chosen = new Map(s.products.map(p => [p.itemId, p]));
@@ -853,22 +926,20 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const current = basis(snap), stale = !!entry && entry.basis !== current;
       const complete = !!entry && !stale && entry.reviewed && COSTS.every(k => Number.isFinite(entry[k]));
       const gross = snap ? rows.reduce((n, r) => n + r.gross, 0) : null;
-      const unitCostKnown = !!snap && rows.every(r => chosen.get(r.itemId).unitCost !== null && (!chosen.get(r.itemId).costSince || date >= chosen.get(r.itemId).costSince));
-      return { date, channel, gross, quantity: snap ? rows.reduce((n, r) => n + r.quantity, 0) : null,
-        estimatedProductCost: unitCostKnown ? rows.reduce((n, r) => n + r.quantity * chosen.get(r.itemId).unitCost, 0) : null,
-        estimatedCommission: snap && rows.every(r=>Number.isFinite(chosen.get(r.itemId).commissionRate)) ? rows.reduce((n,r)=>n+r.gross*chosen.get(r.itemId).commissionRate/100,0) : null,
-        estimatedFulfillment: snap && rows.every(r=>Number.isFinite(chosen.get(r.itemId).inboundFee)&&Number.isFinite(chosen.get(r.itemId).deliveryFee)) ? rows.reduce((n,r)=>n+r.quantity*(chosen.get(r.itemId).inboundFee+chosen.get(r.itemId).deliveryFee),0) : null,
+      const estimates = snap ? aggregateEstimates(rows.map(row => ({ ...estimateCosts(chosen.get(row.itemId), row.quantity, row.gross, date), estimateSource: 'api' }))) : { ...estimateCosts({}, null, null, date), estimateSource: null };
+      if (snap) estimates.estimateSource = 'api';
+      return { date, channel, gross, quantity: snap ? rows.reduce((n, r) => n + r.quantity, 0) : null, ...estimates,
         fetchedAt: snap?.fetchedAt || null, basis: current, entry, stale, complete,
         profit: complete ? entry.netSales - COSTS.filter(k => k !== 'netSales').reduce((sum, k) => sum + entry[k], 0) : null };
     }));
     const summaries = Object.fromEntries([...CHANNELS, 'all'].map(ch => {
       const rows = daily.filter(r => ch === 'all' || r.channel === ch), complete = rows.every(r => r.complete);
-      return [ch, { completeDays: rows.filter(r => r.complete).length, totalDays: rows.length, complete,
+      return [ch, { ...aggregateEstimates(rows), completeDays: rows.filter(r => r.complete).length, totalDays: rows.length, complete,
         netSales: complete ? rows.reduce((n, r) => n + r.entry.netSales, 0) : null, profit: complete ? rows.reduce((n, r) => n + r.profit, 0) : null }];
     }));
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
 }
 module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };

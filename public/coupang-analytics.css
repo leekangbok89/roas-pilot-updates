@@ -23,7 +23,7 @@ body[data-coupang-view] .app-main button{padding:7px 12px}
 .ca-presets{margin:12px 0 8px;gap:6px}
 .ca-presets button{padding:5px 12px!important;min-height:31px!important}
 .ca-presets button[aria-pressed=true]{background:var(--app-accent-soft);border-color:var(--app-accent);color:var(--app-link)}
-.ca-cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:0 0 14px}
+.ca-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 14px}
 .ca-card{min-width:0;padding:16px;background:var(--app-surface);border:1px solid var(--app-border);border-radius:13px;box-shadow:var(--app-shadow)}
 .ca-card:nth-child(2){background:var(--app-tone-violet-bg,var(--app-surface))}
 .ca-card:nth-child(3){background:var(--app-tone-amber-bg,var(--app-surface))}
@@ -113,3 +113,11 @@ body[data-coupang-view].ca-compact .app-main .ca-table :is(th,td){padding:6px 8p
 
 .ca-import-preview{max-height:360px;margin:14px 0;border:1px solid var(--app-border);border-radius:8px}
 .ca-import-preview[hidden],.ca-acquisition-fields[hidden]{display:none!important}
+
+.ca-auto-panel{background:var(--app-tone-blue-bg,var(--app-surface))!important;min-width:0}
+.ca-auto-panel p{margin:5px 0;overflow-wrap:anywhere}
+.ca-auto-panel .ca-panel-head{margin-bottom:4px}
+.ca-auto-error,.ca-auto-panel [data-error=true]{color:var(--app-warning)!important}
+.ca-auto-error[hidden]{display:none!important}
+.ca-estimate-status{margin:0 0 16px;padding:0 2px;overflow-wrap:anywhere}
+.ca-card-estimatedProfitBeforeAds{background:var(--app-tone-violet-bg,var(--app-surface))}

@@ -37,6 +37,15 @@ test('embedded legacy runtime imports a batch from the authenticated local route
           assert.equal((await req('/api/coupang/sales-import-batch',{...data,reports:[{date,rows:[{...row,sales:1}]},{date:'2026-10-26',rows:[{...row,advertising:-1}]}]})).status,400);
           const r=await req('/api/coupang/analytics?since='+date+'&until='+date+'&channel=all&view=sales');assert.equal(r.status,200);
           const report=JSON.parse(r.text);assert.equal(report.summary.sales,30000);assert.equal(report.summary.sourceNetProfit,13000);assert.equal(report.summary.adNetProfit,2001);assert.equal(report.summary.nonAdvertisingCosts,14000);assert.equal(report.items.length,1);
+          assert.equal((await req('/api/coupang/refresh')).status,405);
+          assert.equal((await req('/api/coupang/refresh',{}, {...headers,origin:'https://evil.invalid'})).status,403);
+          assert.equal((await req('/api/coupang/refresh',{channels:['unknown']})).status,400);
+          global.fetch=async()=>({ok:true,json:async()=>({code:200,data:[]})});
+          const refresh=await req('/api/coupang/refresh',{channels:['growth']});assert.equal(refresh.status,200);assert.equal(JSON.parse(refresh.text).started,true);
+          let state;
+          for(let attempt=0;attempt<50;attempt++){state=JSON.parse((await req('/api/coupang/status')).text);if(!state.automatic.running)break;await new Promise(resolve=>setTimeout(resolve,10));}
+          assert.equal(state.automatic.status,'completed');assert.equal(state.automatic.channels.growth.savedDays.length,7);
+          assert.ok(state.automatic.lastFinishedAt);assert.ok(!JSON.stringify(state).includes('SYNTHETIC-SECRET'));
         } finally {app.server.closeAllConnections();await new Promise(resolve=>app.server.close(resolve));}
       })().catch(error=>{console.error(error);process.exitCode=1;});
     `;

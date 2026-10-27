@@ -180,33 +180,37 @@ test('temporary rate limits retry with a new signed request while authorization 
   const { s } = setup(t, async () => ++count === 1 ? { ok: false, status: 429 } : { ok: true, json: async () => ({ code: 200, data: [] }) });
   await s.sync({ since: date, until: date, channel: 'growth' }); assert.equal(count, 2);
 });
-test('startup refresh waits for the initial year and then only rechecks the recent seven days once per launch', async t => {
+test('automatic refresh collects recent seven days before a year backfill and preserves older saved history', async t => {
   const calls = [];
   const { s, baseDir } = setup(t, async url => { calls.push(new URL(url)); return { ok: true, json: async () => ({ code: 200, data: [] }) }; });
-  assert.equal((await s.automatic()).reason, 'initial-year-incomplete'); assert.equal(calls.length, 0);
+  assert.equal((await s.automatic()).started, true); assert.equal(calls.length, 7);
+  assert.equal(s.historyStatus().status, 'idle');
   s.startHistory({ since: '2025-10-26', until: date, channels: ['growth', 'seller'] }); await s.waitForHistory();
   assert.ok(s.status().backfill.growth.completedAt); assert.ok(s.status().backfill.seller.completedAt);
   const oldFile = path.join(baseDir, '.roas-data/coupang/A00012345/orders/2025-10-26-growth.json'), oldBytes = fs.readFileSync(oldFile);
-  calls.length = 0; const r = await s.automatic(); assert.equal(r.started, true); assert.equal(calls.length, 7);
+  calls.length = 0; const r = s.refresh(); await s.waitForRefresh(); assert.equal(r.started, true); assert.equal(calls.length, 7);
   for (const u of calls) {
     if (u.pathname.endsWith('/rg/orders')) { assert.equal(u.searchParams.get('paidDateFrom'), '20261020'); assert.equal(u.searchParams.get('paidDateTo'), '20261026'); }
     else { assert.equal(u.searchParams.get('createdAtFrom'), '2026-10-20+09:00'); assert.equal(u.searchParams.get('createdAtTo'), '2026-10-26+09:00'); }
   }
-  assert.equal(s.historyStatus().kind, 'startup'); assert.equal(s.status().automatic.error, null); assert.ok(s.status().automatic.lastCompletedAt);
+  assert.equal(s.historyStatus().kind, 'manual'); assert.equal(s.status().automatic.error, null); assert.ok(s.status().automatic.lastCompletedAt);
   assert.deepEqual(fs.readFileSync(oldFile), oldBytes); assert.equal((await s.automatic()).started, false); assert.equal(calls.length, 7);
 });
-test('startup never replaces an unfinished manual backfill; a failed automatic check can retry next launch', async t => {
+test('recent refresh preserves unfinished history and failed refreshes retain saved data and allow explicit retry', async t => {
   let failing = false;
   const fetchImpl = async () => failing ? { ok: false, status: 403 } : { ok: true, json: async () => ({ code: 200, data: [] }) };
   const { s, baseDir } = setup(t, fetchImpl);
   s.startHistory({ since: '2025-10-26', until: date, channels: ['growth'] }); await s.waitForHistory();
   const file = path.join(baseDir, '.roas-data/coupang/A00012345/history.json'); const original = fs.readFileSync(file, 'utf8'), pending = JSON.parse(original);
   pending.status = 'running'; pending.kind = 'manual'; fs.writeFileSync(file, JSON.stringify(pending));
-  assert.equal((await s.automatic()).reason, 'unfinished-collection'); assert.equal(JSON.parse(fs.readFileSync(file)).kind, 'manual');
-  fs.writeFileSync(file, original); failing = true; await s.automatic(); assert.equal(s.historyStatus().status, 'failed'); assert.match(s.status().automatic.error, /인증/);
+  assert.equal((await s.automatic()).started, true); assert.equal(JSON.parse(fs.readFileSync(file)).kind, 'manual');
+  assert.equal(JSON.parse(fs.readFileSync(file)).status, 'running');
+  fs.writeFileSync(file, original); failing = true; s.refresh(); await s.waitForRefresh(); assert.equal(s.historyStatus().status, 'completed'); assert.match(s.status().automatic.error, /인증/);
   const protect = (mode, data) => mode === 'encrypt' ? Buffer.from(data).toString('base64') : Buffer.from(data, 'base64').toString();
   failing = false; const next = createService({ baseDir, protect, now: () => now, sleep: async () => {}, fetchImpl });
-  assert.equal((await next.automatic()).started, true); assert.equal(next.historyStatus().status, 'completed');
+  assert.equal((await next.automatic()).reason, 'not-due');
+  assert.equal(next.refresh().started, true); await next.waitForRefresh(); assert.equal(next.historyStatus().status, 'completed');
+  assert.equal(next.status().automatic.status, 'completed');
   assert.ok(fs.existsSync(path.join(baseDir, '.roas-data/coupang/A00012345/orders/2025-10-26-growth.json')));
 });
 
