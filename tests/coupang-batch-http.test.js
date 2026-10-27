@@ -32,11 +32,12 @@ test('embedded legacy runtime imports a batch from the authenticated local route
           assert.equal((await req('/api/coupang/credentials',{vendorId:'A00012345',accessKey:'SYNTHETIC-ACCESS',secretKey:'SYNTHETIC-SECRET'})).status,200);
           const row={itemId:'123',productId:'456',channel:'growth',name:'예시 상품',quantity:3,adQuantity:1,organicQuantity:2,sales:30000,profitBeforeAds:16000,advertising:3000,adSales:10000,adProfitBeforeAds:5001};
           const date='2026-10-25';
-          const data={schema:'roas-coupang-sales-v1',includeProducts:true,reports:[{date,rows:[row]}]};
-          const saved=await req('/api/coupang/sales-import-batch',data);assert.equal(saved.status,200);assert.equal(JSON.parse(saved.text).addedProducts,1);
+          const data={schema:'roas-coupang-sales-v1',includeProducts:true,products:[{itemId:'123',productId:'456',channel:'growth',name:'예시 상품',unitCost:0,commissionRate:10,inboundFee:0,deliveryFee:0,costSince:null}],reports:[{date,rows:[row]}]};
+          const saved=await req('/api/coupang/sales-import-batch',data);assert.equal(saved.status,200);assert.equal(JSON.parse(saved.text).addedProducts,1);assert.equal(JSON.parse(saved.text).catalogImported,1);
           assert.equal((await req('/api/coupang/sales-import-batch',{...data,reports:[{date,rows:[{...row,sales:1}]},{date:'2026-10-26',rows:[{...row,advertising:-1}]}]})).status,400);
           const r=await req('/api/coupang/analytics?since='+date+'&until='+date+'&channel=all&view=sales');assert.equal(r.status,200);
           const report=JSON.parse(r.text);assert.equal(report.summary.sales,30000);assert.equal(report.summary.sourceNetProfit,13000);assert.equal(report.summary.adNetProfit,2001);assert.equal(report.summary.nonAdvertisingCosts,14000);assert.equal(report.items.length,1);
+          assert.equal(report.summary.estimatedProductCost,0);assert.equal(report.summary.estimatedProfitBeforeAds,27000);assert.deepEqual(report.summary.zeroCostItemIds,['123']);
           assert.equal((await req('/api/coupang/refresh')).status,405);
           assert.equal((await req('/api/coupang/refresh',{}, {...headers,origin:'https://evil.invalid'})).status,403);
           assert.equal((await req('/api/coupang/refresh',{channels:['unknown']})).status,400);

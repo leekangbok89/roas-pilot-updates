@@ -73,6 +73,12 @@
     const inputs = Array.isArray(row?.missingInputs) ? row.missingInputs : [];
     return inputs.length ? '계산 대기 · ' + [...new Set(inputs.map(key => names[key]).filter(Boolean))].join(' · ') : '저장된 주문과 등록 원가·수수료·배송비가 필요합니다.';
   }
+  function costWarningText(row) {
+    const warnings = Array.isArray(row?.costWarnings) ? row.costWarnings.filter(value => typeof value === 'string' && value) : [];
+    if (warnings.length) return [...new Set(warnings)].join(' · ');
+    const ids = Array.isArray(row?.zeroCostItemIds) ? [...new Set(row.zeroCostItemIds)] : [];
+    return ids.length ? '원본 원가 0원 옵션 ' + ids.length + '개 · 원본의 0원을 적용한 참고 계산이며 실제 원가 확인이 필요합니다.' : '';
+  }
   function localTimestamp(value) {
     const time = typeof value === 'string' ? Date.parse(value) : NaN;
     return Number.isFinite(time) ? new Date(time).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '아직 없음';
@@ -103,6 +109,7 @@
     const note = $('ca-estimate-status'); if (!note) return;
     const summary = report?.summary || {};
     note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(summary.advertising) ? ' 광고비가 연결되지 않아 광고비와 최종 순이익은 —로 표시합니다.' : ' 광고비와 확인한 순이익은 별도 항목으로 표시합니다.');
+    const costWarning = costWarningText(summary); if (costWarning) note.textContent += ' ' + costWarning;
   }
   function renderPipeline(status) {
     pipelineStatus = status;
@@ -213,6 +220,7 @@
       const card = element('div', undefined, 'ca-card ca-card-' + key), label = element('small', displayTitle + (partial ? ' · 수집분' : '')), value = element('strong', won(amount));
       if (isNumber(amount) && amount < 0) value.className = 'ca-negative';
       card.append(label, value, element('small', partial ? '일부 미수집 · 확인된 매출만 합산 / 전체 기간 미확정' : key === 'estimatedProfitBeforeAds' && !isNumber(amount) ? estimateMissingText(summary) : note)); host.append(card);
+      if (key === 'estimatedProfitBeforeAds' && costWarningText(summary)) card.append(element('small', costWarningText(summary), 'ca-cost-warning'));
     }
     const coverage = report.coverage || {}, imported = Array.isArray(report.importedDates) ? report.importedDates : [];
     const last = report.lastImportedAt ? new Date(report.lastImportedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : null;
@@ -231,6 +239,7 @@
     if (isNumber(value) && value < 0) td.classList.add('ca-negative');
     if (isPartialValue(row, key)) td.append(element('small', '수집분 · 일부 미수집', 'ca-partial-note'));
     if (key === 'estimatedProfitBeforeAds' && !isNumber(value)) { const reason = estimateMissingText(row); td.title = reason; }
+    if (['estimatedProductCost', 'estimatedProfitBeforeAds'].includes(key) && costWarningText(row)) { td.title = costWarningText(row); td.append(element('small', '원본 0원 포함 · 확인 필요', 'ca-cost-warning')); }
     return td;
   }
   function noSalesContent() {
@@ -411,6 +420,8 @@
     result.roas = isNumber(result.advertising) && result.advertising > 0 && isNumber(result.adSales) ? result.adSales / result.advertising * 100 : null;
     result.missingInputs = [...new Set(rows.flatMap(row => Array.isArray(row.missingInputs) ? row.missingInputs : []))];
     result.missingInputReasons = [...new Set(rows.flatMap(row => Array.isArray(row.missingInputReasons) ? row.missingInputReasons : []))];
+    result.zeroCostItemIds = [...new Set(rows.flatMap(row => Array.isArray(row.zeroCostItemIds) ? row.zeroCostItemIds : []))];
+    result.costWarnings = [...new Set(rows.flatMap(row => Array.isArray(row.costWarnings) ? row.costWarnings : []))];
     for (const key of ['unitCost', 'salePrice', 'inventory']) result[key] = rows.length && rows.every(r => isNumber(r[key]) && r[key] === rows[0][key]) ? rows[0][key] : null;
     result.source = rows.every(r => r.source === rows[0]?.source) ? rows[0]?.source : 'mixed'; return result;
   }
@@ -452,6 +463,15 @@
     const selected = savedGroups.find(group => group.id === $('ca-group').value);
     return filterProductGroups(groups, selected ? selected.itemIds : null).filter(group => (!favoritesOnly || isFavorite(group)) && (!term || [group.id, group.name, group.fullName, ...group.options.flatMap(option => [option.id, option.name, option.fullName, option.optionName])].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(term))))
       .sort((a, b) => compareValues(a, b, key, direction === 'asc') || a.id.localeCompare(b.id));
+  }
+  function updateCostColumnButton() {
+    const button = $('ca-show-cost-columns');
+    if (button) button.hidden = ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds'].every(key => visibleColumns.has(key));
+  }
+  function revealCostColumns() {
+    for (const key of ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds']) visibleColumns.add(key);
+    document.querySelectorAll('#ca-column-options input[data-column-key]').forEach(input => { input.checked = visibleColumns.has(input.dataset.columnKey); });
+    saveSetting('columns', [...visibleColumns]); updateCostColumnButton(); if (report) renderSales();
   }
   function salesHeader() {
     const tr = element('tr');
@@ -534,6 +554,23 @@
     totals.roas = totals.advertising > 0 && isNumber(totals.adSales) ? totals.adSales / totals.advertising * 100 : null;
     return totals;
   }
+  function normalizeImportProducts(products) {
+    if (products === undefined) return undefined;
+    if (!Array.isArray(products) || !products.length || products.length > 500) throw Error('원가 설정은 1~500개 옵션이어야 합니다.');
+    const seen = new Set(), validId = value => typeof value === 'string' && /^[1-9]\d{0,19}$/.test(value) || Number.isSafeInteger(value) && value > 0;
+    return products.map(product => {
+      if (!product || typeof product !== 'object' || !validId(product.itemId) || typeof product.name !== 'string' || !product.name.trim() || product.name.length > 300) throw Error('원가 설정의 옵션 ID·상품명을 확인해 주세요.');
+      const itemId = String(product.itemId); if (seen.has(itemId)) throw Error('원가 설정의 옵션 ID가 중복됩니다.'); seen.add(itemId);
+      for (const key of ['unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) if (!isNumber(product[key]) || product[key] < 0 || product[key] > (key === 'commissionRate' ? 100 : 1e12)) throw Error('원가·수수료·입출고·배송비는 0 이상의 숫자여야 합니다.');
+      if (product.costSince != null && (typeof product.costSince !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(product.costSince) || !Number.isFinite(Date.parse(product.costSince)) || new Date(product.costSince).toISOString().slice(0, 10) !== product.costSince)) throw Error('원가 적용 시작일을 확인해 주세요.');
+      return { ...product, itemId };
+    });
+  }
+  function catalogPreviewStats(products, existing) {
+    const selectedIds = new Set((existing || []).map(product => String(product.itemId)));
+    return { total: products.length, positive: products.filter(product => product.unitCost > 0).length, zero: products.filter(product => product.unitCost === 0).length,
+      matched: products.filter(product => selectedIds.has(product.itemId)).length, added: products.filter(product => !selectedIds.has(product.itemId)).length };
+  }
   function renderImportPreview(reports, dailyTotals = [], catalog = null) {
     const host = $('ca-import-preview'); host.replaceChildren();
     if (dailyTotals.length) {
@@ -545,7 +582,7 @@
       }
       confirmed.append(h, b); host.append(element('p', '확인한 일별 합계' + ' · 전체 배송·현재 집계 상품 기준. 상품·배송 방식별 금액으로 배분하지 않습니다.'), confirmed);
     }
-    if (catalog) host.append(element('p', '원가·수수료·배송비 ' + catalog.products.length + '개 옵션을 함께 적용합니다. 기존 옵션의 비용 설정도 파일 기준으로 바뀝니다.'));
+    if (catalog) host.append(element('p', '원가 설정 ' + number(catalog.total) + '개 · 양수 원가 ' + number(catalog.positive) + '개 · 원본 0원 ' + number(catalog.zero) + '개 · 기존 옵션 매칭 ' + number(catalog.matched) + '개 · 신규 ' + number(catalog.added) + '개. 저장하면 해당 옵션의 원가·수수료·배송비를 파일 값으로 갱신합니다. 원본 0원은 실제 원가 확인이 필요한 참고값입니다.', 'helper ca-catalog-preview'));
     if (!reports.length) { host.hidden = false; return; }
     const table = element('table', undefined, 'ca-table'), head = element('thead'), body = element('tbody'), tr = element('tr');
     const fields = [['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '할인 후 매출'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['advertising', '광고 집행비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률']];
@@ -579,7 +616,7 @@
     $('ca-preview').disabled = true; $('ca-import-status').textContent = '손익 파일을 확인합니다.';
     try {
       if (files.length > 31) throw Error('하루 단위 엑셀은 한 번에 31개까지 선택할 수 있습니다.');
-      const parsed = []; let dailyTotals = [], catalog = null;
+      const parsed = []; let dailyTotals = [], products;
       for (const file of files) {
         if (file.size > 12 * 1024 * 1024) throw Error('파일 하나의 크기는 12MB 이하여야 합니다.');
         if (/\.json$/i.test(file.name)) {
@@ -589,29 +626,38 @@
           dailyTotals = normalizeDailyTotals(data.dailyTotals);
           if (data.reports?.length) parsed.push(...normalizeImportReports(data.reports));
           else if (!dailyTotals.length) throw Error('저장할 손익 자료가 없습니다.');
-          if (data.catalog !== undefined) {
-            if (!data.catalog || !Array.isArray(data.catalog.products) || !data.catalog.products.length || data.catalog.products.length > 500) throw Error('원가 설정의 옵션 수를 확인해 주세요.');
-            catalog = data.catalog;
-          }
+          if (data.catalog !== undefined && (!data.catalog || typeof data.catalog !== 'object' || Array.isArray(data.catalog) || !Array.isArray(data.catalog.products))) throw Error('원가 설정의 옵션 목록을 확인해 주세요.');
+          if (data.products !== undefined && data.catalog !== undefined) throw Error('원가 설정은 products 또는 catalog 중 한 곳에만 넣어 주세요.');
+          products = normalizeImportProducts(data.products === undefined ? data.catalog?.products : data.products);
         } else {
           if (!window.CoupangSheets?.parseSales) throw Error('엑셀 읽기 기능을 불러오지 못했습니다. 페이지를 새로고침해 주세요.');
           parsed.push(await window.CoupangSheets.parseSales(file));
         }
       }
       if (sequence !== parseSequence || files.some((file, index) => $('ca-file').files[index] !== file) || $('ca-file').files.length !== files.length) return;
-      const reports = parsed.length ? normalizeImportReports(parsed) : []; pendingImport = { reports, dailyTotals, catalog };
+      const reports = parsed.length ? normalizeImportReports(parsed) : [], dates = [...new Set([...reports, ...dailyTotals].map(row => row.date))].sort(); let catalog;
+      if (dates.length > 31) throw Error('손익 자료는 한 번에 31일씩 선택해 주세요.');
+      if (products) {
+        const current = await request('status'); if (!current.configured) throw Error('원가 설정을 저장하려면 먼저 쿠팡 연결을 등록해 주세요.');
+        catalog = catalogPreviewStats(products, current.products);
+      }
+      if (sequence !== parseSequence) return;
+      pendingImport = { reports, dailyTotals, ...(products ? { products } : {}) };
       renderImportPreview(reports, dailyTotals, catalog); configureImportAcquisition(reports);
-      const dates = [...new Set([...reports, ...dailyTotals].map(row => row.date))].sort();
-      $('ca-import-status').textContent = dates.length + '일 · ' + dates[0] + ' ~ ' + dates.at(-1) + ' · 옵션 행 ' + number(reports.reduce((n, r) => n + r.rows.length, 0)) + '개' + (dailyTotals.length ? ' · 확인 합계 ' + dailyTotals.length + '일' : '') + (catalog ? ' · 원가 설정 포함' : '') + '. 아래 수치를 확인한 뒤 저장하세요. 같은 날짜는 교체하여 중복 합산하지 않습니다.'; $('ca-save').disabled = false;
+      $('ca-import-scope-note').textContent = products ? '이 파일의 원가 설정을 한 번 저장하면 이후 자동 수집한 주문 계산에 계속 적용합니다. 파일에 포함된 옵션의 기존 원가·수수료·배송비는 위 미리보기 기준으로 갱신합니다.' : '새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.';
+      $('ca-import-status').textContent = dates.length + '일 · ' + dates[0] + ' ~ ' + dates.at(-1) + ' · 옵션 행 ' + number(reports.reduce((n, r) => n + r.rows.length, 0)) + '개' + (dailyTotals.length ? ' · 확인 합계 ' + dailyTotals.length + '일' : '') + (products ? ' · 원가 설정 포함' : '') + '. 아래 수치를 확인한 뒤 저장하세요. 같은 날짜는 교체하여 중복 합산하지 않습니다.'; $('ca-save').disabled = false;
     } catch (error) { if (sequence === parseSequence) { $('ca-import-status').textContent = error.message; message(error.message, true); } }
     finally { if (sequence === parseSequence) $('ca-preview').disabled = false; }
   }
   async function saveImport() {
     if (importSaving) return;
     if (!pendingImport) return message('손익 파일을 먼저 확인해 주세요.', true);
-    const payload = pendingImport, reports = payload.reports.map(entry => ({ ...entry })), dailyTotals = payload.dailyTotals || [], catalog = payload.catalog, includeProducts = $('ca-include-products').checked;
+    const payload = pendingImport, reports = payload.reports.map(entry => ({ ...entry })), includeProducts = $('ca-include-products').checked;
+    let products, dailyTotals;
+    try { products = normalizeImportProducts(payload.products); dailyTotals = normalizeDailyTotals(payload.dailyTotals); } catch (error) { return message(error.message, true); }
     const dates = [...new Set([...reports, ...dailyTotals].map(row => row.date))].sort();
-    if (catalog && !includeProducts) return message('원가 설정이 포함된 파일은 파일의 모든 옵션을 쿠팡 집계에 포함을 선택해 주세요.', true);
+    if (!dates.length) return message('저장할 손익 자료가 없습니다.', true);
+    if (products && !includeProducts) return message('원가 설정이 포함된 파일은 ‘파일의 모든 옵션을 쿠팡 집계에 포함’을 선택한 뒤 저장해 주세요.', true);
     if (reports.length === 1) {
       const acquisitionAdvertising = {};
       for (const channel of ['growth', 'seller']) {
@@ -624,16 +670,14 @@
     const lockedInputs = ['ca-file', 'ca-acquisition-growth', 'ca-acquisition-seller', 'ca-include-products'].map(id => ({ input: $(id), disabled: $(id).disabled }));
     lockedInputs.forEach(({ input }) => { input.disabled = true; });
     $('ca-save').disabled = true; $('ca-preview').disabled = true;
-    let catalogSaved = false;
     try {
-      if (catalog) { await request('catalog-import', catalog); catalogSaved = true; }
-      const result = await request('sales-import-batch', { reports, includeProducts, ...(dailyTotals.length ? { dailyTotals } : {}) });
+      const result = await request('sales-import-batch', { reports, includeProducts, ...(products ? { products } : {}), ...(dailyTotals.length ? { dailyTotals } : {}) });
       if (pendingImport === payload) pendingImport = null;
       const results = Array.isArray(result.reports) ? result.reports : Array.isArray(result.results) ? result.results : [];
       const excluded = results.reduce((n, r) => n + (r.excluded || 0), 0);
-      $('ca-import-status').textContent = dates.length + '일 손익 자료 저장 완료. ' + (includeProducts ? '파일의 옵션을 쿠팡 집계에 포함했습니다. 기존 등록 원가는 유지합니다.' : '기존 집계 대상만 반영합니다.') + (excluded ? ' 집계 제외 옵션 행 ' + number(excluded) + '개.' : '');
+      $('ca-import-status').textContent = dates.length + '일 손익 자료 저장 완료. ' + (products ? '원가·수수료·배송비 ' + number(result.catalogImported ?? products.length) + '개 갱신 · 원본 0원 ' + number(result.catalogZeroCosts ?? products.filter(product => product.unitCost === 0).length) + '개. 이후 자동 수집 주문에 적용합니다.' : includeProducts ? '파일의 옵션을 쿠팡 집계에 포함했습니다. 기존 등록 원가는 유지합니다.' : '기존 집계 대상만 반영합니다.') + (excluded ? ' 집계 제외 옵션 행 ' + number(excluded) + '개.' : '');
       $('ca-since').value = dates[0]; $('ca-until').value = dates.at(-1); $('ca-channel').value = 'all'; $('ca-month').value = ''; markPreset(null); await load();
-    } catch (error) { const text = (catalogSaved ? '원가 설정은 저장되었습니다. 일별 손익 저장 실패: ' : '') + error.message; message(text, true); $('ca-import-status').textContent = text; }
+    } catch (error) { message(error.message, true); $('ca-import-status').textContent = error.message; }
     finally { importSaving = false; lockedInputs.forEach(({ input, disabled }) => { input.disabled = disabled; }); $('ca-preview').disabled = false; $('ca-save').disabled = !pendingImport; }
   }
   $('ca-query').addEventListener('submit', event => { event.preventDefault(); load(); });
@@ -670,9 +714,10 @@
     for (const column of [{ key: 'name', label: '상품명' }, ...columns]) for (const direction of ['desc', 'asc']) { const option = element('option', column.label + (direction === 'desc' ? ' 높은 순' : ' 낮은 순')); option.value = column.key + ':' + direction; $('ca-sort').append(option); }
     $('ca-sort').value = 'sales:desc';
     for (const column of columns) {
-      const label = element('label'), check = element('input'); check.type = 'checkbox'; check.checked = visibleColumns.has(column.key);
-      check.addEventListener('change', () => { if (check.checked) visibleColumns.add(column.key); else visibleColumns.delete(column.key); saveSetting('columns', [...visibleColumns]); if (report) renderSales(); }); label.append(check, element('span', column.label)); $('ca-column-options').append(label);
+      const label = element('label'), check = element('input'); check.type = 'checkbox'; check.checked = visibleColumns.has(column.key); check.dataset.columnKey = column.key;
+      check.addEventListener('change', () => { if (check.checked) visibleColumns.add(column.key); else visibleColumns.delete(column.key); saveSetting('columns', [...visibleColumns]); updateCostColumnButton(); if (report) renderSales(); }); label.append(check, element('span', column.label)); $('ca-column-options').append(label);
     }
+    if ($('ca-show-cost-columns')) { $('ca-show-cost-columns').addEventListener('click', revealCostColumns); updateCostColumnButton(); }
     $('ca-search').addEventListener('input', () => { if (report) renderSales(); }); $('ca-sort').addEventListener('change', () => { if (report) renderSales(); }); $('ca-favorites').addEventListener('change', () => { if (report) renderSales(); });
     $('ca-group').addEventListener('change', () => { if (report) renderSales(); });
     $('ca-compact').addEventListener('click', () => { const on = $('ca-compact').getAttribute('aria-pressed') !== 'true'; $('ca-compact').setAttribute('aria-pressed', String(on)); $('ca-compact').textContent = on ? '넓게 보기' : '간격 줄이기'; document.body.classList.toggle('ca-compact', on); document.body.classList.toggle('ca-roomy', !on); });

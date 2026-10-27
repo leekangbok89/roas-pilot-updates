@@ -129,30 +129,36 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (!Array.isArray(v?.products) || !v.products.length || v.products.length > 500) throw fail(400, '트루버·위마망 옵션을 1개 이상 선택하세요.');
     const products = v.products.map(p => {
       if (!id(p?.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300 || (p.unitCost !== null && money(p.unitCost) === null)) throw fail(400, '옵션 ID·상품명·원가를 확인하세요.');
-      return { ...scope(c).products.find(old=>old.itemId===String(p.itemId)), ...productMetadata(p), itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
+      const old = scope(c).products.find(old=>old.itemId===String(p.itemId));
+      return { ...old, ...productMetadata(p), itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost), productCostSourceZero: old?.productCostSourceZero === true && money(p.unitCost) === 0 };
     }).sort((a, b) => a.itemId.localeCompare(b.itemId));
     if (new Set(products.map(p => p.itemId)).size !== products.length) throw fail(400, '중복 옵션 ID를 제거하세요.');
     // Costs belong to exactly this set of products; changing unit costs does not erase a reconciled ledger.
     atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ products, key: hash(products.map(p => p.itemId)) })); return status();
   }
-  function importCatalog(v) {
-    const c = config(), previous = scope(c);
-    if (!Array.isArray(v.products) || !v.products.length || v.products.length > 500) throw fail(400, '상품현황 옵션은 1~500개여야 합니다.');
-    const incoming = v.products.map(p => {
-      if (!id(p.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300) throw fail(400, '옵션 ID·상품명을 확인하세요.');
+  function validateCatalog(products) {
+    if (!Array.isArray(products) || !products.length || products.length > 500) throw fail(400, '상품현황 옵션은 1~500개여야 합니다.');
+    const incoming = products.map(p => {
+      if (!p || !id(p.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300) throw fail(400, '옵션 ID·상품명을 확인하세요.');
       for (const k of ['unitCost','commissionRate','inboundFee','deliveryFee']) if (money(p[k]) === null) throw fail(400, '원가·수수료·배송비에 숫자가 필요합니다.');
       if (Number(p.commissionRate) > 100 || p.costSince && !validDay(p.costSince)) throw fail(400, '수수료율·원가 기준일을 확인하세요.');
-      return { ...productMetadata(p), itemId:String(p.itemId), name:p.name.trim(), unitCost:Number(p.unitCost)>0?Number(p.unitCost):null,
+      // Source zero is an explicit catalogue value. Keep it distinct from an
+      // unset/manual-cleared cost, and expose a notice rather than guessing.
+      return { ...productMetadata(p), itemId:String(p.itemId), name:p.name.trim(), unitCost:Number(p.unitCost), productCostSourceZero:Number(p.unitCost)===0,
         commissionRate:Number(p.commissionRate), inboundFee:Number(p.inboundFee), deliveryFee:Number(p.deliveryFee),
         costSince:p.costSince||null, source:'상품현황', importedAt:new Date(now()).toISOString() };
     });
     if (new Set(incoming.map(p=>p.itemId)).size !== incoming.length) throw fail(400, '중복 옵션 ID가 있습니다.');
+    return incoming;
+  }
+  function importCatalog(v) {
+    const c = config(), previous = scope(c), incoming = validateCatalog(v?.products);
     const merged = new Map(previous.products.map(p=>[p.itemId,p]));
     for (const p of incoming) merged.set(p.itemId,{...merged.get(p.itemId),...p});
     if (merged.size > 500) throw fail(400, '기존 상품을 포함해 500개를 초과합니다.');
     const products = [...merged.values()].sort((a,b)=>a.itemId.localeCompare(b.itemId));
     atomic(path.join(dir(c),'scope.json'), JSON.stringify({products,key:hash(products.map(p=>p.itemId))}));
-    return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length};
+    return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length, sourceZeroCost:incoming.filter(p=>p.productCostSourceZero).length};
   }
   const displayText = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
   function displayProducts(c, products) {
@@ -199,7 +205,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     if (costs.commissionRate !== null && costs.commissionRate > 100) throw fail(400, '수수료율은 0~100%로 입력하세요.');
     if (!Object.hasOwn(v, 'costSince') || v.costSince !== null && (!validDay(v.costSince) || v.costSince > kstDay(now()))) throw fail(400, '원가 기준일을 확인하세요. 미래 날짜는 사용할 수 없습니다.');
-    const products = s.products.map(p => p.itemId === itemId ? { ...p, ...costs, costSince: v.costSince } : p);
+    const products = s.products.map(p => p.itemId === itemId ? { ...p, ...costs, costSince: v.costSince, productCostSourceZero: false } : p);
     // Edit metadata in place: selection and its ledger/acquisition scope stay intact.
     atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ ...s, products }));
     return workspaceState(c);
@@ -741,6 +747,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     // Validate the complete batch before changing either the selected products
     // or any date. An invalid later file must not leave earlier dates imported.
     const reports = v.reports.map(validateSales).sort((a, b) => a.date.localeCompare(b.date));
+    if (v.products !== undefined && v.includeProducts !== true) throw fail(400, '상품현황을 함께 복원하려면 파일의 모든 옵션 추가를 선택하세요.');
+    const catalog = v.products === undefined ? [] : validateCatalog(v.products);
     if (new Set(reports.map(r => r.date)).size !== reports.length) throw fail(400, '같은 날짜의 손익 파일이 중복됩니다. 날짜별 파일을 하나씩 선택하세요.');
     const dailyTotals = (v.dailyTotals || []).map(row => {
       range(row?.date, row?.date, now());
@@ -758,6 +766,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     let s = previous;
     if (v.includeProducts === true) {
       const products = new Map(previous.products.map(p => [p.itemId, { ...p }])), imported = new Map();
+      for (const product of catalog) products.set(product.itemId, { ...products.get(product.itemId), ...product });
       for (const report of reports) for (const r of report.rows) {
         const metadata = imported.get(r.itemId);
         imported.set(r.itemId, { ...r, channels: new Set([...(metadata?.channels || []), r.channel]) });
@@ -798,7 +807,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const dates = [...new Set([...reports, ...dailyTotals].map(row => row.date))].sort();
     return { saved: true, reports: results, dailyTotals: dailyTotals.map(row => ({ date: row.date, saved: true })), days: dates.length, since: dates[0], until: dates.at(-1),
       imported: results.reduce((n, r) => n + r.imported, 0), matched: results.reduce((n, r) => n + r.matched, 0),
-      excluded: results.reduce((n, r) => n + r.excluded, 0), addedProducts: s.products.length - previous.products.length, scopeKey: s.key, importedAt };
+      excluded: results.reduce((n, r) => n + r.excluded, 0), catalogImported: catalog.length, catalogZeroCosts: catalog.filter(p => p.productCostSourceZero).length, catalogMissingCost: catalog.filter(p => p.unitCost === null).length, addedProducts: s.products.length - previous.products.length, scopeKey: s.key, importedAt };
   }
   function analytics(v) {
     const c = config(), days = range(v.since, v.until, now()), s = requireScope(c), channel = v.channel || 'all';
@@ -835,6 +844,9 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
         for (const field of availableFields) total.available[field] = addAvailable(total.available[field], row.available[field]);
         total.missingInputs = [...new Set([...(total.missingInputs || []), ...(row.missingInputs || [])])];
         total.missingInputReasons = total.missingInputs.map(estimateReason);
+        total.zeroCostItemIds = [...new Set([...(total.zeroCostItemIds || []), ...(row.zeroCostItemIds || [])])];
+        total.costWarnings = [...new Set([...(total.costWarnings || []), ...(row.costWarnings || [])])];
+        total.productCostSourceZero ||= row.productCostSourceZero;
         if (total.estimateSource !== row.estimateSource) total.estimateSource = 'mixed';
         for (const field of ['unitCost', 'salePrice', 'inventory']) if (total[field] !== row[field]) total[field] = null;
         if (total.source !== row.source) total.source = 'mixed';
@@ -984,9 +996,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function estimateCosts(product, quantity, sales, date) {
     const missingInputs = [];
     if (!Number.isFinite(quantity) || !Number.isFinite(sales)) {
-      return { ...Object.fromEntries(estimateFields().map(key => [key, null])), missingInputs: ['orders'], missingInputReasons: [estimateReason('orders')] };
+      return { ...Object.fromEntries(estimateFields().map(key => [key, null])), missingInputs: ['orders'], missingInputReasons: [estimateReason('orders')], productCostSourceZero: product.productCostSourceZero === true, zeroCostItemIds: [], costWarnings: [] };
     }
     const costApplies = !product.costSince || date >= product.costSince;
+    const zeroCostItemIds = quantity !== 0 && product.productCostSourceZero === true && product.unitCost === 0 && costApplies ? [product.itemId] : [];
+    const costWarnings = zeroCostItemIds.length ? ['상품현황에 0원으로 등록된 원가를 적용했습니다. 실제 원가를 확인하세요.'] : [];
     if (quantity !== 0) {
       if (!Number.isFinite(product.unitCost)) missingInputs.push('unitCost');
       if (!costApplies) missingInputs.push('costSince');
@@ -1000,17 +1014,19 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const costs = [estimatedProductCost, estimatedCommission, estimatedFulfillment];
     return { estimatedProductCost, estimatedCommission, estimatedFulfillment,
       estimatedOtherCosts: [estimatedCommission, estimatedFulfillment].every(Number.isFinite) ? estimatedCommission + estimatedFulfillment : null,
-      estimatedProfitBeforeAds: costs.every(Number.isFinite) ? sales - costs.reduce((total, value) => total + value, 0) : null,
-      missingInputs, missingInputReasons: missingInputs.map(estimateReason) };
+      estimatedProfitBeforeAds: costs.every(Number.isFinite) ? Math.round(sales - costs.reduce((total, value) => total + value, 0)) : null,
+      missingInputs, missingInputReasons: missingInputs.map(estimateReason), productCostSourceZero: product.productCostSourceZero === true, zeroCostItemIds, costWarnings };
   }
   function aggregateEstimates(rows) {
     const missingInputs = [...new Set(rows.flatMap(row => row.missingInputs || []))];
     const sources = [...new Set(rows.map(row => row.estimateSource).filter(Boolean))];
+    const zeroCostItemIds = [...new Set(rows.flatMap(row => row.zeroCostItemIds || []))];
+    const costWarnings = [...new Set(rows.flatMap(row => row.costWarnings || []))];
     return { ...Object.fromEntries(estimateFields().map(key => [key, rows.every(row => Number.isFinite(row[key])) ? rows.reduce((total, row) => total + row[key], 0) : null])),
-      missingInputs, missingInputReasons: missingInputs.map(estimateReason), estimateSource: sources.length > 1 ? 'mixed' : sources[0] || null };
+      missingInputs, missingInputReasons: missingInputs.map(estimateReason), zeroCostItemIds, costWarnings, estimateSource: sources.length > 1 ? 'mixed' : sources[0] || null };
   }
   function estimateValues(row) {
-    return { ...Object.fromEntries(estimateFields().map(key => [key, row[key]])), missingInputs: row.missingInputs, missingInputReasons: row.missingInputReasons, estimateSource: row.estimateSource };
+    return { ...Object.fromEntries(estimateFields().map(key => [key, row[key]])), missingInputs: row.missingInputs, missingInputReasons: row.missingInputReasons, zeroCostItemIds: row.zeroCostItemIds || [], costWarnings: row.costWarnings || [], estimateSource: row.estimateSource };
   }
   function report(v) {
     const c = config(), days = range(v.since, v.until, now()), s = requireScope(c), entries = read(ledgerFile(c, s), {}), chosen = new Map(s.products.map(p => [p.itemId, p]));
@@ -1019,7 +1035,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const current = basis(snap), stale = !!entry && entry.basis !== current;
       const complete = !!entry && !stale && entry.reviewed && COSTS.every(k => Number.isFinite(entry[k]));
       const gross = snap ? rows.reduce((n, r) => n + r.gross, 0) : null;
-      const estimates = snap ? aggregateEstimates(rows.map(row => ({ ...estimateCosts(chosen.get(row.itemId), row.quantity, row.gross, date), estimateSource: 'api' }))) : { ...estimateCosts({}, null, null, date), estimateSource: null };
+      // Sellha rounds the completed profit once per option/day. Group split
+      // orders before calculating so rounding each shipment cannot drift.
+      const optionRows = new Map();
+      for (const row of rows) { const previous = optionRows.get(row.itemId) || { itemId: row.itemId, quantity: 0, gross: 0 }; previous.quantity += row.quantity; previous.gross += row.gross; optionRows.set(row.itemId, previous); }
+      const estimates = snap ? aggregateEstimates([...optionRows.values()].map(row => ({ ...estimateCosts(chosen.get(row.itemId), row.quantity, row.gross, date), estimateSource: 'api' }))) : { ...estimateCosts({}, null, null, date), estimateSource: null };
       if (snap) estimates.estimateSource = 'api';
       return { date, channel, gross, quantity: snap ? rows.reduce((n, r) => n + r.quantity, 0) : null, ...estimates,
         fetchedAt: snap?.fetchedAt || null, basis: current, entry, stale, complete,

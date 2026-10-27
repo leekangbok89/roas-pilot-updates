@@ -23,7 +23,7 @@
     for (const p of options) {
       const label = document.createElement('label'), check = document.createElement('input'), text = document.createElement('span'), input = document.createElement('input');
       check.type = 'checkbox'; check.checked = selected.some(v => v.itemId === p.itemId); check.dataset.itemId = p.itemId;
-      text.textContent = p.name + ' · ' + p.itemId + (p.source ? ' · 수수료 ' + p.commissionRate + '% · 입출고 ' + won(p.inboundFee) + ' · 배송 ' + won(p.deliveryFee) + (p.costSince ? ' · 원가 기준 ' + p.costSince : '') : '');
+      text.textContent = p.name + ' · ' + p.itemId + (p.productCostSourceZero === true ? ' · 원본 원가 0원(확인 필요)' : '') + (p.source ? ' · 수수료 ' + p.commissionRate + '% · 입출고 ' + won(p.inboundFee) + ' · 배송 ' + won(p.deliveryFee) + (p.costSince ? ' · 원가 기준 ' + p.costSince : '') : '');
       input.type = 'number'; input.min = '0'; input.step = '0.01'; input.placeholder = '개당 원가 미등록'; input.value = p.unitCost ?? ''; input.dataset.costId = p.itemId; input.setAttribute('aria-label', p.name + ' 개당 원가');
       label.append(check, text, input); $('cp-products').append(label);
     }
@@ -142,12 +142,12 @@
   $('cp-catalog-preview').addEventListener('click',()=>work(async()=>{
     pendingCatalog=null; const file=$('cp-catalog-file').files[0]; if(!file)throw Error('상품현황.xlsx를 선택하세요.');
     const {products}=await window.CoupangSheets.parseCatalog(file);
-    pendingCatalog=products;$('cp-catalog-status').textContent=products.length+'개 옵션 매칭 준비 · 원가 등록 '+products.filter(p=>p.unitCost>0).length+'개 · 원가 0원 확인 필요 '+products.filter(p=>p.unitCost===0).length+'개. 매칭 저장을 누르면 기존 원가가 갱신됩니다.';
+    pendingCatalog=products;$('cp-catalog-status').textContent=products.length+'개 옵션 매칭 준비 · 원가 등록 '+products.filter(p=>p.unitCost>0).length+'개 · 원본 0원 확인 필요 '+products.filter(p=>p.unitCost===0).length+'개. 매칭 저장을 누르면 기존 원가가 갱신됩니다.';
   }));
   $('cp-catalog-save').addEventListener('click',()=>work(async()=>{
     if(!pendingCatalog)throw Error('먼저 파일 확인을 누르세요.');
     const v=await request('catalog-import',{products:pendingCatalog});selected=v.products;dirtyScope=false;editor=null;pendingCatalog=null;
-    await loadOptions();await loadReport();$('cp-catalog-status').textContent=v.imported+'개 옵션 저장 완료 · 원가 확인 필요 '+v.missingCost+'개';
+    await loadOptions();await loadReport();$('cp-catalog-status').textContent=v.imported+'개 옵션 저장 완료 · 원가 미등록 '+v.missingCost+'개 · 원본 0원 확인 필요 '+(v.sourceZeroCost??v.products.filter(p=>p.productCostSourceZero===true).length)+'개';
     message('원가 매칭을 저장했습니다. 원가 기준일 이전 주문은 원가 미확인으로 표시합니다.');
   }));
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);

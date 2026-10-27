@@ -214,7 +214,7 @@ test('recent refresh preserves unfinished history and failed refreshes retain sa
   assert.ok(fs.existsSync(path.join(baseDir, '.roas-data/coupang/A00012345/orders/2025-10-26-growth.json')));
 });
 
-test('catalog import matches option IDs, keeps zero costs unknown, respects effective dates and survives manual scope save', async t => {
+test('catalog import matches option IDs, preserves source zero costs with a notice, respects effective dates and survives manual scope save', async t => {
   const { s } = setup(t, async () => ({ok:true,json:async()=>({code:200,data:[rg()]})}));
   await s.sync({since:date,until:date,channel:'growth'});
   const catalog={products:[{itemId:'123',name:'위마망 백도씨',unitCost:3000,commissionRate:11.88,inboundFee:1182,deliveryFee:2172,costSince:date}]};
@@ -224,6 +224,8 @@ test('catalog import matches option IDs, keeps zero costs unknown, respects effe
   s.saveScope({products:[{itemId:'123',name:'위마망 백도씨',unitCost:3000}]}); assert.equal(s.status().products[0].commissionRate,11.88);
   const first=s.status(); assert.throws(()=>s.importCatalog({products:[...catalog.products,...catalog.products]}),/중복/); assert.deepEqual(s.status().products,first.products);
   s.importCatalog({products:[{...catalog.products[0],costSince:'2026-10-27'}]}); assert.equal(s.report({since:date,until:date}).daily[0].estimatedProductCost,null);
-  s.importCatalog({products:[{...catalog.products[0],unitCost:0}]}); assert.equal(s.status().products[0].unitCost,null);
-  assert.equal(s.report({since:date,until:date}).daily[0].estimatedProductCost,null);
+  s.importCatalog({products:[{...catalog.products[0],unitCost:0}]}); assert.equal(s.status().products[0].unitCost,0);
+  assert.equal(s.status().products[0].productCostSourceZero,true);
+  assert.equal(s.report({since:date,until:date}).daily[0].estimatedProductCost,0);
+  assert.deepEqual(s.report({since:date,until:date}).daily[0].zeroCostItemIds,['123']);
 });

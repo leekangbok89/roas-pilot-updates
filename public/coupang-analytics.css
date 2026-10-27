@@ -100,8 +100,8 @@ body[data-coupang-view].ca-compact .app-main .ca-table :is(th,td){padding:3px 5p
 .ca-import-panel>summary{font-size:15px;font-weight:700;cursor:pointer}
 .ca-import-panel>p{margin-top:10px!important}
 .ca-import-toolbar,.ca-acquisition-fields{margin:8px 0}
-.ca-file-label{flex:1 1 300px;max-width:550px}
-.ca-file-label input{max-width:100%}
+.ca-file-label{flex:1 1 300px;max-width:550px;min-width:0}
+.ca-file-label input{width:100%;max-width:100%;min-width:0}
 .ca-acquisition-fields label{flex:1 1 260px;max-width:400px}
 .ca-method-note{padding:5px 2px 10px;font-size:13px;max-width:1400px}
 .ca-method-note>strong{font-size:14px}
@@ -146,3 +146,6 @@ body[data-coupang-view].ca-roomy .app-main .ca-table :is(th,td){padding:8px 10px
 .cpm-option-row td.ca-name{padding-left:16px!important}
 
 .ca-option-row .cth-label>strong,.cpm-option-row .cth-label>strong{white-space:normal;overflow:visible}
+
+.ca-cost-warning{display:block;color:var(--app-warning)!important;font-size:12px!important;line-height:1.5;white-space:normal!important}
+.ca-catalog-preview{padding:10px 12px;min-width:250px;max-width:1100px;white-space:normal}

@@ -49,7 +49,7 @@
       <p class="helper">그로스와 판매자배송을 최근 365일 기준으로 7일씩 나누어 저장합니다. 과거 저장분은 재사용하고 최근 7일은 갱신합니다. 브라우저를 닫아도 수집은 계속되며, ROAS Pilot 프로그램은 실행해 두세요. 재시작 또는 오류 후에는 이어서 수집을 누르세요. 프로그램 실행 시와 이후 매시간 오늘을 포함한 최근 7일 주문을 자동으로 다시 확인해 저장합니다. 저장된 원가·수수료율·입출고·배송비를 적용한 예상 이익은 대시보드에서 바로 확인할 수 있습니다. 이전 자료는 보존하며 자동 삭제하지 않습니다.</p>
     </section>
     <section class="panel" id="cp-catalog"><h2>상품현황 엑셀로 원가 매칭</h2>
-      <p class="helper">상품현황.xlsx의 옵션ID로 원가·마켓 수수료율·입출고 요금·배송비를 연결합니다. 트루버·위마망 옵션을 집계 대상으로 추가하며 기존에 입력한 원가는 파일 값으로 갱신합니다. 원가 0원은 미확인으로 저장합니다. 상품 조합이 바뀌면 매출·비용을 다시 확인하세요.</p>
+      <p class="helper">상품현황.xlsx의 옵션ID로 원가·마켓 수수료율·입출고 요금·배송비를 연결합니다. 트루버·위마망 옵션을 집계 대상으로 추가하며 기존에 입력한 원가는 파일 값으로 갱신합니다. 원본에 숫자 0으로 기재된 원가는 0원으로 보존하고 실제 원가 확인 필요 표시를 붙입니다. 빈칸·미등록 원가와 구분합니다. 상품 조합이 바뀌면 매출·비용을 다시 확인하세요.</p>
       <fieldset><input id="cp-catalog-file" type="file" accept=".xlsx" aria-label="상품현황 엑셀"><button id="cp-catalog-preview" type="button">파일 확인</button><button id="cp-catalog-save" type="button" disabled>매칭 저장</button><p id="cp-catalog-status" role="status"></p></fieldset>
     </section>
     <details class="panel" open><summary>집계할 트루버·위마망 상품 선택</summary>

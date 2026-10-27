@@ -72,7 +72,7 @@
         optionName.title = (p.optionName || p.name) + '\n' + (p.fullName || p.name || p.productName); optionName.append(node('strong', p.optionName || p.name), node('small', '옵션 ID ' + p.itemId, 'cpm-option-id'));
         window.CoupangThumbnails?.decorate(optionName, { itemId: p.itemId, productId: p.productId, name: p.optionName || p.name });
         option.append(select, optionName, node('td', channels[p.channel] || '미분류'));
-        for (const key of ['salePrice', 'unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) { const value = key === 'commissionRate' ? known(p[key]) ? p[key].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '미등록' : money(p[key]); option.append(node('td', value, !known(p[key]) ? 'cpm-unknown' : '')); }
+        for (const key of ['salePrice', 'unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) { const value = key === 'commissionRate' ? known(p[key]) ? p[key].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '미등록' : money(p[key]); const costCell = node('td', value, !known(p[key]) ? 'cpm-unknown' : ''); if (key === 'unitCost' && p.productCostSourceZero === true) costCell.append(node('small', '원본 0원 · 실제 원가 확인 필요', 'ca-cost-warning')); option.append(costCell); }
         option.append(node('td', p.costSince || '시작일 미지정')); const manage = node('td'), edit = node('button', '비용 수정'); edit.type = 'button'; edit.addEventListener('click', () => openEditor(p)); manage.append(edit); option.append(manage); rows.push(option);
       }
     }

@@ -59,6 +59,7 @@
         <label>상품 그룹<select id="ca-group" aria-label="상품 그룹"><option value="">전체 그룹</option></select></label>
         <label>정렬<select id="ca-sort" aria-label="상품 정렬"></select></label>
         <label class="ca-checkbox-label"><input id="ca-favorites" type="checkbox">즐겨찾기만 보기</label>
+        <button id="ca-show-cost-columns" type="button" hidden>원가·예상이익 항목 표시</button>
         <details id="ca-columns" class="ca-columns"><summary>표시항목 설정</summary><div id="ca-column-options" class="ca-column-options"></div></details>
       </div>
       <p id="ca-group-status" class="helper">상품 관리에서 만든 그룹으로 표를 좁혀 볼 수 있습니다. 그룹은 집계 대상을 바꾸지 않습니다.</p>
@@ -69,11 +70,11 @@
 
     <details id="ca-import" class="panel ca-import-panel">
       <summary>기존 손익 파일 비교·보정 · 선택사항</summary>
-      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 광고 판매량·이익금·광고비·순이익을 일별로 확인한 뒤 저장합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
+      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 광고 판매량·이익금·광고비·순이익을 일별로 확인한 뒤 저장합니다. 원가 설정이 포함된 파일은 한 번 저장하면 이후 자동 수집한 주문 계산에도 적용합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
       <fieldset>
         <div class="ca-toolbar ca-import-toolbar"><label class="ca-file-label">손익 결과 파일<input id="ca-file" type="file" accept=".xlsx,.json" multiple aria-label="셀하 손익 엑셀 또는 쿠팡 손익 설정 파일"></label><button id="ca-preview" type="button">파일 확인</button></div>
         <label class="ca-checkbox-label"><input id="ca-include-products" type="checkbox" checked>파일의 모든 옵션을 쿠팡 집계에 포함</label>
-        <p class="helper">새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.</p>
+        <p id="ca-import-scope-note" class="helper">새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.</p>
         <div id="ca-import-preview" class="ca-scroll ca-import-preview" tabindex="0" aria-label="저장 전 일별 손익 확인" hidden></div>
         <div id="ca-acquisition-fields" class="ca-toolbar ca-acquisition-fields">
           <label>신규고객확보 광고비 · 로켓그로스<input id="ca-acquisition-growth" type="number" min="0" step="0.01" inputmode="decimal" placeholder="미확인 · 광고비가 없으면 0"></label>
