@@ -1459,6 +1459,11 @@ async function verifyCafeRevenueRecovery(base, requests) {
 
 async function hoverVisibleProfitPoints(label) {
   await page.locator('#graph').evaluate(graph => graph.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await page.waitForFunction(() => {
+    const graph = document.getElementById('graph'), svg = graph?.querySelector('svg');
+    return svg && Math.abs(svg.viewBox.baseVal.width - graph.clientWidth) < 1;
+  });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const points = page.locator('#graph circle[data-metric="profit"][data-point-date]');
   const count = await points.count();
   assert.ok(count >= 3, label + ' has enough date points to verify both edges and the middle');
@@ -1468,7 +1473,15 @@ async function hoverVisibleProfitPoints(label) {
       return { x: screen.x, y: screen.y, svgX: circle.cx.baseVal.value, date: circle.dataset.pointDate, label: circle.querySelector('title').textContent.split(' · ')[0] };
     });
     await page.mouse.move(point.x, point.y);
-    await page.waitForFunction(() => getComputedStyle(document.getElementById('roas-chart-hover')).display !== 'none', undefined, { timeout: 2000 });
+    try {
+      await page.waitForFunction(() => getComputedStyle(document.getElementById('roas-chart-hover')).display !== 'none', undefined, { timeout: 2000 });
+    } catch (error) {
+      console.error('Hover geometry', label, index, point, await page.evaluate(point => {
+        const graph = document.getElementById('graph'), svg = graph.querySelector('svg'), box = graph.getBoundingClientRect(), matrix = svg.getScreenCTM();
+        return { graph: { x:box.x,y:box.y,width:box.width,height:box.height }, viewBox:svg.getAttribute('viewBox'), clientWidth:graph.clientWidth, matrix:{a:matrix.a,b:matrix.b,c:matrix.c,d:matrix.d,e:matrix.e,f:matrix.f}, target:document.elementFromPoint(point.x,point.y)?.outerHTML.slice(0,500) };
+      }, point));
+      throw error;
+    }
     const actual = await page.evaluate(() => {
       const tip = document.getElementById('roas-chart-hover'), cross = document.querySelector('#graph [data-chart-crosshair]'), graph = document.getElementById('graph');
       const tipBox = tip.getBoundingClientRect(), graphBox = graph.getBoundingClientRect();
