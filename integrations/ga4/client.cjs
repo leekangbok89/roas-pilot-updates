@@ -18,6 +18,7 @@ const ACQUISITION_DIMENSIONS = Object.freeze(['sessionSource', 'sessionMedium', 
 const ACQUISITION_KEYS = Object.freeze(['source', 'medium', 'campaign', 'campaignId', 'adContent', 'adsetId']);
 const DETAIL_DIMENSIONS = Object.freeze(['rp_product_id', 'rp_content_version', 'rp_content_id', 'rp_content_type']);
 const DETAIL_DEFAULTS = Object.freeze({ productId: '458', contentVersion: 'v1', measurementId: 'G-RZF6S41CF0', clarityProjectId: '', rootSelector: '#prdDetail', requireConsent: false });
+const DETAIL_PAGE_METRICS = Object.freeze(['screenPageViews', 'totalUsers', 'userEngagementDuration', 'eventCount', 'scrolledUsers']);
 
 function detailMediaUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return '';
@@ -84,6 +85,46 @@ function buildDetailRequest(input, withTime = true) {
     dimensions: ['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name => ({ name })),
     metrics: ['eventCount', ...(withTime ? ['customEvent:rp_visible_ms'] : [])].map(name => ({ name })),
     dimensionFilter: { andGroup: { expressions } }, limit: String(MAX_ROWS), returnPropertyQuota: true };
+}
+function buildDetailPageRequests(input) {
+  validateDates(input.since, input.until);
+  const config = validateDetailSettings(input);
+  // Match the selected product on the Wemamang store, including mobile, query
+  // parameters in any order, and Cafe24's /product/name/number/ URLs.
+  const location = '^https?://(?:(?:www|m)\\.)?wemamang\\.com/(?:product/[^?#]*\\?(?:[^#]*&)?product_no=' + config.productId +
+    '(?:[&#].*)?|product/[^/?#]+/' + config.productId + '(?:[/#?].*)?)$';
+  const expressions = [{ filter: { fieldName: 'pageLocation', stringFilter: { matchType: 'FULL_REGEXP', value: location, caseSensitive: false } } }];
+  if (input.scope === 'meta') expressions.push(metaFilter());
+  else if (input.scope && input.scope !== 'all') throw failure(400, '유입 범위를 확인해 주세요.', 'GA4_SCOPE');
+  const common = { dateRanges: [{ startDate: input.since, endDate: input.until }], dimensionFilter: { andGroup: { expressions } }, returnPropertyQuota: true };
+  return {
+    summary: { ...common, metrics: DETAIL_PAGE_METRICS.map(name => ({ name })) },
+    daily: { ...common, dimensions: [{ name: 'date' }], metrics: DETAIL_PAGE_METRICS.map(name => ({ name })), limit: '93', orderBys: [{ dimension: { dimensionName: 'date' } }] },
+    events: { ...common, dimensions: [{ name: 'eventName' }], metrics: [{ name: 'eventCount' }], limit: String(MAX_ROWS), orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }] }
+  };
+}
+function assembleDetailPageReport(responses, context) {
+  const warnings = [], metadata = {};
+  for (const name of ['summary', 'daily', 'events']) metadata[name] = reportMetadata(responses[name], warnings, '상세페이지 기본 데이터');
+  const summaryRows = responseRows(responses.summary);
+  if (summaryRows.length > 1) throw failure(502, '상세페이지 요약 집계 응답을 확인할 수 없습니다.', 'DETAIL_PAGE_SUMMARY');
+  const values = row => ({ ...row, averageEngagementSeconds: row.screenPageViews > 0 && row.userEngagementDuration !== null ? row.userEngagementDuration / row.screenPageViews : null });
+  const summary = values(metricValues(responses.summary, summaryRows[0], DETAIL_PAGE_METRICS, warnings, '상세페이지 기본 데이터'));
+  const dates = new Map(responseRows(responses.daily).map(row => {
+    const date = dimensionValue(responses.daily, row, 'date').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+    return [date, values({ date, ...metricValues(responses.daily, row, DETAIL_PAGE_METRICS, warnings, '상세페이지 일별 데이터') })];
+  }));
+  const daily = [];
+  for (let time = Date.parse(context.since + 'T00:00:00Z'); time <= Date.parse(context.until + 'T00:00:00Z'); time += 86400000) {
+    const date = new Date(time).toISOString().slice(0, 10);
+    daily.push(dates.get(date) || values({ date, ...metricValues(responses.daily, null, DETAIL_PAGE_METRICS, warnings, '상세페이지 일별 데이터') }));
+  }
+  const events = responseRows(responses.events).map(row => ({ name: dimensionValue(responses.events, row, 'eventName'),
+    count: metricValues(responses.events, row, ['eventCount'], warnings, '상세페이지 이벤트').eventCount }));
+  if (reportedRowCount(responses.events, events.length) > events.length) warnings.push('이벤트 종류가 많아 일부 행이 생략되었습니다. 기간을 줄여 조회하세요.');
+  warnings.push('기본 데이터는 선택 상품의 실제 상세 URL에서 발생한 GA4 기록입니다. 상세 버전과 관계없이 집계하며, 기간 방문자는 중복을 제거하므로 일별 방문자 합계와 다를 수 있습니다.');
+  return { state: summary.screenPageViews > 0 || summary.totalUsers > 0 || summary.eventCount > 0 ? 'ready' : summary.screenPageViews === null ? 'unavailable' : 'no_data',
+    summary, daily, events, metadata, warnings: [...new Set(warnings)] };
 }
 function assembleDetailReport(response, context, withTime) {
   const warnings = [], content = new Map(), scroll = {};
@@ -545,32 +586,51 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
   }
   async function detailReport(input = {}) {
     if (input.refresh !== undefined && typeof input.refresh !== 'boolean') throw failure(400, '새로고침 옵션을 확인해 주세요.', 'GA4_REFRESH');
-    const settings = { ...detailSettings(), ...input }, body = buildDetailRequest(settings, false);
+    const settings = { ...detailSettings(), ...input }, body = buildDetailRequest(settings, false), pageRequests = buildDetailPageRequests(settings);
     const config = requireConfig(), identity = configurationIdentity(config);
     const key = ['detail', identity, input.since, input.until, settings.productId, settings.contentVersion, settings.scope || 'all'].join('|');
     const cached = reports.get(key);
     if (!input.refresh && cached && currentTime() - cached.savedAt < CACHE_MS) return { ...structuredClone(cached.value), cached: true };
     if (inFlight.has(key)) return structuredClone(await inFlight.get(key));
     const work = (async () => {
-      let token = await accessToken(config.credentials);
-      let reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
-      if (reply.status === 401) {
-        token = await accessToken(config.credentials, token);
-        reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
-      }
-      if (!reply.ok) throw failure(reply.status === 403 ? 403 : 502, 'GA4 맞춤 정의를 확인하지 못했습니다. 연결 검사 후 다시 조회해 주세요.', 'DETAIL_METADATA');
-      const metadata = await jsonResponse(reply);
-      if (!Array.isArray(metadata.dimensions) || !Array.isArray(metadata.metrics)) throw failure(502, 'GA4 맞춤 정의 응답을 확인할 수 없습니다.', 'DETAIL_METADATA_SCHEMA');
-      const dims = new Set(metadata.dimensions.map(item => item.apiName)), metrics = new Set(metadata.metrics.map(item => item.apiName));
-      const missing = DETAIL_DIMENSIONS.filter(name => !dims.has('customEvent:' + name));
       const context = { since: input.since, until: input.until, productId: settings.productId, contentVersion: settings.contentVersion, scope: settings.scope || 'all', fetchedAt: timestamp() };
-      if (missing.length) return { ...context, state: 'setup_required', missing, rows: [], warnings: ['GA4 관리자 → 맞춤 정의에서 이벤트 범위의 맞춤 측정기준을 등록하세요.'] };
-      const withTime = metrics.has('customEvent:rp_visible_ms');
-      if (withTime) body.metrics.push({ name: 'customEvent:rp_visible_ms' });
-      const result = assembleDetailReport(await runReport(config, body), context, withTime);
+      const pageWork = async () => {
+        const names = ['summary', 'daily', 'events'];
+        const responses = await Promise.all(names.map(name => runReport(config, pageRequests[name])));
+        return assembleDetailPageReport(Object.fromEntries(names.map((name, index) => [name, responses[index]])), context);
+      };
+      const trackingWork = async () => {
+        let token = await accessToken(config.credentials);
+        let reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
+        if (reply.status === 401) {
+          token = await accessToken(config.credentials, token);
+          reply = await request(DATA_URL + config.propertyId + '/metadata', { headers: { Authorization: 'Bearer ' + token } }, 'GA4 맞춤 정의 확인');
+        }
+        if (!reply.ok) throw failure(reply.status === 403 ? 403 : 502, 'GA4 맞춤 정의를 확인하지 못했습니다. 연결 검사 후 다시 조회해 주세요.', 'DETAIL_METADATA');
+        const metadata = await jsonResponse(reply);
+        if (!Array.isArray(metadata.dimensions) || !Array.isArray(metadata.metrics)) throw failure(502, 'GA4 맞춤 정의 응답을 확인할 수 없습니다.', 'DETAIL_METADATA_SCHEMA');
+        const dims = new Set(metadata.dimensions.map(item => item.apiName)), metrics = new Set(metadata.metrics.map(item => item.apiName));
+        const missing = DETAIL_DIMENSIONS.filter(name => !dims.has('customEvent:' + name));
+        if (missing.length) return { ...context, state: 'setup_required', missing, rows: [], warnings: ['GA4 관리자 → 맞춤 정의에서 이벤트 범위의 맞춤 측정기준을 등록하세요.'] };
+        const withTime = metrics.has('customEvent:rp_visible_ms');
+        if (withTime) body.metrics.push({ name: 'customEvent:rp_visible_ms' });
+        return assembleDetailReport(await runReport(config, body), context, withTime);
+      };
+      // Native page records must remain usable even when the optional tracker's
+      // custom definitions or report are unavailable (and vice versa).
+      const [page, tracking] = await Promise.allSettled([pageWork(), trackingWork()]);
       const latest = readConfig();
       if (!latest || configurationIdentity(latest) !== identity) throw failure(409, '조회 중 GA4 연결이 변경되었습니다. 다시 조회해 주세요.', 'GA4_CONFIG_CHANGED');
-      reports.set(key, { savedAt: currentTime(), value: result });
+      if (page.status === 'rejected' && tracking.status === 'rejected') throw page.reason;
+      const tracked = tracking.status === 'fulfilled' ? tracking.value : { ...context, state: 'error', rows: [], scroll: {}, views: null, buyClicks: null, cartClicks: null,
+        warnings: ['구간별 추적 보고서를 불러오지 못했습니다. ' + tracking.reason.message] };
+      const pageAnalytics = page.status === 'fulfilled' ? page.value : { state: 'error', summary: null, daily: [], events: [], warnings: ['상세페이지 기본 데이터를 불러오지 못했습니다. ' + page.reason.message] };
+      const result = { ...tracked, trackingState: tracked.state, pageAnalytics,
+        state: tracked.state === 'ready' || pageAnalytics.state === 'ready' ? 'ready' : tracked.state,
+        warnings: [...new Set([...(tracked.warnings || []), ...pageAnalytics.warnings])] };
+      // Retry incomplete setup/errors on the next visit. Refresh always bypasses
+      // the short cache, including when custom definitions were just registered.
+      if (page.status === 'fulfilled' && tracking.status === 'fulfilled' && tracked.state !== 'setup_required') reports.set(key, { savedAt: currentTime(), value: result });
       while (reports.size > MAX_CACHE_ENTRIES) reports.delete(reports.keys().next().value);
       return result;
     })();
@@ -634,4 +694,5 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
 }
 
 module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS,
-  validateDetailSettings, buildDetailRequest, assembleDetailReport, DETAIL_DIMENSIONS, DETAIL_DEFAULTS, parseDetailMedia, detailMediaUrl };
+  validateDetailSettings, buildDetailRequest, assembleDetailReport, buildDetailPageRequests, assembleDetailPageReport, DETAIL_PAGE_METRICS,
+  DETAIL_DIMENSIONS, DETAIL_DEFAULTS, parseDetailMedia, detailMediaUrl };

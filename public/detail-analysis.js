@@ -22,6 +22,42 @@
   }
   var num = function (value) { return value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 1 }); };
   var pct = function (value) { return value === null || value === undefined ? '—' : num(value * 100) + '%'; };
+  var pageMetrics = [
+    {key:'screenPageViews',label:'상세페이지 조회수',unit:'회'}, {key:'totalUsers',label:'상세페이지 방문자',unit:'명'},
+    {key:'averageEngagementSeconds',label:'조회당 참여시간',unit:'초'}, {key:'userEngagementDuration',label:'총 참여시간',unit:'초'},
+    {key:'scrolledUsers',label:'90% 스크롤 방문자',unit:'명'}, {key:'eventCount',label:'발생 이벤트',unit:'회'}
+  ], selectedMetrics = pageMetrics.map(function (m) { return m.key; });
+  try { var storedMetrics = JSON.parse(localStorage.getItem('roas-detail-page-metrics-v1')); if (Array.isArray(storedMetrics)) {
+    var knownMetrics = selectedMetrics.filter(function (key) { return storedMetrics.includes(key); }); if (knownMetrics.length) selectedMetrics = knownMetrics;
+  } } catch (_) {}
+  function metricText(value, metric) { return value === null || value === undefined ? '—' : num(value) + metric.unit; }
+  pageMetrics.forEach(function (metric) {
+    var option = document.createElement('label'), input = document.createElement('input'); input.type = 'checkbox'; input.value = metric.key; input.checked = selectedMetrics.includes(metric.key);
+    input.addEventListener('change', function () {
+      var selected = Array.from($('detail-metric-options').querySelectorAll('input:checked')).map(function (node) { return node.value; });
+      if (!selected.length) { input.checked = true; return; } selectedMetrics = selected;
+      try { localStorage.setItem('roas-detail-page-metrics-v1', JSON.stringify(selectedMetrics)); } catch (_) {}
+      if (lastReport) renderPage(lastReport);
+    }); option.append(input, document.createTextNode(metric.label)); $('detail-metric-options').appendChild(option);
+  });
+  function renderPage(report) {
+    var page = report.pageAnalytics, available = page && page.summary;
+    $('detail-page-results').hidden = !available;
+    $('detail-page-kpis').replaceChildren(); $('detail-page-daily-head').replaceChildren(); $('detail-page-daily').replaceChildren(); $('detail-page-events').replaceChildren();
+    if (!available) return false;
+    var metrics = pageMetrics.filter(function (metric) { return selectedMetrics.includes(metric.key); });
+    metrics.forEach(function (metric) {
+      var article = document.createElement('article'), title = document.createElement('span'), value = document.createElement('strong');
+      title.textContent = metric.label; value.textContent = metricText(page.summary[metric.key], metric); article.append(title, value); $('detail-page-kpis').appendChild(article);
+    });
+    var head = document.createElement('tr'); ['일자'].concat(metrics.map(function (metric) { return metric.label; })).forEach(function (title) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = title; head.appendChild(th); }); $('detail-page-daily-head').appendChild(head);
+    (page.daily || []).slice().reverse().forEach(function (row) { var tr = document.createElement('tr'); cell(tr, row.date); metrics.forEach(function (metric) { cell(tr, metricText(row[metric.key], metric)); }); $('detail-page-daily').appendChild(tr); });
+    var names = {page_view:'페이지 조회',user_engagement:'사용자 참여',session_start:'세션 시작',first_visit:'첫 방문',scroll:'페이지 90% 스크롤',view_item:'상품 조회',add_to_cart:'장바구니 담기',begin_checkout:'결제 시작',video_start:'영상 시작',video_progress:'영상 재생',video_complete:'영상 완료'};
+    (page.events || []).forEach(function (event) { var tr = document.createElement('tr'); cell(tr, (names[event.name] ? names[event.name] + ' · ' : '') + event.name); cell(tr, num(event.count)); $('detail-page-events').appendChild(tr); });
+    if (!(page.events || []).length) { var empty = document.createElement('tr'), td = cell(empty, page.state === 'unavailable' ? 'GA4 제한으로 이벤트를 확인할 수 없습니다.' : '조회 기간에 기록된 이벤트가 없습니다.'); td.colSpan = 2; $('detail-page-events').appendChild(empty); }
+    $('detail-page-status').textContent = '상품 ' + report.productId + ' · ' + report.since + ' ~ ' + report.until + (page.state === 'no_data' ? ' · 해당 기간의 상세페이지 기록이 없습니다. 기간과 연결 속성을 확인하세요.' : page.state === 'unavailable' ? ' · GA4 제한으로 확인할 수 없는 값은 —로 표시합니다.' : ' · GA4에 수집된 상세 URL 기준');
+    return true;
+  }
   function label(id) {
     var m = id.match(/^image_(\d+)_p(\d+)$/); if (m) return '이미지 ' + Number(m[1]) + ' · 구간 ' + Number(m[2]);
     if (/^image_\d+$/.test(id)) return '이미지 ' + Number(id.split('_')[1]);
@@ -140,7 +176,7 @@
   }
   async function loadCatalog() {
     catalog = null; $('catalog-body').replaceChildren(); $('catalog-save').disabled = true;
-    try { var value = await api('detail-catalog'); if (settings && value.productId === settings.productId && value.contentVersion === settings.contentVersion) renderCatalog(value); }
+    try { var value = await api('detail-catalog'); if (settings && value.productId === settings.productId && value.contentVersion === settings.contentVersion) { renderCatalog(value); if (lastReport) render(lastReport); } }
     catch (error) { catalog = null; notice('catalog-message', error.message, true); }
   }
   async function changeCatalog(action) {
@@ -159,15 +195,20 @@
   }
   function render(report) {
     lastReport = report;
-    $('detail-results').hidden = true; $('detail-empty').hidden = false;
-    if (report.state === 'setup_required') { notice('detail-status', '맞춤 측정기준 등록 필요: ' + report.missing.join(', '), true); $('detail-reference').open = true; $('detail-setup').open = true; return; }
-    if (report.state === 'unavailable') { notice('detail-status', 'GA4 제한으로 수치를 확인할 수 없습니다. ' + (report.warnings || []).join(' '), true); return; }
-    if (report.state === 'no_data') { notice('detail-status', '선택한 상품·버전·기간의 추적 이벤트가 아직 없습니다. 설치 상태와 GA4 반영 시간을 확인하세요.'); return; }
+    var pageAvailable = renderPage(report), tracking = report.trackingState || report.state;
+    $('detail-results').hidden = true; $('detail-empty').hidden = pageAvailable;
+    $('detail-tracking-note').hidden = tracking === 'ready';
+    $('detail-tracking-note').textContent = tracking === 'setup_required' ? '사진·영상별 분석은 추가 추적 설정이 필요합니다. 하단 설치 및 연동 정보에서 맞춤 측정기준을 등록하세요: ' + (report.missing || []).join(', ') :
+      tracking === 'unavailable' ? 'GA4 제한으로 구간별 수치를 확인할 수 없습니다.' : tracking === 'error' ? '사진·영상별 추적 데이터를 불러오지 못했습니다. 아래 집계 안내를 확인하세요.' : '선택한 상품·버전·기간에 사진·영상별 추적 이벤트가 없습니다. 기본 데이터는 위에 표시하며, 구간별 분석은 추가 추적 설치 후 수집됩니다.';
+    $('detail-warnings').replaceChildren(); (report.warnings || []).forEach(function (message) { var li = document.createElement('li'); li.textContent = message; $('detail-warnings').appendChild(li); });
+    $('detail-report-notes').hidden = !(report.warnings || []).length;
+    notice('detail-status', (report.cached ? '저장 보고서' : 'GA4 조회 완료') + ' · ' + report.since + ' ~ ' + report.until + ' · 상품 ' + report.productId + ' / ' + report.contentVersion);
+    if (tracking !== 'ready') return;
     $('detail-results').hidden = false; $('detail-empty').hidden = true;
     $('detail-views').textContent = num(report.views); $('detail-buy').textContent = num(report.buyClicks); $('detail-cart').textContent = num(report.cartClicks);
     $('detail-scroll').replaceChildren();
     [25,50,75,100].forEach(function (n) { var a = document.createElement('article'), title = document.createElement('span'), strong = document.createElement('strong');
-      title.textContent = n + '% 지점'; var count = report.scroll['scroll_' + n]; strong.textContent = pct(report.views > 0 && count !== null ? (count || 0) / report.views : null);
+      title.textContent = n + '% 지점'; var count = (report.scroll || {})['scroll_' + n]; strong.textContent = pct(report.views > 0 && count !== null ? (count || 0) / report.views : null);
       a.append(title, strong); $('detail-scroll').appendChild(a); });
     $('detail-content-body').replaceChildren();
     report.rows.forEach(function (r) {
@@ -177,14 +218,12 @@
       [r.starts,r.video25,r.video50,r.video75].forEach(function (v) { cell(tr, r.type === 'image' ? '—' : num(v)); });
       cell(tr, r.type === 'image' ? '—' : pct(r.completionRate)); $('detail-content-body').appendChild(tr);
     });
-    $('detail-warnings').replaceChildren(); (report.warnings || []).forEach(function (message) { var li = document.createElement('li'); li.textContent = message; $('detail-warnings').appendChild(li); });
-    notice('detail-status', (report.cached ? '저장 보고서' : 'GA4 조회 완료') + ' · ' + report.since + ' ~ ' + report.until + ' · 상품 ' + report.productId + ' / ' + report.contentVersion);
   }
   async function query(refresh) {
     if (!connected) { notice('detail-status', '먼저 GA4 연결 관리에서 기존 속성을 연결하세요.', true); return; }
     var current = ++sequence; $('detail-query').disabled = $('detail-refresh').disabled = true;
-    notice('detail-status', 'GA4 맞춤 정의와 추적 이벤트를 확인하고 있습니다…');
-    $('detail-results').hidden = true; $('detail-empty').hidden = false;
+    notice('detail-status', '상세페이지 기본 데이터와 구간별 추적 이벤트를 불러오고 있습니다…');
+    lastReport = null; $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
     try { var report = await api('detail-report?' + new URLSearchParams({ since: $('detail-since').value, until: $('detail-until').value, scope: $('detail-scope').value, refresh: refresh ? '1' : '0' })); if (current === sequence) render(report); }
     catch (error) { if (current === sequence) notice('detail-status', error.message, true); }
     finally { if (current === sequence) $('detail-query').disabled = $('detail-refresh').disabled = false; }
@@ -194,7 +233,7 @@
     try {
       var value = await api('detail-settings', { productId: $('detail-product').value, contentVersion: $('detail-version').value, measurementId: $('detail-measurement').value, clarityProjectId: $('detail-clarity').value, requireConsent: $('detail-consent').checked });
       sequence++; $('detail-query').disabled = $('detail-refresh').disabled = false;
-      $('detail-results').hidden = true; $('detail-empty').hidden = false; lastReport = null; catalog = null; fill(value); await loadCatalog(); await installCode();
+      $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false; lastReport = null; catalog = null; fill(value); if (connected) query(false); await loadCatalog(); await installCode();
       notice('settings-message', '설정을 저장했습니다. 생성된 코드를 카페24에 적용해야 수집이 시작됩니다.');
     } catch (error) { notice('settings-message', error.message, true); } finally { $('settings-save').disabled = false; }
   });
@@ -207,13 +246,14 @@
   $('catalog-import').addEventListener('click', function () { changeCatalog('import'); });
   $('catalog-save').addEventListener('click', function () { changeCatalog('rename'); });
   function iso(date) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date); }
-  $('detail-until').value = iso(new Date()); $('detail-since').value = iso(new Date(Date.now() - 6 * 86400000));
+  $('detail-until').value = iso(new Date(Date.now() - 86400000)); $('detail-since').value = iso(new Date(Date.now() - 7 * 86400000));
   Promise.allSettled([api('status'),api('detail-settings')]).then(async function (results) {
-    if (results[1].status === 'fulfilled') { fill(results[1].value); await loadCatalog(); try { await installCode(); } catch (error) { notice('settings-message', error.message, true); } }
+    if (results[1].status === 'fulfilled') fill(results[1].value);
     else { notice('detail-status', results[1].reason.message, true); return; }
     if (results[0].status === 'rejected') { notice('detail-status', results[0].reason.message, true); return; }
     connected = results[0].value.configured;
-    notice('detail-connection-status', connected ? 'GA4 연결됨 · 자사몰 설치와 맞춤 정의 등록 후 기간을 조회하세요.' : 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.');
-    if (!connected) notice('detail-status', 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.', true);
+    notice('detail-connection-status', connected ? 'GA4 연결됨 · 기본 상세페이지 기록을 자동 조회합니다. 사진·영상별 분석에는 추가 추적 설정이 필요합니다.' : 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.');
+    if (connected) query(false); else notice('detail-status', 'GA4 미연결 · GA4 연결 관리에서 기존 속성을 연결하세요.', true);
+    await loadCatalog(); try { await installCode(); } catch (error) { notice('settings-message', error.message, true); }
   });
 })();
