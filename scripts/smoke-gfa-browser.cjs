@@ -35,6 +35,15 @@ function xlsx(){
  await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-status').textContent.includes('저장했습니다'));
  assert.match(await page.locator('#report-status').textContent(),/같은 기간 비교 가능/);assert.match(await page.locator('#combined-kpis').textContent(),/798,000원/);assert.match(await page.locator('#combined-kpis').textContent(),/798%/);assert.match(await page.locator('#analysis-notes').textContent(),/1,197,000원/);
  await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);assert.equal(await page.locator('#stored-files tr').count(),2,'same-period upload replaces saved data');
+ assert.equal(await page.locator('main > section').first().getAttribute('id'),'combined-analysis','dashboard precedes uploads');
+ assert.match(await page.locator('[data-metric="purchases"]').textContent(),/5건/,'GFA purchases come from saved performance');
+ await page.locator('#metrics-clear').click();await page.locator('#report-metrics input[value="purchases"]').check();await page.locator('#metrics-apply').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);
+ assert.equal(await page.locator('#combined-kpis .kpi').count(),1);assert.match(await page.locator('#combined-kpis').textContent(),/5건/);
+ await page.reload();await page.waitForFunction(()=>document.querySelector('#combined-kpis [data-metric="purchases"]'));
+ assert.equal(await page.locator('#combined-kpis .kpi').count(),1,'metric selection survives reload');
+ await page.locator('#metrics-clear').click();await page.locator('#metrics-apply').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);assert.match(await page.locator('#combined-kpis').textContent(),/표시할 데이터를 선택/);
+ await page.locator('#metrics-all').click();await page.locator('#metrics-apply').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);assert.equal(await page.locator('#combined-kpis .kpi').count(),9);
+
  const externalContext=await browser.newContext(),other=await externalContext.newPage();await other.goto(base+'/display-analysis.html');await other.waitForFunction(()=>document.querySelectorAll('#stored-files tr').length===2);assert.equal(await other.locator('#history button').count(),1,'campaign data survives empty browser storage');assert.match(await other.locator('#combined-kpis').textContent(),/798%/);await externalContext.close();
  await page.locator('#report-from').fill('2026-09-02');await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);assert.match(await page.locator('#report-status').textContent(),/제외/);assert.doesNotMatch(await page.locator('#combined-kpis').textContent(),/798%/);
  await page.locator('#report-from').fill('2026-09-01');await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
