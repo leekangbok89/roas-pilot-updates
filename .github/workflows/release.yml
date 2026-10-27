@@ -14,6 +14,7 @@ on:
       - 'integrations/ga4/**'
       - 'integrations/ad-changes/**'
       - 'integrations/naver-search/**'
+      - 'integrations/coupang/**'
       - 'integrations/gfa/**'
   workflow_dispatch:
     inputs:
@@ -65,6 +66,8 @@ jobs:
           node --check public/ad-changes.js
           node scripts/bundle-naver-search.cjs --check
           node --check public/naver-search.js
+          node scripts/bundle-coupang.cjs --check
+          node --check public/coupang.js
           node scripts/bundle-experiments.cjs --check
           node --check server.js
           node --check public/app.js
@@ -100,6 +103,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-detail-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ad-changes-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-search-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-other-ad-costs-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-gfa-browser.cjs

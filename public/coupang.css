@@ -1,0 +1,24 @@
+body[data-app-page="coupang"] *{box-sizing:border-box}
+.cp-toolbar,.cp-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.cp-form{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px;margin:12px 0}
+.cp-form label,.cp-toolbar label{display:grid;gap:6px}
+.cp-form input{width:100%;min-width:0}
+.cp-toolbar fieldset,.cp-form fieldset,fieldset.cp-plain{border:0;padding:0;margin:0;min-width:0}
+.cp-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}
+.cp-metric{border:1px solid var(--app-border);border-radius:12px;background:var(--app-surface);padding:16px}
+.cp-metric small{color:var(--app-muted)}
+.cp-metric strong{display:block;font-size:25px;margin-top:10px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.cp-notice{padding:12px 14px;border-radius:10px;border:1px solid var(--app-border);background:var(--app-info-bg);margin:12px 0;white-space:pre-wrap}
+.cp-scroll{overflow:auto}
+.cp-scroll table{width:100%;border-collapse:collapse;min-width:880px}
+.cp-scroll td,.cp-scroll th{padding:10px;border-bottom:1px solid var(--app-border);text-align:right;white-space:nowrap}
+.cp-scroll td:first-child,.cp-scroll th:first-child{text-align:left}
+.cp-products{display:grid;gap:8px;max-height:360px;overflow:auto;margin:12px 0}
+.cp-products label{display:grid;grid-template-columns:20px 1fr 170px;gap:8px;align-items:center;padding:8px;border:1px solid var(--app-border);border-radius:8px}
+.cp-products span{overflow-wrap:anywhere}
+.cp-products input[type=number]{width:100%}
+.cp-review{display:flex;gap:8px;align-items:start;margin:14px 0}
+body[data-app-page="coupang"] summary{cursor:pointer;font-weight:600}
+body[data-app-page="coupang"] fieldset{border:0;margin:0;padding:0;min-width:0}
+@media(max-width:900px){.cp-summary,.cp-form{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.cp-form{grid-template-columns:1fr}.cp-summary{grid-template-columns:1fr 1fr}.cp-metric strong{font-size:20px}.cp-products label{grid-template-columns:20px 1fr}.cp-products input[type=number]{grid-column:2}}
