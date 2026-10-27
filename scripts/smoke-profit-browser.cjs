@@ -328,6 +328,10 @@ async function report(base, since, until, accounts = Object.values(accountIds)) 
 }
 async function idle() {
   await page.waitForFunction(() => document.getElementById('reload')?.disabled === false);
+  const summary=page.locator('#summary-cards');
+  if(await summary.count() && !(await summary.evaluate(node=>node.classList.contains('summary-expanded')))){
+    await page.evaluate(()=>{summaryDetailsExpanded=true;renderSummaryCards();});
+  }
 }
 async function openDetails(selector, content) {
   const panel = page.locator(selector);
