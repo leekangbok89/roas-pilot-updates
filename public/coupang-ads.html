@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROAS Pilot | 쿠팡 광고 분석</title><script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/coupang-analytics.css"><link rel="stylesheet" href="/coupang-ads.css"><script src="/coupang-ads.js" defer></script></head>
+<body data-app-page="coupang" data-coupang-view="ads">
+  <div class="app-nav-rail" id="app-nav-rail">
+    <button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button>
+  </div>
+  <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert>
+    <div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div>
+    <nav id="app-nav" class="app-nav" aria-label="워크스페이스">
+      <a class="app-nav-link" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a>
+      <a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a>
+      <a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a>
+      <a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a>
+      <a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a>
+      <a class="app-nav-link" data-app-route="ga4" href="/ga4.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/><path d="m7 8 5-3 5 1"/></svg><span>GA4 유입 분석</span></a>
+      <a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a>
+    </nav>
+    <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <header class="app-page-head"><div><p class="ca-eyebrow">트루버 + 위마망</p><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">상품·옵션별 광고비, 광고 매출과 이익을 함께 비교합니다.</p></div><a class="ca-manage-link" href="/coupang.html">자료·연결 관리 ↗</a></header>
+    <nav class="ca-subnav" aria-label="쿠팡 수익 분석 페이지"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-products.html">상품 관리</a><a href="/coupang-sales.html">매출 분석</a><a href="/coupang-ads.html" aria-current="page">광고 분석</a><a href="/coupang.html">자료·연결 관리</a></nav>
+
+
+    <p id="cad-message" class="ca-notice" role="status" aria-live="polite">저장된 광고 자료를 불러옵니다.</p>
+    <section class="panel ca-filter-panel" aria-label="광고 분석 조회 조건">
+      <form id="cad-query"><fieldset class="ca-toolbar">
+        <label>시작일<input id="cad-since" type="date" required></label><span class="ca-date-arrow" aria-hidden="true">→</span>
+        <label>종료일<input id="cad-until" type="date" required></label>
+        <label>배송 방식<select id="cad-channel"><option value="all">판매자배송 + 로켓그로스</option><option value="growth">로켓그로스</option><option value="seller">판매자배송</option></select></label>
+        <label>월별 조회<select id="cad-month"><option value="">월 선택</option></select></label>
+        <button id="cad-refresh" class="primary" type="submit">저장 자료 조회</button>
+      </fieldset></form>
+      <div class="ca-presets" aria-label="조회 기간 선택"><button type="button" data-cad-preset="1">어제</button><button type="button" data-cad-preset="7">최근 7일</button><button type="button" data-cad-preset="30">최근 30일</button><button type="button" data-cad-preset="365">최근 1년</button></div>
+      <p id="cad-coverage" class="helper">광고 실적은 저장한 셀하 손익 파일을 기준으로 조회합니다.</p>
+    </section>
+    <section class="panel" aria-labelledby="cad-filter-title">
+      <div class="ca-panel-head"><div><h2 id="cad-filter-title">상품별 광고 실적</h2><p class="helper">검색·그룹·손실 필터를 적용한 표의 상품 합계를 표시합니다.</p></div><div class="ca-toolbar"><button id="cad-expand" type="button">옵션 모두 펼치기</button><button id="cad-export" type="button">CSV 다운로드</button></div></div>
+      <div class="ca-toolbar ca-sales-toolbar">
+        <label class="ca-search-label">상품·옵션 검색<input id="cad-search" type="search" placeholder="상품명, 옵션명, 상품 ID, 옵션 ID" autocomplete="off"></label>
+        <label>상품 그룹<select id="cad-group"><option value="">전체 상품</option></select></label>
+        <label>정렬<select id="cad-sort"><option value="advertising:desc">광고비 높은 순</option><option value="adSales:desc">광고 매출 높은 순</option><option value="roas:desc">ROAS 높은 순</option><option value="adNetProfit:asc">광고 이익 낮은 순</option><option value="adNetProfit:desc">광고 이익 높은 순</option><option value="name:asc">상품명 순</option></select></label>
+        <label class="ca-checkbox-label"><input id="cad-loss" type="checkbox">광고 손실 상품만</label>
+        <a class="ca-text-link" href="/coupang-products.html">그룹 관리 ↗</a>
+      </div>
+      <div id="cad-summary" class="ca-cards cad-cards" aria-label="현재 표의 광고 실적 합계"></div>
+      <p id="cad-count" class="helper" role="status"></p>
+      <div class="ca-scroll ca-sales-scroll" tabindex="0" aria-label="상품별 광고 분석 가로 스크롤"><table class="ca-table cad-table"><thead id="cad-head"></thead><tbody id="cad-body"></tbody></table></div>
+      <p class="helper">ROAS = 광고 집행 매출 ÷ 매출성장 광고비 × 100. 광고 이익 = 광고 집행 이익금 − 매출성장 광고비. 신규고객확보 광고비는 상품별로 배분하지 않아 이 표의 광고 이익에서 제외됩니다.</p>
+    </section>
+    <section class="panel cad-guide" aria-labelledby="cad-guide-title"><h2 id="cad-guide-title">광고 자료 확인</h2><p class="helper">쿠팡 주문 API만으로는 광고비·광고 매출·광고 판매량을 확인할 수 없습니다. 셀하에서 하루 단위 손익 결과 엑셀을 내려받아 매출 분석 화면에서 가져와 주세요. 미수집 날짜나 옵션이 있으면 기간 합계는 —로 표시하며 0원으로 계산하지 않습니다.</p><div class="ca-toolbar"><a class="ca-text-link" id="cad-import-link" href="/coupang-sales.html#ca-import">손익 엑셀 가져오기 ↗</a><a class="ca-text-link" href="/coupang.html">자료·연결 관리 ↗</a></div></section>
+  </main>
+</body></html>

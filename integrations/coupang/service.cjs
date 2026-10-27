@@ -138,6 +138,61 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     atomic(path.join(dir(c),'scope.json'), JSON.stringify({products,key:hash(products.map(p=>p.itemId))}));
     return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length};
   }
+  function workspaceState(c) {
+    const s = scope(c), savedGroups = read(path.join(dir(c), 'groups.json'), []);
+    if (!Array.isArray(savedGroups)) throw fail(500, '저장한 상품 그룹을 읽을 수 없습니다.');
+    const selected = new Set(s.products.map(p => p.itemId));
+    const groups = savedGroups.map(group => ({ id: group.id, name: group.name, itemIds: group.itemIds.filter(itemId => selected.has(itemId)) }));
+    return { configured: true, scopeKey: s.key, revision: hash({ vendorId: c.vendorId, scope: s, groups: savedGroups }), products: s.products, groups };
+  }
+  function workspace() {
+    if (!fs.existsSync(privateFile)) return { configured: false, scopeKey: '', revision: null, products: [], groups: [] };
+    return workspaceState(config());
+  }
+  function editableWorkspace(v) {
+    const c = config(), current = workspaceState(c);
+    if (typeof v?.revision !== 'string' || typeof v?.scopeKey !== 'string' || v.revision !== current.revision || v.scopeKey !== current.scopeKey) throw fail(409, '상품·그룹 저장 내용이 변경됐습니다. 최신 자료를 다시 불러온 뒤 저장하세요.');
+    return { c, current, s: requireScope(c) };
+  }
+  function updateProduct(v) {
+    const { c, s } = editableWorkspace(v);
+    if (!id(v.itemId)) throw fail(400, '옵션 ID를 확인하세요.');
+    const itemId = String(v.itemId), product = s.products.find(p => p.itemId === itemId);
+    if (!product) throw fail(409, '선택한 옵션이 현재 집계 대상에 없습니다. 상품 목록을 다시 불러오세요.');
+    const costs = {};
+    for (const key of ['unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) {
+      if (!Object.hasOwn(v, key) || v[key] !== null && (typeof v[key] !== 'number' || !Number.isFinite(v[key]) || v[key] < 0 || v[key] > 1e12)) throw fail(400, '원가·수수료·배송비는 0 이상의 숫자 또는 미확인으로 입력하세요.');
+      costs[key] = v[key];
+    }
+    if (costs.commissionRate !== null && costs.commissionRate > 100) throw fail(400, '수수료율은 0~100%로 입력하세요.');
+    if (!Object.hasOwn(v, 'costSince') || v.costSince !== null && (!validDay(v.costSince) || v.costSince > kstDay(now()))) throw fail(400, '원가 기준일을 확인하세요. 미래 날짜는 사용할 수 없습니다.');
+    const products = s.products.map(p => p.itemId === itemId ? { ...p, ...costs, costSince: v.costSince } : p);
+    // Edit metadata in place: selection and its ledger/acquisition scope stay intact.
+    atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ ...s, products }));
+    return workspaceState(c);
+  }
+  function saveGroups(v) {
+    const { c, current } = editableWorkspace(v);
+    if (!Array.isArray(v.groups) || v.groups.length > 100) throw fail(400, '상품 그룹은 최대 100개까지 저장할 수 있습니다.');
+    const selected = new Set(current.products.map(p => p.itemId));
+    const previous = read(path.join(dir(c), 'groups.json'), []);
+    const groups = v.groups.map(group => {
+      if (!group || typeof group.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(group.id) || typeof group.name !== 'string' || !group.name.trim() || group.name.trim().length > 60 || /[\u0000-\u001f\u007f]/.test(group.name)) throw fail(400, '그룹 ID·이름을 확인하세요. 이름은 1~60자로 입력하세요.');
+      if (!Array.isArray(group.itemIds) || group.itemIds.length > 500 || group.itemIds.some(itemId => !id(itemId))) throw fail(400, '그룹에 포함할 옵션 ID를 확인하세요.');
+      const itemIds = group.itemIds.map(String);
+      if (new Set(itemIds).size !== itemIds.length || itemIds.some(itemId => !selected.has(itemId))) throw fail(400, '그룹에는 현재 집계 대상 옵션만 중복 없이 추가하세요.');
+      // The browser sees only current selections. Preserve hidden memberships
+      // on surviving groups while replacing all currently editable memberships.
+      const retained = previous.find(saved => saved.id === group.id)?.itemIds.filter(itemId => !selected.has(itemId)) || [];
+      const merged = [...retained, ...itemIds];
+      if (merged.length > 500) throw fail(400, '이전 집계 대상 옵션을 포함해 그룹당 최대 500개까지 저장할 수 있습니다. 새 그룹으로 나누어 주세요.');
+      return { id: group.id, name: group.name.trim(), itemIds: merged.sort((a, b) => a.localeCompare(b)) };
+    });
+    if (new Set(groups.map(group => group.id)).size !== groups.length) throw fail(400, '중복 그룹 ID를 제거하세요.');
+    // Groups are a display filter and never alter the financial selection scope.
+    atomic(path.join(dir(c), 'groups.json'), JSON.stringify(groups));
+    return workspaceState(c);
+  }
   // Only fixed categories leave this process; upstream bodies may contain keys,
   // customer fields, or arbitrary text and must never be returned or persisted.
   async function authDiagnosis(response) {
@@ -567,7 +622,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
       items.push(item);
     }
-    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, daily, items, summary,
+    return { since: v.since, until: v.until, channel, ...(view ? { view } : {}), scopeKey: s.key, workspaceRevision: workspaceState(c).revision, daily, items, summary,
       ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
       coverage: { sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
       importedDates: seenImports.map(d => d.date), lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
@@ -595,6 +650,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, diagnose, saveScope, importCatalog, importSales, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, diagnose, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
 module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };

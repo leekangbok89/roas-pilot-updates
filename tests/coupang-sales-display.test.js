@@ -10,11 +10,11 @@ function declaration(name) {
 }
 function helpers() {
   const context = vm.createContext({});
-  const constants = ['summable', 'isNumber', 'number', 'won', 'sum'].map(name => {
+  const constants = ['summable', 'channels', 'isNumber', 'number', 'won', 'sum'].map(name => {
     const line = source.split('\n').find(line => line.trim().startsWith('const ' + name + ' ='));
     assert.ok(line, name); return line;
   }).join('\n');
-  const names = ['displayedValue', 'isPartialValue', 'availableSum', 'salesStatus', 'aggregateRows', 'compareValues'];
+  const names = ['displayedValue', 'isPartialValue', 'availableSum', 'salesStatus', 'aggregateRows', 'compareValues', 'filterProductGroups'];
   vm.runInContext(constants + '\n' + names.map(declaration).join('\n') + '\nglobalThis.h={' + names.join(',') + '};', context);
   return context.h;
 }
@@ -55,4 +55,19 @@ test('sales sorting follows displayed collected values while unknown rows remain
   assert.ok(h.compareValues(high, low, 'sales', true) > 0);
   assert.ok(h.compareValues(unknown, low, 'sales', false) > 0);
   assert.equal(h.compareValues({ netProfit: null, available: { netProfit: 100 } }, { netProfit: null }, 'netProfit', false), 0);
+});
+
+test('saved groups filter exact options and recalculate table totals without allocating final acquisition profit', () => {
+  const h = helpers();
+  const a = { itemId:'123', sales:20000, quantity:2, advertising:1000, adSales:10000, netProfit:null, source:'sellha' };
+  const b = { itemId:'456', sales:10000, quantity:1, advertising:3000, adSales:20000, netProfit:null, source:'sellha' };
+  const products = [{ id:'700', name:'예시', ...h.aggregateRows([a,b]), options:[{id:'123',channel:'growth',rows:[a]},{id:'456',channel:'seller',rows:[b]}], rows:[a,b] }];
+  const original = JSON.stringify(products);
+  const selected = h.filterProductGroups(products, ['456']);
+  assert.equal(selected.length,1); assert.equal(selected[0].sales,10000); assert.equal(selected[0].roas,20000/3000*100);
+  assert.equal(selected[0].netProfit,null); assert.equal(selected[0].channel,'판매자배송');
+  assert.equal(selected[0].options.length,1); assert.equal(selected[0].options[0].id,'456');
+  assert.equal(JSON.stringify(products),original); assert.equal(products[0].sales,30000);
+  assert.equal(h.filterProductGroups(products, []).length,0);
+  assert.equal(h.filterProductGroups(products, null),products);
 });

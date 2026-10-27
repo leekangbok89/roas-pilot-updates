@@ -21,7 +21,8 @@
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
     <header class="app-page-head"><div><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">트루버 + 위마망 · 로켓그로스 중심으로, 판매자배송의 매출과 비용을 함께 확인합니다.</p></div></header>
-    <nav class="cp-page-tabs" aria-label="쿠팡 분석 메뉴"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-sales.html">상품별 매출 분석</a><a href="/coupang.html" aria-current="page">연결·원가·비용 관리</a></nav>
+    <nav class="cp-page-tabs" aria-label="쿠팡 분석 메뉴"><a href="/coupang-dashboard.html">대시보드</a><a href="/coupang-products.html">상품 관리</a><a href="/coupang-sales.html">매출 분석</a><a href="/coupang-ads.html">광고 분석</a><a href="/coupang.html" aria-current="page">자료·연결 관리</a></nav>
+    <div class="cp-start-guide"><strong>자료를 연결하면 분석 화면에 자동 반영됩니다.</strong><span>① API 연결·주문 수집 → ② 상품현황·집계 상품 확인 → ③ 손익 파일·추가 광고비 확인</span><a href="/coupang-sales.html#ca-import">손익 파일 가져오기 ↗</a><a href="/coupang-products.html">상품별 원가·그룹 관리 ↗</a></div>
     <p id="cp-message" class="cp-notice" role="status" aria-live="polite">쿠팡 연결을 확인합니다.</p>
     <details class="panel" id="cp-connection" open><summary>쿠팡 API 연결 · <span id="cp-identity">미연결</span></summary>
       <p class="helper">쿠팡 WING에서 발급한 업체코드·Access Key·Secret Key를 등록하세요. 키는 이 PC의 Windows 계정으로 암호화합니다. API 허용 IP는 실제 인터넷 공인 IP를 사용합니다.</p>
@@ -47,11 +48,12 @@
       <p id="cp-history-status" role="status" aria-live="polite">대기 · 저장/확인 0/0일·배송방식</p><progress id="cp-history-progress" value="0" max="1" aria-label="쿠팡 주문 수집 진행률"></progress><p id="cp-history-detail" class="helper"></p>
       <p class="helper">그로스와 판매자배송을 최근 365일 기준으로 7일씩 나누어 저장합니다. 과거 저장분은 재사용하고 최근 7일은 갱신합니다. 브라우저를 닫아도 수집은 계속되며, ROAS Pilot 프로그램은 실행해 두세요. 재시작 또는 오류 후에는 이어서 수집을 누르세요. 최초 1년 수집이 끝나면 프로그램을 켤 때 오늘을 포함한 최근 7일만 자동 재확인합니다. 이전 자료는 보존하며 자동 삭제하지 않습니다.</p>
     </section>
-    <section class="panel"><h2>상품현황 엑셀로 원가 매칭</h2>
+    <section class="panel" id="cp-catalog"><h2>상품현황 엑셀로 원가 매칭</h2>
       <p class="helper">상품현황.xlsx의 옵션ID로 원가·마켓 수수료율·입출고 요금·배송비를 연결합니다. 트루버·위마망 옵션을 집계 대상으로 추가하며 기존에 입력한 원가는 파일 값으로 갱신합니다. 원가 0원은 미확인으로 저장합니다. 상품 조합이 바뀌면 매출·비용을 다시 확인하세요.</p>
       <fieldset><input id="cp-catalog-file" type="file" accept=".xlsx" aria-label="상품현황 엑셀"><button id="cp-catalog-preview" type="button">파일 확인</button><button id="cp-catalog-save" type="button" disabled>매칭 저장</button><p id="cp-catalog-status" role="status"></p></fieldset>
     </section>
     <details class="panel" open><summary>집계할 트루버·위마망 상품 선택</summary>
+      <p class="helper">개별 원가 수정과 그룹 분류는 <a href="/coupang-products.html">상품 관리</a>에서 할 수 있습니다. 이곳의 선택 저장은 분석에 포함할 상품 범위를 바꿉니다.</p>
       <p class="helper">주문 수집 후 트루버·위마망 옵션을 체크하고 저장하세요. 쿠팡 수익 분석에서만 두 브랜드를 함께 집계하며, 다른 메뉴는 위마망만 분석합니다. 원가는 관세·수입운송비 등을 포함한 개당 원가를 등록하세요. 원가 미등록은 0원으로 계산하지 않습니다. 추정 수수료는 API 판매금액 기준, 입출고·배송비는 판매수량 기준 참고값입니다. 실제 정산 비용은 매출·비용 입력에서 확인하세요. 선택 상품이 바뀌면 해당 상품 조합의 매출·비용을 다시 확인해 주세요.</p>
       <fieldset><div class="cp-actions"><button id="cp-select-all" type="button">전체 선택</button><button id="cp-select-none" type="button">전체 해제</button></div><div id="cp-products" class="cp-products"></div><button id="cp-save-scope" class="primary" type="button">선택한 트루버·위마망 상품 저장</button></fieldset>
       <form id="cp-add"><fieldset><div class="cp-form"><label>직접 추가 · 옵션 ID<input id="cp-item-id" inputmode="numeric" maxlength="20" required></label><label>상품명<input id="cp-item-name" maxlength="300" required></label><div class="cp-actions"><button type="submit">옵션 추가</button></div></div></fieldset></form>
