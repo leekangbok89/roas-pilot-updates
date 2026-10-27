@@ -178,8 +178,8 @@ async function verifyOverviewCompletedDays(){
  pass('Initial range, rolling shortcuts, monthly selection, snapshot requests and calendar exclude today; explicit today remains available');
 }
 async function verifyOverviewFolds(){
- const panels=[['details.fold-panel:has(#channels)','#channels'],['details.fold-panel:has(#daily)','#daily'],['#profit-panel','#profit-save-fees'],['#budget-efficiency','#budget-step']];
- assert.equal(await page.locator('details.fold-panel').count(),4,'Four overview panels retain the new folded presentation after installation/update');
+ const panels=[['details.fold-panel:has(#channels)','#channels'],['details.fold-panel:has(#daily)','#daily'],['#profit-panel','#profit-save-fees'],['#budget-efficiency','#budget-step'],['#collection-status-panel','#cafe-revenue-recover']];
+ assert.equal(await page.locator('details.fold-panel').count(),5,'Five overview panels retain the new folded presentation after installation/update');
  assert.equal(await page.locator('#ai-strategy,#ai-form,#ai-key,#ai-question,#ai-submit').count(),0,'Removed AI controls must not reappear in any installation path');
  assert.equal(await page.getByText('AI 전략 회의실',{exact:true}).count(),0);
  for(const [selector,content] of panels){
