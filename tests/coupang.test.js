@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
-const { createService, signature, COSTS, range, normalize } = require('../integrations/coupang/service.cjs');
+const { createService, signature, COSTS, range, normalize, apiMoney } = require('../integrations/coupang/service.cjs');
 const now = Date.parse('2026-10-26T05:00:00Z');
 const date = '2026-10-25';
 const config = { vendorId: 'A00012345', accessKey: 'test-access-key', secretKey: 'test-secret-key' };
@@ -100,4 +100,109 @@ test('unregistered product costs are unknown, and overlapping collections are re
   assert.throws(() => s.saveCredentials(config), /수집 중/);
   resolve({ ok: true, json: async () => ({ code: 200, data: [rg()] }) }); await op;
   assert.equal(s.report({ since: date, until: date }).daily[0].estimatedProductCost, null);
+});
+test('internationalized seller money objects are accepted only in KRW and preserve fractional amounts', () => {
+  assert.equal(apiMoney({ currencyCode: 'KRW', units: '12345', nanos: 500000000 }), 12345.5);
+  assert.equal(apiMoney({ currencyCode: 'USD', units: '12345', nanos: 0 }), null);
+  assert.equal(apiMoney({ currencyCode: 'KRW', units: '', nanos: 0 }), null);
+  assert.equal(apiMoney({ currencyCode: 'KRW', units: '1', nanos: 1000000000 }), null);
+  const raw = { orderId: 1234, shipmentBoxId: 111, orderedAt: date + 'T12:00:00+09:00', orderItems: [{ vendorItemId: 123, shippingCount: 1, orderPrice: { currencyCode: 'KRW', units: '390000', nanos: 0 } }] };
+  assert.equal(normalize(raw, 'seller', date)[0].gross, 390000);
+});
+test('a seven-day request partitions rows by KST date and writes explicit empty days only after all pages succeed', async t => {
+  const calls = [];
+  const { s } = setup(t, async url => {
+    const u = new URL(url); calls.push(u);
+    return { ok: true, json: async () => ({ code: 200, data: [rg()] }) };
+  });
+  await s.sync({ since: '2026-10-19', until: date, channel: 'growth' });
+  assert.equal(calls.length, 1); assert.equal(calls[0].searchParams.get('paidDateFrom'), '20261019');
+  assert.equal(calls[0].searchParams.get('paidDateTo'), '20261025');
+  const r = s.report({ since: '2026-10-19', until: date });
+  assert.equal(r.daily.find(r => r.date === '2026-10-19' && r.channel === 'growth').gross, 0);
+  assert.equal(r.daily.find(r => r.date === date && r.channel === 'growth').gross, 20000);
+});
+test('year history starts immediately, uses 53 seven-day growth requests and retains daily snapshots across service restarts', async t => {
+  const calls = [];
+  const { s, baseDir } = setup(t, async url => { const u = new URL(url); calls.push(u); return { ok: true, json: async () => ({ code: 200, data: [] }) }; });
+  const result = s.startHistory({ since: '2025-10-26', until: date, channels: ['growth'] });
+  assert.equal(result.running, true); assert.equal(result.totalDays, 365);
+  await s.waitForHistory(); const h = s.historyStatus(); assert.equal(h.status, 'completed'); assert.equal(h.completedDays, 365); assert.equal(calls.length, 53);
+  for (const u of calls) { const f = u.searchParams.get('paidDateFrom'), z = u.searchParams.get('paidDateTo'); const dt = x => Date.parse(x.slice(0, 4) + '-' + x.slice(4, 6) + '-' + x.slice(6)); assert.ok(dt(z) - dt(f) <= 6 * 86400000); }
+  const cache = path.join(baseDir, '.roas-data/coupang/A00012345/orders'); assert.equal(fs.readdirSync(cache).length, 365);
+  const protect = (mode, data) => mode === 'encrypt' ? Buffer.from(data).toString('base64') : Buffer.from(data, 'base64').toString();
+  const next = createService({ baseDir, protect, now: () => now });
+  assert.equal(next.historyStatus().completedDays, 365); assert.equal(next.report({ since: '2025-10-26', until: date }).daily.length, 730);
+});
+test('both channels use independent seven-day windows and known snapshots are reused without duplicating totals', async t => {
+  const calls = [];
+  const { s } = setup(t, async url => { calls.push(new URL(url)); return { ok: true, json: async () => ({ code: 200, data: [] }) }; });
+  const input = { since: '2026-10-01', until: '2026-10-14', channels: ['growth', 'seller'] };
+  s.startHistory(input); await s.waitForHistory();
+  assert.equal(calls.length, 14); assert.equal(s.historyStatus().completedDays, 28);
+  assert.equal(calls.filter(u => u.pathname.endsWith('/rg/orders')).length, 2);
+  s.startHistory(input); await s.waitForHistory(); assert.equal(calls.length, 14); assert.equal(s.historyStatus().skippedDays, 28);
+  assert.equal(s.report({ since: '2026-10-01', until: '2026-10-14' }).daily.length, 28);
+});
+test('history failure checkpoints previous chunks and resumes after restart without marking failed days as zero', async t => {
+  let failRequest = true; const calls = [];
+  const { s, baseDir } = setup(t, async url => {
+    const u = new URL(url); const start = u.searchParams.get('paidDateFrom'); calls.push(start);
+    if (start === '20261008' && failRequest) return { ok: false, status: 403 };
+    return { ok: true, json: async () => ({ code: 200, data: [] }) };
+  });
+  s.startHistory({ since: '2026-10-01', until: '2026-10-21', channels: ['growth'] }); await s.waitForHistory();
+  assert.equal(s.historyStatus().status, 'failed'); assert.equal(s.historyStatus().completedDays, 7);
+  assert.equal(s.report({ since: '2026-10-08', until: '2026-10-08' }).daily[0].gross, null);
+  const file = path.join(baseDir, '.roas-data/coupang/A00012345/history.json'); const interrupted = JSON.parse(fs.readFileSync(file)); interrupted.status = 'running'; fs.writeFileSync(file, JSON.stringify(interrupted));
+  assert.equal(s.historyStatus().status, 'paused');
+  failRequest = false; s.startHistory({ resume: true }); await s.waitForHistory();
+  assert.equal(s.historyStatus().status, 'completed'); assert.equal(s.historyStatus().completedDays, 21);
+  assert.deepEqual(calls, ['20261001', '20261008', '20261008', '20261015']);
+});
+test('history pause finishes the active chunk, blocks account changes and resumes the rest', async t => {
+  let resolve, first = true;
+  const { s } = setup(t, async () => {
+    if (first) { first = false; return new Promise(r => { resolve = r; }); }
+    return { ok: true, json: async () => ({ code: 200, data: [] }) };
+  });
+  s.startHistory({ since: '2026-10-01', until: '2026-10-14', channels: ['growth'] });
+  await new Promise(r => setImmediate(r)); assert.throws(() => s.saveCredentials(config), /수집 중/);
+  s.pauseHistory(); resolve({ ok: true, json: async () => ({ code: 200, data: [] }) }); await s.waitForHistory();
+  assert.equal(s.historyStatus().status, 'paused'); assert.equal(s.historyStatus().completedDays, 7);
+  s.startHistory({ resume: true }); await s.waitForHistory(); assert.equal(s.historyStatus().completedDays, 14);
+});
+test('temporary rate limits retry with a new signed request while authorization failures stop without repeated attempts', async t => {
+  let count = 0;
+  const { s } = setup(t, async () => ++count === 1 ? { ok: false, status: 429 } : { ok: true, json: async () => ({ code: 200, data: [] }) });
+  await s.sync({ since: date, until: date, channel: 'growth' }); assert.equal(count, 2);
+});
+test('startup refresh waits for the initial year and then only rechecks the recent seven days once per launch', async t => {
+  const calls = [];
+  const { s, baseDir } = setup(t, async url => { calls.push(new URL(url)); return { ok: true, json: async () => ({ code: 200, data: [] }) }; });
+  assert.equal((await s.automatic()).reason, 'initial-year-incomplete'); assert.equal(calls.length, 0);
+  s.startHistory({ since: '2025-10-26', until: date, channels: ['growth', 'seller'] }); await s.waitForHistory();
+  assert.ok(s.status().backfill.growth.completedAt); assert.ok(s.status().backfill.seller.completedAt);
+  const oldFile = path.join(baseDir, '.roas-data/coupang/A00012345/orders/2025-10-26-growth.json'), oldBytes = fs.readFileSync(oldFile);
+  calls.length = 0; const r = await s.automatic(); assert.equal(r.started, true); assert.equal(calls.length, 7);
+  for (const u of calls) {
+    if (u.pathname.endsWith('/rg/orders')) { assert.equal(u.searchParams.get('paidDateFrom'), '20261020'); assert.equal(u.searchParams.get('paidDateTo'), '20261026'); }
+    else { assert.equal(u.searchParams.get('createdAtFrom'), '2026-10-20+09:00'); assert.equal(u.searchParams.get('createdAtTo'), '2026-10-26+09:00'); }
+  }
+  assert.equal(s.historyStatus().kind, 'startup'); assert.equal(s.status().automatic.error, null); assert.ok(s.status().automatic.lastCompletedAt);
+  assert.deepEqual(fs.readFileSync(oldFile), oldBytes); assert.equal((await s.automatic()).started, false); assert.equal(calls.length, 7);
+});
+test('startup never replaces an unfinished manual backfill; a failed automatic check can retry next launch', async t => {
+  let failing = false;
+  const fetchImpl = async () => failing ? { ok: false, status: 403 } : { ok: true, json: async () => ({ code: 200, data: [] }) };
+  const { s, baseDir } = setup(t, fetchImpl);
+  s.startHistory({ since: '2025-10-26', until: date, channels: ['growth'] }); await s.waitForHistory();
+  const file = path.join(baseDir, '.roas-data/coupang/A00012345/history.json'); const original = fs.readFileSync(file, 'utf8'), pending = JSON.parse(original);
+  pending.status = 'running'; pending.kind = 'manual'; fs.writeFileSync(file, JSON.stringify(pending));
+  assert.equal((await s.automatic()).reason, 'unfinished-collection'); assert.equal(JSON.parse(fs.readFileSync(file)).kind, 'manual');
+  fs.writeFileSync(file, original); failing = true; await s.automatic(); assert.equal(s.historyStatus().status, 'failed'); assert.match(s.status().automatic.error, /인증/);
+  const protect = (mode, data) => mode === 'encrypt' ? Buffer.from(data).toString('base64') : Buffer.from(data, 'base64').toString();
+  failing = false; const next = createService({ baseDir, protect, now: () => now, sleep: async () => {}, fetchImpl });
+  assert.equal((await next.automatic()).started, true); assert.equal(next.historyStatus().status, 'completed');
+  assert.ok(fs.existsSync(path.join(baseDir, '.roas-data/coupang/A00012345/orders/2025-10-26-growth.json')));
 });

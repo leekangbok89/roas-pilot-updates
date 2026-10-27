@@ -6,6 +6,7 @@ const { chromium } = require(process.env.ROAS_PLAYWRIGHT_MODULE || 'playwright')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-coupang-ui-'));
 const base = 'http://127.0.0.1:3000';
 let child, browser, configured = false, selected = [], reviewed = false;
+let historyJob = { status: 'idle', running: false, completedDays: 0, totalDays: 0 };
 const posts = [], errors = [], external = [];
 const malicious = '<img data-injected src=x onerror="window.__injected=1"> 위마망';
 async function main() {
@@ -17,6 +18,8 @@ async function main() {
   assert.equal((await fetch(base + '/api/coupang/status', { headers: { Origin: 'https://evil.invalid' } })).status, 403);
   assert.equal((await fetch(base + '/api/coupang/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
   assert.equal((await fetch(base + '/api/coupang/report', { method: 'POST' })).status, 405);
+  assert.equal((await fetch(base + '/api/coupang/history')).status, 409);
+  assert.equal((await fetch(base + '/api/coupang/history', { method: 'POST', headers: { Origin: 'https://evil.invalid' }, body: '{}' })).status, 403);
   browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Seoul' });
   await context.route('**/*', async route => {
@@ -28,7 +31,13 @@ async function main() {
     if (endpoint === 'credentials') { configured = true; selected = []; reviewed = false; }
     if (endpoint === 'scope') { selected = body.products; assert.deepEqual(selected.map(p => p.itemId), ['123']); }
     if (endpoint === 'ledger') { assert.equal(body.reviewed, true); reviewed = true; }
-    let json = { configured, products: selected, vendorId: configured ? 'A00012345' : '', scopeKey: 'scope-a' };
+    let json = { configured, products: selected, vendorId: configured ? 'A00012345' : '', scopeKey: 'scope-a', history: historyJob };
+    if (endpoint === 'history') {
+      if (body && !body.resume) historyJob = { id: 'history-a', since: body.since, until: body.until, channels: body.channels, status: 'running', running: true, completedDays: 0, totalDays: 730, error: null };
+      if (body?.resume) historyJob = { ...historyJob, status: 'running', running: true, error: null };
+      json = historyJob;
+    }
+    if (endpoint === 'history-pause') json = historyJob = { ...historyJob, status: 'paused', running: false };
     if (endpoint === 'products') json = { products: [{ itemId: '123', name: malicious, unitCost: 3000 }, { itemId: '456', name: '트루버', unitCost: null }], selected: selected.map(p => p.itemId) };
     if (endpoint === 'sync') json = { savedDays: [body.since], channel: body.channel };
     if (endpoint === 'ledger') json = { saved: true };
@@ -66,10 +75,27 @@ async function main() {
   // Changing editor channel must clear the previous channel's amounts and review.
   await page.selectOption('#cp-cost-channel', 'seller'); assert.equal(await page.locator('#cp-cost-productCost').inputValue(), '');
   assert.equal(await page.locator('#cp-reviewed').isChecked(), false);
+  await page.locator('#cp-year').click();
+  await page.waitForFunction(() => document.getElementById('cp-history-status').textContent.includes('0/730'));
+  const historyPost = posts.filter(p => p.endpoint === 'history').at(-1).body;
+  assert.deepEqual(historyPost.channels, ['growth', 'seller']);
+  assert.equal((Date.parse(historyPost.until) - Date.parse(historyPost.since)) / 86400000, 364);
+  await page.reload(); await page.waitForFunction(() => document.getElementById('cp-identity').textContent.includes('키 저장됨'));
+  await page.mouse.move(1200, 500); await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#cp-since').inputValue(), historyPost.since);
+  assert.equal(posts.filter(p => p.endpoint === 'history').length, 1, 'Reload only checks progress and does not restart collection');
+  historyJob = { ...historyJob, status: 'failed', running: false, completedDays: 14, error: '테스트 수집 오류' };
+  await page.waitForFunction(() => !document.getElementById('cp-resume').disabled, { timeout: 10000 });
+  assert.match(await page.locator('#cp-history-detail').innerText(), /테스트 수집 오류/);
+  await page.locator('#cp-resume').click(); await page.waitForFunction(() => document.getElementById('cp-history-status').textContent.includes('수집 중'));
+  assert.equal(posts.filter(p => p.endpoint === 'history').at(-1).body.resume, true);
+  historyJob = { ...historyJob, status: 'completed', running: false, completedDays: 730, error: null };
+  await page.waitForFunction(() => document.getElementById('cp-history-status').textContent.includes('수집 완료'), { timeout: 10000 });
+  assert.equal(await page.locator('#cp-resume').isDisabled(), true);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   assert.equal(await page.evaluate(() => JSON.stringify({ ...localStorage }).includes('SYNTHETIC')), false);
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  console.log('PASS Coupang legacy fallback, local request guards, credential clearing, brand selection, missing-cost totals, cost editing, XSS and mobile width');
+  console.log('PASS Coupang legacy fallback, local guards, brand selection, missing costs, 365-day background history, reload/resume, XSS and mobile width');
 }
 main().catch(e => { console.error(e); process.exitCode = 1; }).finally(async () => { await browser?.close(); child?.kill(); fs.rmSync(temp, { recursive: true, force: true }); });

@@ -4,7 +4,7 @@
   const channels = { growth: '로켓그로스', seller: '판매자배송', all: '전체' };
   const costs = { netSales: '환불 반영 매출', productCost: '상품 원가 합계', commission: '판매수수료', advertising: '쿠팡 광고비', inbound: '입출고·입고 운송비', delivery: '배송비', storage: '보관비', returns: '반품·회수 비용', other: '기타 비용' };
   const won = v => v === null || v === undefined ? '—' : Math.round(v).toLocaleString('ko-KR') + '원';
-  let busy = false, selected = [], options = [], report = null, configured = false, editor = null;
+  let busy = false, selected = [], options = [], report = null, configured = false, editor = null, historyRunning = false, historyStamp = '', dirtyScope = false;
   function message(text) { $('cp-message').textContent = text; }
   async function request(route, data) {
     const r = await fetch('/api/coupang/' + route, data === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-ROAS-Local-Action': 'yes' }, body: JSON.stringify(data) });
@@ -30,8 +30,40 @@
     if (!options.length) $('cp-products').textContent = '주문을 수집해 상품을 불러오거나, 아래에서 옵션을 직접 추가하세요.';
   }
   async function loadOptions() {
+    if (dirtyScope) return;
     const v = await request('products?' + new URLSearchParams(period()));
     options = v.products; renderOptions();
+  }
+  function recentDates(count) {
+    const end = new Date(Date.now() + 9 * 3600000); end.setUTCDate(end.getUTCDate() - 1);
+    const start = new Date(end); start.setUTCDate(start.getUTCDate() - count + 1);
+    $('cp-since').value = start.toISOString().slice(0, 10); $('cp-until').value = end.toISOString().slice(0, 10);
+    report = null; render();
+  }
+  function renderHistory(h) {
+    h = h || { status: 'idle', completedDays: 0, totalDays: 0 };
+    historyRunning = h.running === true;
+    const names = { idle: '대기', running: '수집 중', completed: '수집 완료', failed: '수집 중단 · 오류 확인', paused: '수집 일시정지' };
+    $('cp-history-progress').max = Math.max(1, h.totalDays || 0); $('cp-history-progress').value = h.completedDays || 0;
+    $('cp-history-status').textContent = (names[h.status] || '상태 확인') + ' · 저장/확인 ' + (h.completedDays || 0) + '/' + (h.totalDays || 0) + '일·배송방식' + (h.skippedDays ? ' · 기존 저장분 ' + h.skippedDays + '일 재사용' : '');
+    $('cp-history-detail').textContent = [h.kind === 'startup' ? '프로그램 실행 시 최근 7일 자동 재확인' : '', h.since && h.until ? '대상: ' + h.since + ' ~ ' + h.until : '', h.current ? channels[h.current.channel] + ' ' + h.current.since + ' ~ ' + h.current.until : '', h.pauseRequested && h.running ? '현재 구간 저장 후 중지합니다.' : '', h.error || ''].filter(Boolean).join('\n');
+    $('cp-resume').disabled = !['failed', 'paused'].includes(h.status); $('cp-pause').disabled = !h.running;
+    return h;
+  }
+  async function historyStatus(refresh = false) {
+    if (!configured) return;
+    const previous = historyRunning, h = renderHistory(await request('history'));
+    const stamp = [h.id, h.status, h.completedDays].join(':');
+    if ((refresh || previous && !h.running) && stamp !== historyStamp) {
+      if (!editor) { await loadOptions(); await loadReport(); }
+      message(h.error || (h.status === 'completed' ? '수집 완료. 위마망 상품만 선택하여 저장하세요. 이미 선택한 상품은 저장 자료 조회로 확인할 수 있습니다.' : '완료된 자료는 저장되어 있습니다. 이어서 수집할 수 있습니다.'));
+    }
+    historyStamp = stamp;
+  }
+  async function startCollection(input) {
+    if (!configured) throw Error('먼저 API 정보를 등록하세요.');
+    renderHistory(await request('history', input));
+    message('백그라운드 수집을 시작했습니다. 7일씩 나누어 저장합니다. 브라우저를 닫아도 계속되지만 ROAS Pilot 프로그램은 실행해 두세요.');
   }
   function activeRows() { const ch = $('cp-channel').value; return report ? report.daily.filter(r => ch === 'all' || r.channel === ch) : []; }
   function rowText(values) {
@@ -64,6 +96,7 @@
     const v = await request('status'); configured = v.configured; selected = v.products || []; options = selected.slice();
     $('cp-vendor').value = v.vendorId || ''; $('cp-connection').open = !configured;
     $('cp-identity').textContent = configured ? v.vendorId + ' · 키 저장됨 · 각 배송 방식의 수집 버튼으로 연결 확인' : '미연결';
+    renderHistory(v.history);
     renderOptions(); return v;
   }
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -77,7 +110,9 @@
   }); });
   for (const channel of ['growth', 'seller']) $('cp-sync-' + channel).addEventListener('click', () => work(async () => {
     if (!configured) throw Error('먼저 API 정보를 등록하세요.');
-    message(channels[channel] + ' 주문을 수집합니다. 최대 7일이며 판매자배송은 시간이 걸릴 수 있습니다.');
+    const { since, until } = period();
+    if ((Date.parse(until) - Date.parse(since)) / 86400000 >= 7) { await startCollection({ since, until, channels: [channel] }); return; }
+    message(channels[channel] + ' 주문을 수집합니다. 판매자배송은 시간이 걸릴 수 있습니다.');
     let error;
     try { const v = await request('sync', { ...period(), channel }); message(channels[channel] + ' ' + v.savedDays.length + '일 저장 완료. 주문 API 자료는 반품·정산 확정 자료가 아닙니다.'); }
     catch (e) { error = e; }
@@ -94,9 +129,14 @@
       const p = options.find(v => v.itemId === input.dataset.itemId), field = [...document.querySelectorAll('[data-cost-id]')].find(v => v.dataset.costId === p.itemId);
       return { ...p, unitCost: field.value === '' ? null : Number(field.value) };
     });
-    const v = await request('scope', { products }); selected = v.products; editor = null; report = null; await loadReport(); message('위마망 옵션 ' + products.length + '개를 집계 대상으로 저장했습니다.');
+    const v = await request('scope', { products }); selected = v.products; dirtyScope = false; editor = null; report = null; await loadReport(); message('위마망 옵션 ' + products.length + '개를 집계 대상으로 저장했습니다.');
   }));
-  $('cp-query').addEventListener('submit', e => { e.preventDefault(); work(async () => { await loadReport(); message('저장된 자료를 조회했습니다.'); }); });
+  $('cp-query').addEventListener('submit', e => { e.preventDefault(); work(async () => { await loadOptions(); await loadReport(); message(selected.length ? '저장된 자료를 조회했습니다.' : '수집한 상품 목록에서 위마망 상품만 체크하고 저장하세요.'); }); });
+  $('cp-products').addEventListener('change', () => { dirtyScope = true; });
+  $('cp-year').addEventListener('click', () => work(async () => { recentDates(365); await startCollection({ ...period(), channels: ['growth', 'seller'] }); }));
+  $('cp-resume').addEventListener('click', () => work(async () => { const h = await request('history', { resume: true }); $('cp-since').value = h.since; $('cp-until').value = h.until; renderHistory(h); message('완료된 구간은 유지하고 미완료 구간부터 이어서 수집합니다.'); }));
+  $('cp-pause').addEventListener('click', () => work(async () => { renderHistory(await request('history-pause', {})); message('현재 구간을 저장한 후 일시정지합니다.'); }));
+  document.querySelectorAll('[data-cp-days]').forEach(button => button.addEventListener('click', () => { if (!busy) recentDates(Number(button.dataset.cpDays)); }));
   $('cp-channel').addEventListener('change', render);
   $('cp-cost-date-load').addEventListener('click', () => {
     const r = report?.daily.find(v => v.date === $('cp-date').value && v.channel === $('cp-cost-channel').value);
@@ -113,5 +153,6 @@
   function clearEditor() { editor = null; $('cp-reviewed').checked = false; for (const key of Object.keys(costs)) $('cp-cost-' + key).value = ''; }
   $('cp-date').addEventListener('change', clearEditor);
   $('cp-cost-channel').addEventListener('change', clearEditor);
-  work(async () => { await status(); if (configured && selected.length) { await loadReport(); message('저장된 위마망 쿠팡 자료를 불러왔습니다.'); } else message(configured ? '집계할 위마망 옵션을 선택하고 저장하세요.' : '쿠팡 API 정보를 등록한 뒤 각 배송 방식의 주문을 수집하세요.'); });
+  work(async () => { const v = await status(); if (v.history?.since) { $('cp-since').value = v.history.since; $('cp-until').value = v.history.until; } if (configured) { await loadOptions(); await loadReport(); } message(configured ? v.history?.error || '저장 자료를 불러왔습니다. 최근 1년 전체 수집으로 과거 주문을 가져올 수 있습니다.' : '쿠팡 API 정보를 등록한 뒤 각 배송 방식의 주문을 수집하세요.'); });
+  setInterval(() => { if (!busy && configured && !document.hidden) historyStatus().catch(e => message(e.message)); }, 3000);
 })();
