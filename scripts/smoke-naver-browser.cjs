@@ -57,7 +57,7 @@ const write=(name,value)=>{const file=path.join(temp,'.roas-data',name);fs.mkdir
  await page.locator('.metric-choice').nth(0).selectOption('gfaSpend');
  assert.equal(await page.locator('#graph circle[data-metric="gfaSpend"]').count(),2,'GFA costs remain chartable on both dates');
  await page.goto(base+'/display-analysis.html');
- await page.locator('details > summary').click();
+ await page.locator('details > summary').filter({hasText:'저장된 기간 불러오기'}).click();
  await page.locator('#history button').first().click();
  await page.locator('#paste').fill(pasted(400));
  await page.locator('#save').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('전체 통계에 반영'));
