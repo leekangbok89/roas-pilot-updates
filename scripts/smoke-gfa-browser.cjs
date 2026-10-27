@@ -87,5 +87,14 @@ function xlsx(){
  assert.match(await page.locator('#combined-kpis').textContent(),/2,793,000원/);
  assert.match(await page.locator('#combined-kpis').textContent(),/399%/);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no outer overflow on mobile');
+ await page.goto(base+'/visual-overview.html');
+ await page.evaluate(()=>{document.querySelector('#since').value='2026-10-01';document.querySelector('#until').value='2026-10-07';});await page.locator('#reload').click();await page.waitForFunction(()=>!document.querySelector('#reload').disabled);
+ await page.locator('#summary-edit').click();
+ assert.equal(await page.locator('#summary-choice-0 optgroup[label="GFA"] option').count(),12,'all GFA metrics are grouped in one folder');
+ await page.locator('#summary-choice-0').click();await page.locator('.gfa-metric-popup summary').click();await page.locator('.gfa-metric-popup [data-metric-value="gfaDirectRevenue"]').click();
+ await page.locator('#summary-choice-1').selectOption('gfaIndirectRoas');await page.locator('#summary-save').click();
+ assert.match(await page.locator('[data-summary-key="gfaDirectRevenue"] strong').textContent(),/2,793,000원/);
+ assert.match(await page.locator('[data-summary-key="gfaIndirectRoas"] strong').textContent(),/399/);
+ await page.reload();await page.waitForFunction(()=>!document.querySelector('#reload').disabled);assert.equal(await page.locator('[data-summary-key="gfaDirectRevenue"]').count(),1,'GFA metric choice persists');
  assert.deepEqual(errors,[]);console.log('PASS: XLSX decompression, preview, GFA selection, source comparison, replace, cross-browser persistence, partial dates and legacy asset fallback.');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill();await new Promise(resolve=>child.once('exit',resolve));}fs.rmSync(temp,{recursive:true,force:true});});

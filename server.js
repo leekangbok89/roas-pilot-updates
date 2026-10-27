@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/display-analysis.html','public/visual-overview.html','public/cost-management.html','public/other-ad-costs.js','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html','public/detail-analysis.html','public/detail-analysis.js','public/detail-tracker.js','public/ad-changes.html','public/ad-changes.js','public/ad-changes.css','public/naver-search.html','public/naver-search.js','public/naver-search.css','public/naver-analysis.js','public/gfa-data.js','public/gfa-analysis.js','public/coupang.html','public/coupang.js','public/coupang.css'];
-const appVersion='2.8.147';
+const appVersion='2.8.148';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
