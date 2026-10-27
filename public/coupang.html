@@ -33,9 +33,14 @@
     <section class="panel"><h2>조회 기간과 주문 수집</h2>
       <form id="cp-query"><fieldset class="cp-toolbar"><label>시작일<input id="cp-since" type="date" required></label><label>종료일<input id="cp-until" type="date" required></label>
         <label>배송 방식<select id="cp-channel"><option value="growth">로켓그로스</option><option value="seller">판매자배송</option><option value="all">전체</option></select></label>
-        <button type="submit">저장 자료 조회</button><button id="cp-sync-growth" type="button">그로스 주문 API 수집</button><button id="cp-sync-seller" type="button">판매자배송 주문 API 수집</button>
+        <button type="submit">저장 자료 조회</button><button type="button" data-cp-days="7">최근 7일</button><button type="button" data-cp-days="30">최근 30일</button><button type="button" data-cp-days="365">최근 1년</button><button id="cp-sync-growth" type="button">그로스 주문 API 수집</button><button id="cp-sync-seller" type="button">판매자배송 주문 API 수집</button>
       </fieldset></form>
-      <p class="helper">저장 자료 조회는 API를 호출하지 않습니다. 주문 수집은 한 번에 최대 7일입니다. 그로스는 출고 이후 주문만 반환하며, 판매자배송의 반품 완료 주문은 주문 API에서 빠질 수 있습니다. 주문 금액을 확정 매출로 간주하지 않습니다.</p>
+      <p class="helper">저장 자료 조회는 API를 호출하지 않습니다. 조회·저장은 최대 1년이며, 7일을 넘는 기간은 백그라운드에서 7일씩 나누어 수집합니다. 그로스는 출고 이후 주문만 반환하며, 판매자배송의 반품 완료 주문은 주문 API에서 빠질 수 있습니다. 주문 금액을 확정 매출로 간주하지 않습니다.</p>
+    </section>
+    <section class="panel" id="cp-history"><h2>최근 1년 주문 저장</h2>
+      <fieldset class="cp-actions"><button id="cp-year" class="primary" type="button">최근 1년 전체 수집</button><button id="cp-resume" type="button" disabled>이어서 수집</button><button id="cp-pause" type="button" disabled>일시정지</button></fieldset>
+      <p id="cp-history-status" role="status" aria-live="polite">대기 · 저장/확인 0/0일·배송방식</p><progress id="cp-history-progress" value="0" max="1" aria-label="쿠팡 주문 수집 진행률"></progress><p id="cp-history-detail" class="helper"></p>
+      <p class="helper">그로스와 판매자배송을 최근 365일 기준으로 7일씩 나누어 저장합니다. 과거 저장분은 재사용하고 최근 7일은 갱신합니다. 브라우저를 닫아도 수집은 계속되며, ROAS Pilot 프로그램은 실행해 두세요. 재시작 또는 오류 후에는 이어서 수집을 누르세요. 최초 1년 수집이 끝나면 프로그램을 켤 때 오늘을 포함한 최근 7일만 자동 재확인합니다. 이전 자료는 보존하며 자동 삭제하지 않습니다.</p>
     </section>
     <details class="panel" open><summary>집계할 위마망 상품 선택</summary>
       <p class="helper">주문 수집 후 위마망 옵션만 체크하고 저장하세요. 트루버·다른 브랜드는 체크하지 않습니다. 원가는 관세·수입운송비 등을 포함한 개당 원가를 등록하세요. 원가 미등록은 0원으로 계산하지 않습니다.</p>

@@ -14,6 +14,17 @@ function money(x) {
   if (!['string', 'number'].includes(typeof x) || String(x).trim() === '') return null;
   const n = Number(x); return Number.isFinite(n) && n >= 0 && n <= 1e12 ? n : null;
 }
+function apiMoney(x) {
+  if (!x || typeof x !== 'object') return money(x);
+  if (x.currencyCode !== 'KRW' || !/^-?\d+$/.test(String(x.units ?? '')) || !Number.isInteger(Number(x.nanos ?? 0)) || Number(x.nanos ?? 0) < 0 || Number(x.nanos ?? 0) >= 1e9) return null;
+  return money(Number(x.units) + Number(x.nanos ?? 0) / 1e9);
+}
+function orderDate(raw, channel) {
+  const stamp = channel === 'growth' ? raw?.paidAt : raw?.orderedAt || raw?.paidAt;
+  if (channel === 'growth' && (typeof stamp === 'number' || typeof stamp === 'string' && /^\d{13}$/.test(stamp)) && Number.isFinite(Number(stamp))) return kstDay(Number(stamp));
+  if (typeof stamp === 'string' && validDay(stamp.slice(0, 10))) return /(?:Z|[+-]\d\d:\d\d)$/.test(stamp) && Number.isFinite(Date.parse(stamp)) ? kstDay(Date.parse(stamp)) : stamp.slice(0, 10);
+  return null;
+}
 function range(since, until, now, max = 366) {
   if (!validDay(since) || !validDay(until) || since > until || until > kstDay(now) || (Date.parse(until) - Date.parse(since)) / DAY >= max) throw fail(400, '조회 날짜를 확인하세요. 최대 ' + max + '일이며 미래 날짜는 사용할 수 없습니다.');
   const days = []; for (let t = Date.parse(since); t <= Date.parse(until); t += DAY) days.push(new Date(t).toISOString().slice(0, 10)); return days;
@@ -29,15 +40,12 @@ function atomic(file, value) {
 }
 function normalize(raw, channel, date) {
   if (!raw || !id(raw.orderId) || !Array.isArray(raw.orderItems)) throw fail(502, '쿠팡 주문 응답 형식을 확인할 수 없습니다. 기존 자료를 유지합니다.');
-  const stamp = channel === 'growth' ? raw.paidAt : raw.orderedAt || raw.paidAt;
-  let paidDay;
-  if (channel === 'growth' && typeof stamp === 'number' && Number.isFinite(stamp)) paidDay = kstDay(stamp);
-  else if (typeof stamp === 'string' && validDay(stamp.slice(0, 10))) paidDay = /(?:Z|[+-]\d\d:\d\d)$/.test(stamp) && Number.isFinite(Date.parse(stamp)) ? kstDay(Date.parse(stamp)) : stamp.slice(0, 10);
+  const paidDay = orderDate(raw, channel);
   if (paidDay !== date) throw fail(502, '쿠팡 주문 날짜가 조회 날짜와 다릅니다. 기존 자료를 유지합니다.');
   return raw.orderItems.map(item => {
     if (!item || !id(item.vendorItemId)) throw fail(502, '쿠팡 옵션 ID를 확인할 수 없습니다.');
     const quantity = money(channel === 'growth' ? item.salesQuantity : item.shippingCount);
-    const gross = channel === 'growth' ? money(item.unitSalesPrice) : money(item.orderPrice);
+    const gross = channel === 'growth' ? money(item.unitSalesPrice) : apiMoney(item.orderPrice);
     if (quantity === null || !Number.isInteger(quantity) || gross === null || (channel === 'growth' && item.currency !== 'KRW')) throw fail(502, '쿠팡 주문 금액·수량·통화를 확인할 수 없습니다.');
     if (channel === 'seller' && !id(raw.shipmentBoxId)) throw fail(502, '쿠팡 배송번호를 확인할 수 없습니다.');
     return { key: String(raw.orderId) + ':' + String(raw.shipmentBoxId || '') + ':' + String(item.vendorItemId), orderId: String(raw.orderId),
@@ -48,7 +56,7 @@ function normalize(raw, channel, date) {
 function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...args), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   const privateFile = path.join(baseDir, '.roas-private', 'coupang.dpapi');
   const root = path.join(baseDir, '.roas-data', 'coupang');
-  let busy = false, lastRequest = 0;
+  let busy = false, lastRequest = 0, historyActive = false, historyTask = null, automaticStarted = false;
   function read(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw fail(500, '쿠팡 저장 자료를 읽을 수 없습니다.'); } }
   function config() {
     if (!fs.existsSync(privateFile)) throw fail(409, '먼저 쿠팡 API 정보를 등록하세요.');
@@ -69,10 +77,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function status() {
     if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
     const c = config(), s = scope(c);
-    return { configured: true, vendorId: c.vendorId, busy, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}) };
+    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: read(path.join(dir(c), 'automatic.json'), {}) };
   }
   function saveCredentials(v) {
-    if (busy) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
+    if (busy || historyActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
     const c = credentials(v); let encrypted;
     try { encrypted = protect('encrypt', JSON.stringify(c)); } catch { throw fail(500, 'Windows 계정 암호화에 실패했습니다. 기존 연결은 유지됩니다.'); }
     atomic(privateFile, encrypted); return status();
@@ -92,22 +100,28 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const allowed = ['/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets'];
     if (!allowed.includes(uri)) throw fail(400, '지원하지 않는 쿠팡 조회입니다.');
     const query = new URLSearchParams(params).toString();
+    for (let attempt = 0; attempt < 3; attempt++) {
     await sleep(Math.max(0, 1300 - (now() - lastRequest))); lastRequest = now();
     let r;
     try { r = await fetchImpl('https://api-gateway.coupang.com' + uri + '?' + query, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(25000), headers: { Authorization: signature(c, uri, query, now()), 'X-Requested-By': c.vendorId, Accept: 'application/json' } }); }
-    catch { throw fail(502, '쿠팡 API에 연결하지 못했습니다. 인터넷 연결을 확인하세요.'); }
+    catch { if (attempt < 2) { await sleep(1000 * 2 ** attempt); continue; } throw fail(502, '쿠팡 API에 연결하지 못했습니다. 인터넷 연결을 확인하세요.'); }
+    if ((r.status === 429 || r.status >= 500) && attempt < 2) { await r.body?.cancel?.(); await sleep(2000 * 2 ** attempt); continue; }
     if (!r.ok) { await r.body?.cancel?.(); throw fail(r.status === 429 ? 429 : 502, [401, 403].includes(r.status) ? '쿠팡 인증에 실패했습니다. API 키·업체코드·허용 IP·PC 시간을 확인하세요.' : '쿠팡 API 조회 실패 (HTTP ' + r.status + '). 기존 저장 자료는 유지됩니다.'); }
     let v; try { v = await r.json(); } catch { throw fail(502, '쿠팡 API 응답 형식을 확인할 수 없습니다.'); }
     if (v?.code !== 200 || !Array.isArray(v.data)) throw fail(502, '쿠팡 API가 정상 목록을 반환하지 않았습니다.');
     return v;
+    }
   }
-  async function pages(c, uri, params, channel, date) {
+  async function pages(c, uri, params, channel, dates) {
+    const accepted = new Set(Array.isArray(dates) ? dates : [dates]);
     const tokens = new Set(), rows = new Map(); let next = '';
     for (let page = 0; page < 200; page++) {
       const v = await get(c, uri, next ? { ...params, nextToken: next } : params);
       for (const raw of v.data) {
         if (channel === 'growth' && raw.vendorId !== c.vendorId) throw fail(502, '쿠팡 판매자 ID가 일치하지 않습니다.');
-        for (const row of normalize(raw, channel, date)) {
+        const date = orderDate(raw, channel);
+        if (!accepted.has(date)) throw fail(502, '쿠팡 주문 날짜가 요청한 구간과 다릅니다. 기존 자료를 유지합니다.');
+        for (const row of normalize(raw, channel, date).map(row => ({ ...row, date }))) {
           if (rows.has(row.key) && JSON.stringify(rows.get(row.key)) !== JSON.stringify(row)) throw fail(502, '쿠팡 주문 중복 자료가 일치하지 않습니다.');
           rows.set(row.key, row);
         }
@@ -118,31 +132,119 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     throw fail(502, '쿠팡 페이지 수집 한도를 초과했습니다. 기존 자료는 유지됩니다.');
   }
-  async function sync(v) {
+  async function sync(v, internal = false) {
     const c = config(), days = range(v.since, v.until, now(), 7);
     if (!CHANNELS.includes(v.channel)) throw fail(400, '배송 방식을 확인하세요.');
-    if (busy) throw fail(409, '쿠팡 자료를 수집 중입니다.'); busy = true;
+    if (busy || historyActive && !internal) throw fail(409, '쿠팡 자료를 수집 중입니다.'); busy = true;
     const result = { savedDays: [], channel: v.channel };
     try {
-      for (const date of days) {
+      {
         let rows;
-        if (v.channel === 'growth') rows = await pages(c, '/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', { paidDateFrom: date.replaceAll('-', ''), paidDateTo: date.replaceAll('-', '') }, 'growth', date);
+        if (v.channel === 'growth') rows = await pages(c, '/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', { paidDateFrom: v.since.replaceAll('-', ''), paidDateTo: v.until.replaceAll('-', '') }, 'growth', days);
         else {
           const all = new Map();
           for (const state of ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY', 'NONE_TRACKING']) {
-            const part = await pages(c, '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets', { createdAtFrom: date + '+09:00', createdAtTo: date + '+09:00', status: state, maxPerPage: '50' }, 'seller', date);
+            const part = await pages(c, '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets', { createdAtFrom: v.since + '+09:00', createdAtTo: v.until + '+09:00', status: state, maxPerPage: '50' }, 'seller', days);
             for (const row of part) all.set(row.key, row);
           }
           rows = [...all.values()];
         }
         rows.sort((a, b) => a.key.localeCompare(b.key));
-        const snap = { date, channel: v.channel, vendorId: c.vendorId, fetchedAt: new Date(now()).toISOString(), rows };
+        for (const date of days) {
+        const snap = { date, channel: v.channel, vendorId: c.vendorId, fetchedAt: new Date(now()).toISOString(), rows: rows.filter(row => row.date === date).map(({ date: ignored, ...row }) => row) };
         atomic(path.join(dir(c), 'orders', date + '-' + v.channel + '.json'), JSON.stringify(snap)); result.savedDays.push(date);
+        }
       }
       const stateFile = path.join(dir(c), 'state.json'); atomic(stateFile, JSON.stringify({ ...read(stateFile, {}), [v.channel]: new Date(now()).toISOString() }));
       return result;
     } catch (e) { e.message += ' · 이번 요청에서 저장 완료 ' + result.savedDays.length + '/' + days.length + '일'; throw e; }
     finally { busy = false; }
+  }
+  function historyFile(c) { return path.join(dir(c), 'history.json'); }
+  function historyStatus() {
+    const c = config(), job = read(historyFile(c), null);
+    if (!job) return { status: 'idle', completedDays: 0, totalDays: 0, running: false };
+    const running = historyActive && job.status === 'running';
+    return { ...job, running, status: job.status === 'running' && !historyActive ? 'paused' : job.status,
+      error: job.status === 'running' && !historyActive ? '프로그램이 재시작되었습니다. 이어서 수집을 누르면 저장된 구간 다음부터 계속합니다.' : job.error };
+  }
+  function saveHistory(c, job) { atomic(historyFile(c), JSON.stringify(job)); }
+  function pauseHistory() {
+    const c = config(), job = read(historyFile(c), null);
+    if (job && historyActive) { job.pauseRequested = true; saveHistory(c, job); }
+    return historyStatus();
+  }
+  function startHistory(v = {}, source = 'manual') {
+    const c = config();
+    if (historyActive) { if (v.resume === true) return historyStatus(); throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.'); }
+    if (busy) throw fail(409, '쿠팡 자료를 수집 중입니다.');
+    let job;
+    if (v.resume === true) {
+      job = read(historyFile(c), null);
+      if (!job || job.status === 'completed') throw fail(409, '이어서 수집할 미완료 작업이 없습니다.');
+      range(job.since, job.until, now());
+    } else {
+      const days = range(v.since, v.until, now()), channels = v.channels || (v.channel ? [v.channel] : CHANNELS);
+      if (!Array.isArray(channels) || !channels.length || channels.some(ch => !CHANNELS.includes(ch)) || new Set(channels).size !== channels.length) throw fail(400, '수집할 배송 방식을 확인하세요.');
+      const done = Object.fromEntries(channels.map(ch => [ch, []]));
+      // Recent days can change as orders ship. Recollect them; older confirmed snapshots can be reused.
+      const refreshFrom = kstDay(now() - 7 * DAY);
+      for (const ch of channels) for (const date of days) {
+        const snap = snapshot(c, date, ch);
+        if (date < refreshFrom && snap?.vendorId === c.vendorId && snap.date === date && snap.channel === ch && Array.isArray(snap.rows)) done[ch].push(date);
+      }
+      job = { id: crypto.randomBytes(12).toString('hex'), kind: source, since: v.since, until: v.until, channels: [...channels], done,
+        totalDays: days.length * channels.length, completedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), skippedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), startedAt: new Date(now()).toISOString() };
+    }
+    Object.assign(job, { status: 'running', pauseRequested: false, error: null, current: null, updatedAt: new Date(now()).toISOString() });
+    saveHistory(c, job); historyActive = true;
+    // Return immediately to the browser. Collection belongs to the local server, not the open tab.
+    historyTask = Promise.resolve().then(async () => {
+      try {
+        const days = range(job.since, job.until, now());
+        for (const ch of job.channels) for (let i = 0; i < days.length; i += 7) {
+          const block = days.slice(i, i + 7), completed = new Set(job.done[ch]);
+          if (block.every(d => completed.has(d))) continue;
+          if (read(historyFile(c), {}).pauseRequested) { job.status = 'paused'; return; }
+          job.current = { channel: ch, since: block[0], until: block.at(-1) }; saveHistory(c, job);
+          const result = await sync({ ...job.current }, true);
+          for (const date of result.savedDays) completed.add(date);
+          job.done[ch] = [...completed].sort(); job.completedDays = Object.values(job.done).reduce((n, ds) => n + ds.length, 0);
+          job.updatedAt = new Date(now()).toISOString();
+          if (read(historyFile(c), {}).pauseRequested) job.pauseRequested = true;
+          saveHistory(c, job);
+        }
+        job.status = 'completed';
+      } catch (e) { job.status = 'failed'; job.error = e.message || '쿠팡 수집에 실패했습니다.'; }
+      finally {
+        job.current = null; job.updatedAt = new Date(now()).toISOString();
+        try {
+          saveHistory(c, job);
+          if (job.status === 'completed' && (Date.parse(job.until) - Date.parse(job.since)) / DAY >= 364) {
+            const file = path.join(dir(c), 'backfill.json'), baseline = read(file, {});
+            for (const ch of job.channels) baseline[ch] = { since: job.since, until: job.until, completedAt: job.updatedAt };
+            atomic(file, JSON.stringify(baseline));
+          }
+        } finally { historyActive = false; }
+      }
+    });
+    historyTask.catch(() => {}); // Keep an I/O failure observable to waiters without an unhandled rejection.
+    return historyStatus();
+  }
+  async function automatic() {
+    if (automaticStarted || historyActive || busy || !fs.existsSync(privateFile)) return { started: false };
+    const c = config(), baseline = read(path.join(dir(c), 'backfill.json'), {}), channels = CHANNELS.filter(ch => baseline[ch]?.completedAt);
+    if (!channels.length) return { started: false, reason: 'initial-year-incomplete' };
+    const pending = read(historyFile(c), null);
+    if (pending && pending.kind !== 'startup' && pending.status !== 'completed') return { started: false, reason: 'unfinished-collection' };
+    automaticStarted = true;
+    const file = path.join(dir(c), 'automatic.json'), state = read(file, {}), until = kstDay(now()), since = kstDay(now() - 6 * DAY);
+    atomic(file, JSON.stringify({ ...state, lastStartedAt: new Date(now()).toISOString(), since, until, error: null }));
+    startHistory({ since, until, channels }, 'startup');
+    await historyTask;
+    const result = historyStatus();
+    atomic(file, JSON.stringify({ ...read(file, {}), ...(result.status === 'completed' ? { lastCompletedAt: new Date(now()).toISOString() } : {}), error: result.error || null }));
+    return { started: true, history: result };
   }
   function products(v) {
     const c = config(), days = range(v.since, v.until, now()), found = new Map(scope(c).products.map(p => [p.itemId, p]));
@@ -186,6 +288,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, saveScope, products, sync, saveLedger, report };
+  return { status, saveCredentials, saveScope, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
-module.exports = { createService, signature, normalize, money, COSTS, range };
+module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };
