@@ -27,7 +27,7 @@ test('legacy installs serve Coupang workspace pages and authenticate analytics, 
               const chunks=[];response.on('data',chunk=>chunks.push(chunk));response.on('end',()=>resolve({status:response.statusCode,text:Buffer.concat(chunks).toString()}));
             });request.on('error',reject);request.end(body===undefined?undefined:JSON.stringify(body));
           });
-          for(const asset of ['coupang-dashboard.html','coupang-sales.html','coupang-analytics.js','coupang-analytics.css','coupang-sheets.js','coupang-products.html','coupang-products.js','coupang-products.css','coupang-ads.html','coupang-ads.js','coupang-ads.css','coupang-thumbnails.js','coupang-thumbnails.css']) {
+          for(const asset of ['coupang-dashboard.html','coupang-sales.html','coupang-analytics.js','coupang-analytics.css','coupang-sheets.js','coupang-products.html','coupang-products.js','coupang-products.css','coupang-ads.html','coupang-ads.js','coupang-ads.css','coupang-thumbnails.js','coupang-thumbnails.css','coupang-product-names.js']) {
             const r=await req('/'+asset);assert.equal(r.status,200,asset);assert.ok(r.text.length>100,asset+' must exist in embedded upgrade assets');
           }
           assert.equal((await req('/api/coupang/analytics?since=2026-10-25&until=2026-10-25')).status,409);

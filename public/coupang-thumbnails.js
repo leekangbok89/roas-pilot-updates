@@ -61,7 +61,11 @@
     let data; try { data = await response.json(); } catch (_) { throw Error('상품 이미지 응답을 읽지 못했습니다.'); }
     if (!response.ok) throw Error(typeof data.error === 'string' ? data.error.slice(0, 300) : '상품 이미지를 불러오지 못했습니다.'); return data;
   }
-  function applyState(data) { state = data; index = matchingContext(context, state) ? buildIndex(state.items) : emptyIndex(); failure = ''; paintAll(); showStatus(); }
+  function applyState(data) {
+    const completed = matchingContext(context, state) && matchingContext(context, data) && state.job?.running && !data.job?.running && ['completed', 'partial'].includes(data.job?.status);
+    state = data; index = matchingContext(context, state) ? buildIndex(state.items) : emptyIndex(); failure = ''; paintAll(); showStatus();
+    if (completed && typeof CustomEvent === 'function') window.dispatchEvent(new CustomEvent('coupang-product-metadata', { detail: { vendorKey: data.vendorKey, scopeKey: data.scopeKey } }));
+  }
   function poll() { stopTimer(); if (matchingContext(context, state) && state.job?.running) timer = setTimeout(refresh, 5000); }
   async function refresh() {
     if (!contextKey(context) || starting) return; stopTimer(); const token = ++sequence, captured = contextKey(context);

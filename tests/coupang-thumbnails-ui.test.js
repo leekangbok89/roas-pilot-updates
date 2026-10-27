@@ -28,11 +28,11 @@ class Element {
   addEventListener(k,f){this.listeners[k]=f;}
 }
 function setup() {
-  const calls=[],timers=[],cancelled=[],events={};
+  const calls=[],timers=[],cancelled=[],events={},dispatched=[];
   const controls={'cth-refresh':new Element('button'),'cth-status':new Element('p')};
-  const context=vm.createContext({URL,Map,Promise,document:{createElement:tag=>new Element(tag),getElementById:id=>controls[id]||null},window:{addEventListener:(event,handler)=>{events[event]=handler;}},fetch:(url,options)=>new Promise((resolve,reject)=>calls.push({url,options,resolve,reject})),setTimeout:(f,ms)=>{timers.push({f,ms});return timers.length;},clearTimeout:id=>{cancelled.push(id);}});
+  const context=vm.createContext({URL,Map,Promise,document:{createElement:tag=>new Element(tag),getElementById:id=>controls[id]||null},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},window:{addEventListener:(event,handler)=>{events[event]=handler;},dispatchEvent:event=>{dispatched.push(event);}},fetch:(url,options)=>new Promise((resolve,reject)=>calls.push({url,options,resolve,reject})),setTimeout:(f,ms)=>{timers.push({f,ms});return timers.length;},clearTimeout:id=>{cancelled.push(id);}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../public/coupang-thumbnails.js'),'utf8'),context);
-  return {api:context.window.CoupangThumbnails,calls,timers,cancelled,events,controls};
+  return {api:context.window.CoupangThumbnails,calls,timers,cancelled,events,controls,dispatched};
 }
 const turn=()=>new Promise(resolve=>setImmediate(resolve));
 const response=data=>({ok:true,json:async()=>data});
@@ -83,4 +83,14 @@ test('transient polling errors recover a running job without leaving refresh per
   timers[1].f();calls[2].resolve(response({configured:true,vendorKey:'a',scopeKey:'s',items:[],needsSync:false,job:{running:false}}));await turn();
   assert.equal(controls['cth-refresh'].disabled,false);assert.equal(timers.length,2,'idle status must stop automatic retries');
   assert.ok(!controls['cth-status'].textContent.includes('temporary local connection failure'));
+});
+
+test('metadata completion notifies current view once so option groups can refresh without polling loops', async () => {
+  const {api,calls,timers,dispatched}=setup();api.setContext({vendorKey:'a',scopeKey:'s'});
+  calls[0].resolve(response({configured:true,vendorKey:'a',scopeKey:'s',items:[],needsSync:false,job:{running:true,status:'running'}}));await turn();
+  assert.equal(dispatched.length,0);timers[0].f();
+  const completed={configured:true,vendorKey:'a',scopeKey:'s',items:[{itemId:'123',productId:'700',displayName:'예시 상품'}],needsSync:false,job:{running:false,status:'partial'}};
+  calls[1].resolve(response(completed));await turn();
+  assert.equal(dispatched.length,1);assert.equal(dispatched[0].type,'coupang-product-metadata');assert.deepEqual({...dispatched[0].detail},{vendorKey:'a',scopeKey:'s'});
+  api.refresh();calls[2].resolve(response(completed));await turn();assert.equal(dispatched.length,1,'idle reads must not start refresh loops');
 });

@@ -30,11 +30,11 @@
   function filteredProducts() {
     const query = $('cpm-search').value.trim().toLocaleLowerCase(), channel = $('cpm-channel').value, groupId = $('cpm-group').value;
     const membership = groupId ? new Set(groupId === '__ungrouped' ? (workspace?.groups || []).flatMap(g => g.itemIds) : (workspace?.groups || []).find(g => g.id === groupId)?.itemIds || []) : null;
-    return (workspace?.products || []).filter(p => (channel === 'all' || (channel === 'unknown' ? !channels[p.channel] : p.channel === channel)) && (!$('cpm-missing').checked || !known(p.unitCost)) && (!membership || (groupId === '__ungrouped' ? !membership.has(p.itemId) : membership.has(p.itemId))) && (!query || [p.itemId, p.productId, p.productName, p.name, p.optionName].join(' ').toLocaleLowerCase().includes(query)));
+    return (workspace?.products || []).filter(p => (channel === 'all' || (channel === 'unknown' ? !channels[p.channel] : p.channel === channel)) && (!$('cpm-missing').checked || !known(p.unitCost)) && (!membership || (groupId === '__ungrouped' ? !membership.has(p.itemId) : membership.has(p.itemId))) && (!query || [p.itemId, p.productId, p.productName, p.name, p.fullName, p.optionName].join(' ').toLocaleLowerCase().includes(query)));
   }
   function groupedProducts() {
     const map = new Map();
-    for (const p of filteredProducts()) { const id = productId(p); if (!map.has(id)) map.set(id, { id, name: productName(p), options: [] }); map.get(id).options.push(p); }
+    for (const p of filteredProducts()) { const id = productId(p); if (!map.has(id)) map.set(id, { id, name: productName(p), fullName: p.fullName || p.name || productName(p), options: [] }); map.get(id).options.push(p); }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }
   function checkBox(ids, label) {
@@ -59,17 +59,17 @@
     const groups = groupedProducts(), rows = [], shown = groups.flatMap(g => g.options);
     $('cpm-count').textContent = '조회 결과 ' + groups.length.toLocaleString('ko-KR') + '개 상품 · ' + shown.length.toLocaleString('ko-KR') + '개 옵션';
     for (const group of groups) {
-      const tr = node('tr', undefined, 'cpm-product-row'), choose = node('td'), name = node('td', undefined, 'ca-name'), title = node('div', undefined, 'cpm-product-name'), toggle = node('button', expanded.has(group.id) ? '−' : '+', 'ca-expand');
+      const tr = node('tr', undefined, 'cpm-product-row'), choose = node('td'), name = node('td', undefined, 'ca-name'), title = node('div', undefined, 'cpm-product-name'), toggle = node('button', expanded.has(group.id) ? '접기' : '자세히', 'ca-expand');
       choose.append(checkBox(group.options.map(p => p.itemId), group.name + ' 조회 옵션 모두 선택')); toggle.type = 'button'; toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기'));
       toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); renderTable(); });
-      title.append(toggle, node('strong', group.name)); name.append(title, node('small', (group.id.startsWith('option:') ? '상품 ID 미등록' : '상품 ID ' + group.id) + ' · ' + group.options.length + '개 옵션'));
+      title.title = group.fullName || group.name; title.append(toggle, node('strong', window.CoupangProductNames?.groupLabel(group.options) || group.name)); name.append(title, node('small', (group.id.startsWith('option:') ? '상품 ID 미등록' : '상품 ID ' + group.id) + ' · ' + group.options.length + '개 옵션'));
       window.CoupangThumbnails?.decorate(name, group.id.startsWith('option:') ? { itemId: group.options[0].itemId, name: group.name } : { productId: group.id, name: group.name });
       const channel = node('td', [...new Set(group.options.map(p => channels[p.channel] || '미분류'))].join(' / ')), detail = node('td', '옵션을 펼쳐 비용 확인'); detail.colSpan = 6;
       tr.append(choose, name, channel, detail, node('td', '')); rows.push(tr);
       if (!expanded.has(group.id)) continue;
       for (const p of group.options) {
         const option = node('tr', undefined, 'cpm-option-row'), select = node('td'), optionName = node('td', undefined, 'ca-name'); select.append(checkBox([p.itemId], (p.optionName || p.name) + ' 선택'));
-        optionName.append(node('strong', p.optionName || p.name), node('small', '옵션 ID ' + p.itemId, 'cpm-option-id'));
+        optionName.title = (p.optionName || p.name) + '\n' + (p.fullName || p.name || p.productName); optionName.append(node('strong', p.optionName || p.name), node('small', '옵션 ID ' + p.itemId, 'cpm-option-id'));
         window.CoupangThumbnails?.decorate(optionName, { itemId: p.itemId, productId: p.productId, name: p.optionName || p.name });
         option.append(select, optionName, node('td', channels[p.channel] || '미분류'));
         for (const key of ['salePrice', 'unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) { const value = key === 'commissionRate' ? known(p[key]) ? p[key].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '미등록' : money(p[key]); option.append(node('td', value, !known(p[key]) ? 'cpm-unknown' : '')); }
@@ -130,6 +130,7 @@
   $('cpm-search').addEventListener('input', renderTable); for (const id of ['cpm-channel', 'cpm-group', 'cpm-missing']) $(id).addEventListener('change', renderTable);
   $('cpm-expand').addEventListener('click', () => { const groups = groupedProducts(), collapse = groups.every(g => expanded.has(g.id)); for (const g of groups) if (collapse) expanded.delete(g.id); else expanded.add(g.id); renderTable(); });
   $('cpm-reload').addEventListener('click', reload);
+  window.addEventListener('coupang-product-metadata', event => { if (workspace && !busy && !selected.size && !$('cpm-editor').open && !$('cpm-rename-dialog').open && !$('cpm-group-name').value.trim() && event.detail?.vendorKey === workspace.vendorKey && event.detail?.scopeKey === workspace.scopeKey) reload(); });
   const initialQuery = new URLSearchParams(location.search);
   if (['all', 'growth', 'seller'].includes(initialQuery.get('channel'))) $('cpm-channel').value = initialQuery.get('channel');
   function syncAnalysisLinks() {
