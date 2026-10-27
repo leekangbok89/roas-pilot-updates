@@ -25,7 +25,7 @@
     const map = new Map();
     for (const row of rows || []) {
       if (allowed && !allowed.has(String(row.itemId))) continue;
-      if (search && ![row.productId, row.itemId, row.name, row.optionName].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(search))) continue;
+      if (search && ![row.productId, row.itemId, row.name, row.fullName, row.optionName].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(search))) continue;
       const id = String(row.productId || row.itemId);
       if (!map.has(id)) map.set(id, []);
       map.get(id).push(row);
@@ -37,9 +37,9 @@
         if (!options.has(key)) options.set(key, []);
         options.get(key).push(row);
       }
-      return { ...aggregate(selected), id, name: selected[0].name || id, rows: selected,
+      return { ...aggregate(selected), id, name: selected[0].name || id, fullName: [...new Set(selected.map(row => row.fullName || row.name))].slice(0, 4).join('\n'), rows: selected,
         channel: [...new Set(selected.map(row => channelNames[row.channel] || row.channel))].join(' + '),
-        options: [...options].map(([key, values]) => ({ ...aggregate(values), key, itemId: String(values[0].itemId), name: values[0].optionName || values[0].name || values[0].itemId, channel: channelNames[values[0].channel] || values[0].channel })) };
+        options: [...options].map(([key, values]) => ({ ...aggregate(values), key, itemId: String(values[0].itemId), name: values[0].optionName || values[0].name || values[0].itemId, fullName: values[0].fullName || values[0].name, channel: channelNames[values[0].channel] || values[0].channel })) };
     }).filter(group => !filters.lossOnly || finite(group.adNetProfit) && group.adNetProfit < 0);
   }
   function compare(a, b, key, ascending) {
@@ -113,24 +113,24 @@
       card.append(el('small', label), value, el('small', key === 'adNetProfit' ? '신규고객확보 광고비 제외' : finite(total[key]) ? '현재 표의 상품 합계' : '일부 미수집 또는 자료 없음')); summary.append(card);
     }
     $('cad-count').textContent = shown.length + '개 상품 · ' + rows.length + '개 옵션·배송 방식' + (selected ? ' · 그룹: ' + selected.name : '') + ' · 모든 금액은 선택한 기간 기준입니다.';
-    const head = el('tr'); for (const label of ['옵션', '상품 / 옵션', '배송 방식', ...metrics.map(entry => entry[1]), '자료 기준']) { const th = el('th', label); th.scope = 'col'; head.append(th); } $('cad-head').replaceChildren(head);
+    const head = el('tr'); for (const label of ['상세', '상품 / 옵션', '배송 방식', ...metrics.map(entry => entry[1]), '자료 기준']) { const th = el('th', label); th.scope = 'col'; head.append(th); } $('cad-head').replaceChildren(head);
     const host = $('cad-body'); host.replaceChildren();
     if (!shown.length) {
       const tr = el('tr'), cell = el('td', rows.length ? '' : '조건에 맞는 상품이 없습니다. 검색·그룹·광고 손실 필터를 확인해 주세요.', 'ca-empty'); cell.colSpan = 11; tr.append(cell); host.append(tr);
     } else {
       const tr = el('tr', undefined, 'ca-totals-row'), label = el('td', '현재 표 합계'); label.colSpan = 3; tr.append(label); metrics.forEach(([key]) => valueCell(tr, total, key)); tr.append(el('td', '미수집은 0원으로 계산하지 않음')); host.append(tr);
       for (const group of shown) {
-        const tr = el('tr', undefined, 'ca-group-row'), toggleCell = el('td'), toggle = el('button', expanded.has(group.id) ? '−' : '+', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기')); toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); render(); }); toggleCell.append(toggle); tr.append(toggleCell);
-        const name = el('td', group.name, 'ca-name'); name.append(el('small', '상품 ID ' + group.id + ' · ' + group.options.length + '개 옵션·배송 방식')); window.CoupangThumbnails?.decorate(name, { productId: group.id, name: group.name }); tr.append(name, el('td', group.channel)); metrics.forEach(([key]) => valueCell(tr, group, key)); tr.append(el('td', sourceNames[group.source] || '혼합 자료')); host.append(tr);
-        if (expanded.has(group.id)) for (const option of group.options) { const child = el('tr', undefined, 'ca-option-row'); child.append(el('td', '')); const name = el('td', option.name, 'ca-name'); name.append(el('small', '옵션 ID ' + option.itemId)); window.CoupangThumbnails?.decorate(name, { itemId: option.itemId, productId: group.id, name: option.name }); child.append(name, el('td', option.channel)); metrics.forEach(([key]) => valueCell(child, option, key)); child.append(el('td', sourceNames[option.source] || '혼합 자료')); host.append(child); }
+        const tr = el('tr', undefined, 'ca-group-row'), toggleCell = el('td'), toggle = el('button', expanded.has(group.id) ? '접기' : '자세히', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기')); toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); render(); }); toggleCell.append(toggle); tr.append(toggleCell);
+        const name = el('td', undefined, 'ca-name'); name.title = group.fullName || group.name; name.append(el('strong', window.CoupangProductNames?.groupLabel(group.rows) || group.name)); name.append(el('small', '상품 ID ' + group.id + ' · ' + group.options.length + '개 옵션·배송 방식')); window.CoupangThumbnails?.decorate(name, { productId: group.id, name: group.name }); tr.append(name, el('td', group.channel)); metrics.forEach(([key]) => valueCell(tr, group, key)); tr.append(el('td', sourceNames[group.source] || '혼합 자료')); host.append(tr);
+        if (expanded.has(group.id)) for (const option of group.options) { const child = el('tr', undefined, 'ca-option-row'); child.append(el('td', '')); const name = el('td', undefined, 'ca-name'); name.title = option.name + '\n' + (option.fullName || ''); name.append(el('strong', option.name)); name.append(el('small', '옵션 ID ' + option.itemId)); window.CoupangThumbnails?.decorate(name, { itemId: option.itemId, productId: group.id, name: option.name }); child.append(name, el('td', option.channel)); metrics.forEach(([key]) => valueCell(child, option, key)); child.append(el('td', sourceNames[option.source] || '혼합 자료')); host.append(child); }
       }
     }
     const collapse = shown.length > 0 && shown.every(group => expanded.has(group.id)); $('cad-expand').textContent = collapse ? '옵션 모두 접기' : '옵션 모두 펼치기'; $('cad-expand').disabled = !shown.length; $('cad-export').disabled = !shown.length;
   }
   function download() {
     if (!shown.length || !report) return;
-    const rows = [['시작일', '종료일', '행 구분', '상품 ID', '옵션 ID', '상품명 / 옵션명', '배송 방식', ...metrics.map(entry => entry[1]), '자료 기준']];
-    for (const group of shown) { rows.push([report.since, report.until, '상품 합계', group.id, '', group.name, group.channel, ...metrics.map(([key]) => group[key]), sourceNames[group.source] || '혼합 자료']); for (const option of group.options) rows.push([report.since, report.until, '옵션', group.id, option.itemId, option.name, option.channel, ...metrics.map(([key]) => option[key]), sourceNames[option.source] || '혼합 자료']); }
+    const rows = [['시작일', '종료일', '행 구분', '상품 ID', '옵션 ID', '상품명 / 옵션명', '원래 상품명', '배송 방식', ...metrics.map(entry => entry[1]), '자료 기준']];
+    for (const group of shown) { rows.push([report.since, report.until, '상품 합계', group.id, '', group.name, group.fullName || group.name, group.channel, ...metrics.map(([key]) => group[key]), sourceNames[group.source] || '혼합 자료']); for (const option of group.options) rows.push([report.since, report.until, '옵션', group.id, option.itemId, option.name, option.fullName || option.name, option.channel, ...metrics.map(([key]) => option[key]), sourceNames[option.source] || '혼합 자료']); }
     const blob = new Blob(['\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), link = el('a'); link.href = url; link.download = '쿠팡_상품별광고_' + report.since + '_' + report.until + '.csv'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   $('cad-query').addEventListener('submit', event => { event.preventDefault(); load(); });
@@ -141,6 +141,7 @@
   for (let index = 0; index < 24; index++) { const date = new Date(today + 'T00:00:00Z'); date.setUTCDate(1); date.setUTCMonth(date.getUTCMonth() - index); const option = el('option', date.getUTCFullYear() + '년 ' + (date.getUTCMonth() + 1) + '월'); option.value = date.toISOString().slice(0, 7); $('cad-month').append(option); }
   $('cad-month').addEventListener('change', () => { const month = $('cad-month').value; if (!month) return; const next = new Date(month + '-01T00:00:00Z'); next.setUTCMonth(next.getUTCMonth() + 1); $('cad-since').value = month + '-01'; const last = shift(next.toISOString().slice(0, 10), -1), yesterday = shift(today, -1); $('cad-until').value = last < yesterday ? last : yesterday >= month + '-01' ? yesterday : today; markPreset(null); load(); });
   $('cad-expand').addEventListener('click', () => { const collapse = shown.every(group => expanded.has(group.id)); shown.forEach(group => { if (collapse) expanded.delete(group.id); else expanded.add(group.id); }); render(); }); $('cad-export').addEventListener('click', download);
+  window.addEventListener('coupang-product-metadata', event => { if (report && event.detail?.vendorKey === report.vendorKey && event.detail?.scopeKey === report.scopeKey) load(); });
   const initial = new URLSearchParams(location.search); $('cad-since').value = initial.get('since') || shift(today, -1); $('cad-until').value = initial.get('until') || shift(today, -1); $('cad-channel').value = ['all', 'growth', 'seller'].includes(initial.get('channel')) ? initial.get('channel') : 'all';
   markPreset($('cad-since').value === shift(today, -1) && $('cad-until').value === shift(today, -1) ? 1 : null); load();
 })();

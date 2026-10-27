@@ -153,12 +153,29 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     atomic(path.join(dir(c),'scope.json'), JSON.stringify({products,key:hash(products.map(p=>p.itemId))}));
     return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length};
   }
+  const displayText = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+  function displayProducts(c, products) {
+    // Product identity is presentation metadata; failure to read an optional
+    // image cache must never prevent saved financial data from being shown.
+    let entries; try { entries = thumbnailCache(c).entries; } catch { entries = new Map(); }
+    return products.map(p => {
+      const cached = entries.get(p.itemId);
+      if (!cached || !id(cached.productId)) return { ...p };
+      const unresolved = !id(p.productId) || String(p.productId) === String(p.itemId);
+      if (!unresolved && String(p.productId) !== cached.productId) return { ...p };
+      const result = { ...p, productId: unresolved ? cached.productId : p.productId };
+      for (const key of ['productName', 'optionName']) if (!displayText(result[key]) && cached[key]) result[key] = cached[key];
+      if (cached.displayName) result.displayName = cached.displayName;
+      if (result.productId !== p.productId || result.productName !== p.productName || result.optionName !== p.optionName || result.displayName) result.fullName = p.name;
+      return result;
+    });
+  }
   function workspaceState(c) {
     const s = scope(c), savedGroups = read(path.join(dir(c), 'groups.json'), []);
     if (!Array.isArray(savedGroups)) throw fail(500, '저장한 상품 그룹을 읽을 수 없습니다.');
     const selected = new Set(s.products.map(p => p.itemId));
     const groups = savedGroups.map(group => ({ id: group.id, name: group.name, itemIds: group.itemIds.filter(itemId => selected.has(itemId)) }));
-    return { configured: true, vendorKey: hash(c.vendorId), scopeKey: s.key, revision: hash({ vendorId: c.vendorId, scope: s, groups: savedGroups }), products: s.products, groups };
+    return { configured: true, vendorKey: hash(c.vendorId), scopeKey: s.key, revision: hash({ vendorId: c.vendorId, scope: s, groups: savedGroups }), products: displayProducts(c, s.products), groups };
   }
   function workspace() {
     if (!fs.existsSync(privateFile)) return { configured: false, scopeKey: '', revision: null, products: [], groups: [] };
@@ -220,8 +237,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const raw = read(thumbnailFile(c), {}), entries = new Map();
     if (raw.vendorId && raw.vendorId !== c.vendorId) throw fail(500, '저장된 상품 이미지의 판매자를 확인하세요.');
     for (const entry of Array.isArray(raw.entries) ? raw.entries.slice(-2000) : []) {
-      const url = safeThumbnailUrl(entry?.thumbnailUrl);
-      if (id(entry?.itemId) && url) entries.set(String(entry.itemId), { itemId: String(entry.itemId), productId: id(entry.productId) ? String(entry.productId) : null, thumbnailUrl: url, checkedAt: typeof entry.checkedAt === 'string' ? entry.checkedAt.slice(0, 30) : null });
+      const url = safeThumbnailUrl(entry?.thumbnailUrl), productId = id(entry?.productId) ? String(entry.productId) : null;
+      if (id(entry?.itemId) && (url || productId)) entries.set(String(entry.itemId), { itemId: String(entry.itemId), productId, thumbnailUrl: url,
+        ...Object.fromEntries(['productName', 'optionName', 'displayName'].filter(key => displayText(entry[key])).map(key => [key, displayText(entry[key])])),
+        checkedAt: typeof entry.checkedAt === 'string' ? entry.checkedAt.slice(0, 30) : null });
     }
     const attempt = raw.attempt && typeof raw.attempt === 'object' ? raw.attempt : null;
     return { entries, attempt };
@@ -237,11 +256,12 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const status = attempt && statuses.includes(attempt.status) ? !running && ['waiting', 'running'].includes(attempt.status) ? 'paused' : attempt.status : 'idle';
     const job = { running, status, completed: Number.isInteger(attempt?.completed) && attempt.completed >= 0 ? Math.min(attempt.completed, 500) : 0,
       total: Number.isInteger(attempt?.total) && attempt.total >= 0 ? Math.min(attempt.total, 500) : 0, error: thumbnailErrors[attempt?.errorCode] || null };
-    const missing = s.products.some(p => !cache.entries.has(p.itemId));
+    const missing = s.products.some(p => !cache.entries.get(p.itemId)?.thumbnailUrl);
     const age = Number.isFinite(attempt?.at) ? now() - attempt.at : Infinity;
     const cooldown = status === 'failed' ? 30 * 60000 : DAY;
     const needsSync = !!s.products.length && missing && !running && (!attempt || status === 'paused' || status === 'cancelled' || age >= cooldown);
-    const items = s.products.map(p => ({ itemId: p.itemId, productId: p.productId || cache.entries.get(p.itemId)?.productId || null, thumbnailUrl: cache.entries.get(p.itemId)?.thumbnailUrl || null }));
+    const items = displayProducts(c, s.products).map(p => ({ itemId: p.itemId, productId: p.productId || null, thumbnailUrl: cache.entries.get(p.itemId)?.thumbnailUrl || null,
+      ...Object.fromEntries(['productName', 'optionName', 'displayName'].filter(key => displayText(p[key])).map(key => [key, p[key]])) }));
     return { configured: true, vendorKey: hash(c.vendorId), scopeKey: s.key, needsSync, items, job };
   }
   function startThumbnails(v = {}) {
@@ -272,8 +292,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     thumbnailTask = (async () => {
       let partial = false, limited = false;
       try {
-        const candidates = new Map(), knownProducts = new Set(s.products.map(p => p.productId).filter(id).map(String));
-        const allKnown = s.products.every(p => id(p.productId));
+        const candidates = new Map(), knownProducts = new Set(s.products.filter(p => id(p.productId) && String(p.productId) !== String(p.itemId)).map(p => String(p.productId)));
+        const allKnown = s.products.every(p => id(p.productId) && String(p.productId) !== String(p.itemId));
         for (const businessTypes of ['', 'rocketGrowth']) {
           const tokens = new Set(); let next = '';
           for (let page = 0; page < 100; page++) {
@@ -311,10 +331,17 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
               const images = (Array.isArray(item.images) ? item.images : []).filter(image => image?.imageType === 'REPRESENTATION').sort((a, b) => (Number.isFinite(a.imageOrder) ? a.imageOrder : Infinity) - (Number.isFinite(b.imageOrder) ? b.imageOrder : Infinity));
               let url = null;
               for (const image of images) { url = safeThumbnailUrl(image.cdnPath) || safeThumbnailUrl(image.vendorPath); if (url) break; }
-              if (!url) continue;
               for (const itemId of new Set(identifiers)) if (selected.has(itemId)) {
-                if (updates.has(itemId) && updates.get(itemId).thumbnailUrl !== url) throw Object.assign(fail(502, '상품 이미지 중복을 확인할 수 없습니다.'), { thumbnailFatal: true });
-                updates.set(itemId, { itemId, productId: selected.get(itemId).productId || (id(data.productId) ? String(data.productId) : null), thumbnailUrl: url, checkedAt: new Date(now()).toISOString() });
+                const previous = cache.entries.get(itemId), rawProduct = selected.get(itemId);
+                const productId = id(data.productId) ? String(data.productId) : id(rawProduct.productId) && String(rawProduct.productId) !== itemId ? String(rawProduct.productId) : previous?.productId || null;
+                if (!url && !productId) continue;
+                const productName = displayText(data.displayProductName) || displayText(data.sellerProductName) || displayText(data.generalProductName);
+                const general = displayText(data.generalProductName), brand = displayText(data.brand);
+                const displayName = general ? (brand && !general.toLocaleLowerCase().includes(brand.toLocaleLowerCase()) ? (brand + ' ' + general).slice(0, 300) : general) : '';
+                const entry = { itemId, productId, thumbnailUrl: url || previous?.thumbnailUrl || null,
+                  ...(productName ? { productName } : {}), ...(displayText(item.itemName) ? { optionName: displayText(item.itemName) } : {}), ...(displayName ? { displayName } : {}), checkedAt: new Date(now()).toISOString() };
+                if (updates.has(itemId) && (updates.get(itemId).thumbnailUrl !== entry.thumbnailUrl || updates.get(itemId).productId !== productId)) throw Object.assign(fail(502, '상품 이미지 중복을 확인할 수 없습니다.'), { thumbnailFatal: true });
+                updates.set(itemId, entry);
               }
             }
             for (const [itemId, entry] of updates) cache.entries.set(itemId, entry);
@@ -324,7 +351,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           }
           state.job.completed++; persist();
         }
-        if (s.products.some(p => !cache.entries.has(p.itemId))) partial = true;
+        if (s.products.some(p => !cache.entries.get(p.itemId)?.thumbnailUrl)) partial = true;
         state.job.status = partial || limited ? 'partial' : 'completed'; state.job.errorCode = limited ? 'limit' : partial ? 'api' : null;
       } catch (error) {
         state.job.status = error.thumbnailCode === 'changed' ? 'cancelled' : 'failed';
@@ -734,7 +761,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (![...CHANNELS, 'all'].includes(channel)) throw fail(400, '조회 배송 방식을 확인하세요.');
     const view = v.view || null;
     if (view && !['dashboard', 'sales'].includes(view)) throw fail(400, '분석 화면을 확인하세요.');
-    const selectedChannels = channel === 'all' ? CHANNELS : [channel], chosen = new Map(s.products.map(p => [p.itemId, { ...p }]));
+    const selectedChannels = channel === 'all' ? CHANNELS : [channel], chosen = new Map(displayProducts(c, s.products).map(p => [p.itemId, p]));
     const ledgerRows = new Map(report(v).daily.map(r => [r.date + ':' + r.channel, r]));
     const fields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'nonAdvertisingCosts', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit', ...estimateFields()];
     const sum = (rows, field) => rows.every(r => Number.isFinite(r[field])) ? rows.reduce((total, row) => total + row[field], 0) : null;
@@ -747,6 +774,12 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const items = [], itemTotals = new Map(), productTotals = new Map(), daily = [], seenImports = [], imports = new Map(), observedChannels = new Map();
     const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedProfitBeforeAds'];
     function addItem(row) {
+      const display = chosen.get(row.itemId);
+      if (display && String(row.productId) === String(display.productId)) {
+        if (display.displayName) row.displayName = display.displayName;
+        if (display.fullName) row.fullName = display.fullName;
+        if (!row.optionName && display.optionName) row.optionName = display.optionName;
+      }
       row.available = available([row]);
       if (!view) { items.push(row); return; }
       const key = row.channel + ':' + row.itemId;
@@ -767,7 +800,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const productKey = row.date + ':' + row.channel + ':' + row.productId;
       let product = productTotals.get(productKey);
       if (!product) {
-        product = { date: row.date, channel: row.channel, productId: row.productId, name: row.name,
+        product = { date: row.date, channel: row.channel, productId: row.productId, name: row.name, ...(row.displayName ? { displayName: row.displayName } : {}), ...(row.fullName ? { fullName: row.fullName } : {}),
           quantity: row.quantity, sales: row.sales, available: { ...row.available }, source: row.source, hasData: row.source !== 'missing' };
         productTotals.set(productKey, product);
       } else {
@@ -792,7 +825,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     function applicable(p, ch) { return p.channel ? p.channel === ch : !observedChannels.has(p.itemId) || observedChannels.get(p.itemId).has(ch); }
     function missingItem(p, date, ch) {
-      return { date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', source: 'missing',
+      return { date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.fullName || p.productName || p.name, optionName: p.optionName || '', source: 'missing',
         quantity: null, adQuantity: null, organicQuantity: null, sales: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
         sourceNetProfit: null, netProfit: null, adNetProfit: null, nonAdvertisingCosts: null, adReturnOnSpend: null, roas: null, unitCost: p.unitCost ?? null, salePrice: p.salePrice ?? null, inventory: null,
         ...estimateCosts(p, null, null, date), estimateSource: null };
@@ -844,7 +877,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           for (const p of chosen.values()) {
             if (!applicable(p, ch) && !grouped.has(p.itemId)) continue;
             const values = grouped.get(p.itemId) || { quantity: 0, sales: 0 };
-            addItem({ date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.productName || p.name, optionName: p.optionName || '', ...values,
+            addItem({ date, channel: ch, itemId: p.itemId, productId: p.productId || p.itemId, name: p.fullName || p.productName || p.name, optionName: p.optionName || '', ...values,
               adQuantity: null, organicQuantity: null, profitBeforeAds: null, advertising: null, adSales: null, adProfitBeforeAds: null,
               sourceNetProfit: null, netProfit: null, adNetProfit: null, nonAdvertisingCosts: null, adReturnOnSpend: null, roas: null, source: 'api', ...estimates(p, values.quantity, values.sales, date, 'api') });
           }

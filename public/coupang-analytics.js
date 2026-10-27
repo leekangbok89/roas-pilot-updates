@@ -340,7 +340,7 @@
     const start = productDailyPage * productDailyPageSize;
     for (const row of rows.slice(start, start + productDailyPageSize)) {
       const previous = lookup.get(dateShift(row.date, -1) + ':' + row.channel + ':' + row.productId), comparable = previous && previous.source === row.source && row.source !== 'mixed';
-      const tr = element('tr'); addCell(tr, row.date); addCell(tr, channels[row.channel]); const nameCell = addCell(tr, row.name, 'ca-name'); window.CoupangThumbnails?.decorate(nameCell, { productId: row.productId, name: row.name }); appendValueCell(tr, row, 'quantity');
+      const tr = element('tr'); addCell(tr, row.date); addCell(tr, channels[row.channel]); const nameCell = addCell(tr, window.CoupangProductNames?.shortTitle(row) || row.name, 'ca-name'); nameCell.title = row.fullName || row.name; window.CoupangThumbnails?.decorate(nameCell, { productId: row.productId, name: row.name }); appendValueCell(tr, row, 'quantity');
       addCell(tr, changeText(row.quantity, comparable ? previous.quantity : null)); appendValueCell(tr, row, 'sales'); addCell(tr, changeText(row.sales, comparable ? previous.sales : null)); addCell(tr).append(sourceBadge(row)); host.append(tr);
     }
     if (!rows.length) { const tr = element('tr'), td = addCell(tr, undefined, 'ca-empty'); td.colSpan = 8; td.append(noSalesContent()); host.append(tr); }
@@ -368,8 +368,8 @@
     }
     groups = [...map].map(([id, rows]) => {
       const optionMap = new Map(); for (const row of rows) { const key = row.channel + ':' + row.itemId; if (!optionMap.has(key)) optionMap.set(key, []); optionMap.get(key).push(row); }
-      const options = [...optionMap.values()].map(values => ({ ...aggregateRows(values), id: values[0].itemId, productId: id, name: values[0].name, optionName: values[0].optionName || values[0].name, channel: values[0].channel, rows: values }));
-      return { ...aggregateRows(rows), id, name: rows[0].name, channel: [...new Set(rows.map(r => channels[r.channel]))].join(' + '), options, rows };
+      const options = [...optionMap.values()].map(values => ({ ...aggregateRows(values), id: values[0].itemId, productId: id, name: values[0].name, fullName: values[0].fullName || values[0].name, optionName: values[0].optionName || values[0].name, channel: values[0].channel, rows: values }));
+      return { ...aggregateRows(rows), id, name: rows[0].name, fullName: [...new Set(rows.map(row => row.fullName || row.name))].slice(0, 4).join('\n'), channel: [...new Set(rows.map(r => channels[r.channel]))].join(' + '), options, rows };
     });
   }
   function updateGroupChoices(result) {
@@ -392,16 +392,17 @@
       return [{ ...group, ...aggregateRows(rows), options, rows, channel: [...new Set(options.map(option => channels[option.channel]))].join(' + ') }];
     });
   }
+  function isFavorite(group) { return favoriteIds.has(group.id) || group.options.some(option => favoriteIds.has(String(option.id))); }
   function currentGroups() {
     const term = $('ca-search').value.trim().toLocaleLowerCase('ko-KR'), favoritesOnly = $('ca-favorites').checked;
     const [key, direction] = $('ca-sort').value.split(':');
     const selected = savedGroups.find(group => group.id === $('ca-group').value);
-    return filterProductGroups(groups, selected ? selected.itemIds : null).filter(group => (!favoritesOnly || favoriteIds.has(group.id)) && (!term || [group.id, group.name, ...group.options.flatMap(option => [option.id, option.name, option.optionName])].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(term))))
+    return filterProductGroups(groups, selected ? selected.itemIds : null).filter(group => (!favoritesOnly || isFavorite(group)) && (!term || [group.id, group.name, group.fullName, ...group.options.flatMap(option => [option.id, option.name, option.fullName, option.optionName])].some(value => String(value || '').toLocaleLowerCase('ko-KR').includes(term))))
       .sort((a, b) => compareValues(a, b, key, direction === 'asc') || a.id.localeCompare(b.id));
   }
   function salesHeader() {
     const tr = element('tr');
-    for (const title of ['즐겨찾기', '옵션', '상품 / 옵션 ID', '구분', '상품명 / 옵션명']) { const th = element('th', title); th.scope = 'col'; tr.append(th); }
+    for (const [title, label] of [['☆', '즐겨찾기'], ['상세', '옵션 자세히 보기'], ['상품 / 옵션 ID', '상품 / 옵션 ID'], ['구분', '배송 방식'], ['상품명 / 옵션명', '상품명 / 옵션명']]) { const th = element('th', title); th.scope = 'col'; th.title = label; th.setAttribute('aria-label', label); if (title === '상품명 / 옵션명') th.className = 'ca-name'; tr.append(th); }
     for (const column of columns.filter(c => visibleColumns.has(c.key))) {
       const th = element('th'), button = element('button', column.label); th.scope = 'col'; button.type = 'button'; if (column.note) button.title = column.note;
       const [sortKey, direction] = $('ca-sort').value.split(':'); if (sortKey === column.key) { button.textContent += direction === 'asc' ? ' ↑' : ' ↓'; th.setAttribute('aria-sort', direction === 'asc' ? 'ascending' : 'descending'); }
@@ -419,16 +420,16 @@
     const anyCollected = shown.some(group => isNumber(displayedValue(group, 'sales')));
     if (shown.length && !anyCollected) { const tr = element('tr'), td = addCell(tr, undefined, 'ca-empty'); td.colSpan = 6 + fields.length; td.append(noSalesContent()); host.append(tr); }
     for (const group of anyCollected ? shown : []) {
-      const tr = element('tr', undefined, 'ca-group-row'), star = element('button', favoriteIds.has(group.id) ? '★' : '☆', 'ca-star');
-      star.type = 'button'; star.setAttribute('aria-label', group.name + ' 즐겨찾기'); star.setAttribute('aria-pressed', String(favoriteIds.has(group.id)));
-      star.addEventListener('click', () => { if (favoriteIds.has(group.id)) favoriteIds.delete(group.id); else favoriteIds.add(group.id); saveSetting('favorites', [...favoriteIds]); renderSales(); }); addCell(tr).append(star);
-      const toggle = element('button', expanded.has(group.id) ? '−' : '+', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기'));
+      const tr = element('tr', undefined, 'ca-group-row'), star = element('button', isFavorite(group) ? '★' : '☆', 'ca-star');
+      star.type = 'button'; star.setAttribute('aria-label', group.name + ' 즐겨찾기'); star.setAttribute('aria-pressed', String(isFavorite(group)));
+      star.addEventListener('click', () => { if (isFavorite(group)) { favoriteIds.delete(group.id); group.options.forEach(option => favoriteIds.delete(String(option.id))); } else favoriteIds.add(group.id); saveSetting('favorites', [...favoriteIds]); renderSales(); }); addCell(tr).append(star);
+      const toggle = element('button', expanded.has(group.id) ? '접기' : '자세히', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기'));
       toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); renderSales(); }); addCell(tr).append(toggle);
-      addCell(tr, group.id); addCell(tr, group.channel); const nameCell = addCell(tr, undefined, 'ca-name'); nameCell.append(element('strong', group.name), element('small', group.options.length + '개 옵션')); window.CoupangThumbnails?.decorate(nameCell, { productId: group.id, name: group.name });
+      addCell(tr, group.id); addCell(tr, group.channel); const nameCell = addCell(tr, undefined, 'ca-name'); nameCell.title = group.fullName || group.name; nameCell.append(element('strong', window.CoupangProductNames?.groupLabel(group.rows) || group.name), element('small', group.options.length + '개 옵션')); window.CoupangThumbnails?.decorate(nameCell, { productId: group.id, name: group.name });
       appendNumbers(tr, group); addCell(tr).append(sourceBadge(group)); host.append(tr);
       if (expanded.has(group.id)) for (const option of group.options) {
         const optionRow = element('tr', undefined, 'ca-option-row'); addCell(optionRow, ''); addCell(optionRow, '↳'); addCell(optionRow, option.id); addCell(optionRow, channels[option.channel]);
-        const optionCell = addCell(optionRow, undefined, 'ca-name'); optionCell.append(element('strong', option.optionName), element('small', option.name)); window.CoupangThumbnails?.decorate(optionCell, { itemId: option.id, productId: group.id, name: option.optionName }); appendNumbers(optionRow, option); addCell(optionRow).append(sourceBadge(option)); host.append(optionRow);
+        const optionCell = addCell(optionRow, undefined, 'ca-name'); optionCell.title = option.optionName + '\n' + (option.fullName || option.name); optionCell.append(element('strong', option.optionName)); window.CoupangThumbnails?.decorate(optionCell, { itemId: option.id, productId: group.id, name: option.optionName }); appendNumbers(optionRow, option); addCell(optionRow).append(sourceBadge(option)); host.append(optionRow);
       }
     }
     if (!shown.length) { const tr = element('tr'), td = addCell(tr, groups.length ? '검색 조건에 맞는 상품이 없습니다.' : '상품 자료가 없습니다. 자료·연결 관리에서 집계 상품을 선택하고 주문을 수집하거나 손익 파일을 넣어 주세요.', 'ca-empty'); td.colSpan = 6 + fields.length; host.append(tr); }
@@ -581,10 +582,11 @@
     }
     $('ca-search').addEventListener('input', () => { if (report) renderSales(); }); $('ca-sort').addEventListener('change', () => { if (report) renderSales(); }); $('ca-favorites').addEventListener('change', () => { if (report) renderSales(); });
     $('ca-group').addEventListener('change', () => { if (report) renderSales(); });
-    $('ca-compact').addEventListener('click', () => { const on = $('ca-compact').getAttribute('aria-pressed') !== 'true'; $('ca-compact').setAttribute('aria-pressed', String(on)); $('ca-compact').textContent = on ? '크게 보기' : '작게 보기'; document.body.classList.toggle('ca-compact', on); });
+    $('ca-compact').addEventListener('click', () => { const on = $('ca-compact').getAttribute('aria-pressed') !== 'true'; $('ca-compact').setAttribute('aria-pressed', String(on)); $('ca-compact').textContent = on ? '넓게 보기' : '간격 줄이기'; document.body.classList.toggle('ca-compact', on); document.body.classList.toggle('ca-roomy', !on); });
     $('ca-expand-all').addEventListener('click', () => { if (!report) return; const shown = currentGroups(), collapse = shown.every(group => expanded.has(group.id)); for (const group of shown) { if (collapse) expanded.delete(group.id); else expanded.add(group.id); } renderSales(); });
-    $('ca-sales-export').addEventListener('click', () => { const fields = columns.filter(column => visibleColumns.has(column.key)); downloadCsv('쿠팡_상품별손익', [['행 구분', '상품 ID', '옵션 ID', '배송 방식', '상품명', '옵션명', ...fields.map(c => c.label), '매출 집계 상태', '자료 기준'], ...currentGroups().flatMap(group => [['상품 합계', group.id, '', group.channel, group.name, '', ...fields.map(c => displayedValue(group, c.key)), salesStatus(group), sourceNames[group.source] || '혼합 자료'], ...group.options.map(option => ['옵션', group.id, option.id, channels[option.channel], option.name, option.optionName, ...fields.map(c => displayedValue(option, c.key)), salesStatus(option), sourceNames[option.source] || '혼합 자료'])])]); });
+    $('ca-sales-export').addEventListener('click', () => { const fields = columns.filter(column => visibleColumns.has(column.key)); downloadCsv('쿠팡_상품별손익', [['행 구분', '상품 ID', '옵션 ID', '배송 방식', '상품명', '옵션명', '원래 상품명', ...fields.map(c => c.label), '매출 집계 상태', '자료 기준'], ...currentGroups().flatMap(group => [['상품 합계', group.id, '', group.channel, group.name, '', group.fullName || group.name, ...fields.map(c => displayedValue(group, c.key)), salesStatus(group), sourceNames[group.source] || '혼합 자료'], ...group.options.map(option => ['옵션', group.id, option.id, channels[option.channel], option.name, option.optionName, option.fullName || option.name, ...fields.map(c => displayedValue(option, c.key)), salesStatus(option), sourceNames[option.source] || '혼합 자료'])])]); });
   }
+  window.addEventListener('coupang-product-metadata', event => { if (report && event.detail?.vendorKey === report.vendorKey && event.detail?.scopeKey === report.scopeKey) load(); });
   const initial = new URLSearchParams(location.search); $('ca-since').value = initial.get('since') || dateShift(today, -7); $('ca-until').value = initial.get('until') || dateShift(today, -1);
   const matchingPreset = [...document.querySelectorAll('[data-ca-preset]')].map(button => Number(button.dataset.caPreset)).find(days => {
     const until = days === 0 ? today : dateShift(today, -1), since = days < 2 ? until : dateShift(until, -days + 1);
