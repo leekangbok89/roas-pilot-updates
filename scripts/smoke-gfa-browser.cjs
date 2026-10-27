@@ -56,7 +56,7 @@ function xlsx(){
 
  const externalContext=await browser.newContext(),other=await externalContext.newPage();await other.goto(base+'/display-analysis.html');await other.waitForFunction(()=>document.querySelectorAll('#stored-files tr').length===2);assert.equal(await other.locator('#history button').count(),1,'campaign data survives empty browser storage');assert.match(await other.locator('#combined-kpis').textContent(),/798%/);await externalContext.close();
  await page.locator('#report-from').evaluate(el=>{el.value='2026-09-02';el.dispatchEvent(new Event('change',{bubbles:true}));});await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);assert.match(await page.locator('#report-status').textContent(),/제외/);assert.doesNotMatch(await page.locator('#combined-kpis').textContent(),/798%/);
- await page.locator('#report-from').fill('2026-09-01');await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
+ await page.locator('#report-from').evaluate(el=>{el.value='2026-09-01';el.dispatchEvent(new Event('change',{bubbles:true}));});await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
  const row=page.locator('#stored-files tr').filter({hasText:'전체채널 파일'});await row.locator('[data-load]').click();await page.locator('#channel-preview input:checked').uncheck();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);assert.match(await page.locator('#report-status').textContent(),/GFA 경로를 선택/);
  await page.locator('#channel-preview input').first().check();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);
  if(process.env.ROAS_GFA_SCREENSHOT)await page.screenshot({path:process.env.ROAS_GFA_SCREENSHOT,fullPage:true});
@@ -82,7 +82,7 @@ function xlsx(){
  assert.match(await page.locator('#rows').textContent(),/1,500,000원/);
  await page.locator('#save').click();
  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('전체 통계에 반영'));
- await page.locator('#report-from').fill('2026-10-01');await page.locator('#report-to').fill('2026-10-07');
+ await page.locator('#report-from').evaluate(el=>{el.value='2026-10-01';el.dispatchEvent(new Event('change',{bubbles:true}));});await page.locator('#report-to').evaluate(el=>{el.value='2026-10-07';el.dispatchEvent(new Event('change',{bubbles:true}));});
  await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
  assert.match(await page.locator('#combined-kpis').textContent(),/2,793,000원/);
  assert.match(await page.locator('#combined-kpis').textContent(),/399%/);
