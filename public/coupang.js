@@ -56,7 +56,7 @@
     const stamp = [h.id, h.status, h.completedDays].join(':');
     if ((refresh || previous && !h.running) && stamp !== historyStamp) {
       if (!editor) { await loadOptions(); await loadReport(); }
-      message(h.error || (h.status === 'completed' ? '수집 완료. 위마망 상품만 선택하여 저장하세요. 이미 선택한 상품은 저장 자료 조회로 확인할 수 있습니다.' : '완료된 자료는 저장되어 있습니다. 이어서 수집할 수 있습니다.'));
+      message(h.error || (h.status === 'completed' ? '수집 완료. 트루버·위마망 상품을 선택하여 저장하세요. 이미 선택한 상품은 저장 자료 조회로 확인할 수 있습니다.' : '완료된 자료는 저장되어 있습니다. 이어서 수집할 수 있습니다.'));
     }
     historyStamp = stamp;
   }
@@ -83,7 +83,7 @@
     $('cp-missing').textContent = summary.complete ? '선택 기간의 입력 비용을 모두 반영했습니다.' : '미확인 날짜가 있어 기간 전체 이익을 표시하지 않습니다. 비용이 없는 날도 매출·비용에 0을 입력하고 확인해 주세요.';
   }
   async function loadReport() {
-    if (!selected.length) { report = null; render(); message('위마망 상품만 선택하고 저장하세요.'); return; }
+    if (!selected.length) { report = null; render(); message('트루버·위마망 상품을 선택하고 저장하세요.'); return; }
     report = await request('report?' + new URLSearchParams(period())); render();
   }
   function edit(r) {
@@ -129,9 +129,13 @@
       const p = options.find(v => v.itemId === input.dataset.itemId), field = [...document.querySelectorAll('[data-cost-id]')].find(v => v.dataset.costId === p.itemId);
       return { ...p, unitCost: field.value === '' ? null : Number(field.value) };
     });
-    const v = await request('scope', { products }); selected = v.products; dirtyScope = false; editor = null; report = null; await loadReport(); message('위마망 옵션 ' + products.length + '개를 집계 대상으로 저장했습니다.');
+    const v = await request('scope', { products }); selected = v.products; dirtyScope = false; editor = null; report = null; await loadReport(); message('트루버·위마망 옵션 ' + products.length + '개를 집계 대상으로 저장했습니다.');
   }));
-  $('cp-query').addEventListener('submit', e => { e.preventDefault(); work(async () => { await loadOptions(); await loadReport(); message(selected.length ? '저장된 자료를 조회했습니다.' : '수집한 상품 목록에서 위마망 상품만 체크하고 저장하세요.'); }); });
+  $('cp-query').addEventListener('submit', e => { e.preventDefault(); work(async () => { await loadOptions(); await loadReport(); message(selected.length ? '저장된 자료를 조회했습니다.' : '수집한 상품 목록에서 트루버·위마망 상품을 체크하고 저장하세요.'); }); });
+  for (const [id, checked] of [['cp-select-all', true], ['cp-select-none', false]]) $(id).addEventListener('click', () => {
+    document.querySelectorAll('#cp-products input[type=checkbox]').forEach(input => { input.checked = checked; });
+    dirtyScope = true;
+  });
   $('cp-products').addEventListener('change', () => { dirtyScope = true; });
   $('cp-year').addEventListener('click', () => work(async () => { recentDates(365); await startCollection({ ...period(), channels: ['growth', 'seller'] }); }));
   $('cp-resume').addEventListener('click', () => work(async () => { const h = await request('history', { resume: true }); $('cp-since').value = h.since; $('cp-until').value = h.until; renderHistory(h); message('완료된 구간은 유지하고 미완료 구간부터 이어서 수집합니다.'); }));

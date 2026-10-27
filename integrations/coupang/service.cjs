@@ -70,7 +70,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   }
   const dir = c => path.join(root, c.vendorId);
   function scope(c) { return read(path.join(dir(c), 'scope.json'), { products: [], key: '' }); }
-  function requireScope(c) { const s = scope(c); if (!s.products.length) throw fail(409, '집계할 위마망 옵션 ID를 먼저 선택하세요.'); return s; }
+  function requireScope(c) { const s = scope(c); if (!s.products.length) throw fail(409, '집계할 트루버·위마망 옵션 ID를 먼저 선택하세요.'); return s; }
   function snapshot(c, date, channel) { return read(path.join(dir(c), 'orders', date + '-' + channel + '.json'), null); }
   const basis = snap => snap ? hash(snap.rows) : 'no-api-data';
   function ledgerFile(c, s) { return path.join(dir(c), 'ledgers', s.key + '.json'); }
@@ -87,7 +87,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   }
   function saveScope(v) {
     const c = config();
-    if (!Array.isArray(v?.products) || !v.products.length || v.products.length > 500) throw fail(400, '위마망 옵션을 1개 이상 선택하세요.');
+    if (!Array.isArray(v?.products) || !v.products.length || v.products.length > 500) throw fail(400, '트루버·위마망 옵션을 1개 이상 선택하세요.');
     const products = v.products.map(p => {
       if (!id(p?.itemId) || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 300 || (p.unitCost !== null && money(p.unitCost) === null)) throw fail(400, '옵션 ID·상품명·원가를 확인하세요.');
       return { itemId: String(p.itemId), name: p.name.trim(), unitCost: p.unitCost === null ? null : money(p.unitCost) };
@@ -286,7 +286,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
         netSales: complete ? rows.reduce((n, r) => n + r.entry.netSales, 0) : null, profit: complete ? rows.reduce((n, r) => n + r.profit, 0) : null }];
     }));
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
-      note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
+      note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
   return { status, saveCredentials, saveScope, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
