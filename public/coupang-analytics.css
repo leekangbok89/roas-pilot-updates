@@ -110,3 +110,6 @@ body[data-coupang-view].ca-compact .app-main .ca-table :is(th,td){padding:6px 8p
 
 .ca-partial-note{font-size:11px!important;font-weight:600;color:var(--app-warning)!important;white-space:nowrap!important}
 .ca-source-partial{outline:1px solid var(--app-warning-line)}
+
+.ca-import-preview{max-height:360px;margin:14px 0;border:1px solid var(--app-border);border-radius:8px}
+.ca-import-preview[hidden],.ca-acquisition-fields[hidden]{display:none!important}

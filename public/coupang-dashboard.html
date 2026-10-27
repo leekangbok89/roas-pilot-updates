@@ -64,14 +64,17 @@
 
     <details id="ca-import" class="panel ca-import-panel">
       <summary>셀하 손익 엑셀 가져오기 · 신규고객확보 광고비 확인</summary>
-      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong>를 올리면 광고 판매량과 ROAS까지 연결합니다. 같은 날짜 파일은 교체하여 중복 집계하지 않습니다. 여러 날짜를 합친 파일은 하루씩 내려받아 주세요.</p>
+      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 광고 판매량·이익금·광고비·순이익을 일별로 확인한 뒤 저장합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
       <fieldset>
-        <div class="ca-toolbar ca-import-toolbar"><label class="ca-file-label">손익 결과 파일<input id="ca-file" type="file" accept=".xlsx" aria-label="셀하 손익 결과 엑셀 파일"></label><button id="ca-preview" type="button">파일 확인</button></div>
-        <div class="ca-toolbar ca-acquisition-fields">
+        <div class="ca-toolbar ca-import-toolbar"><label class="ca-file-label">손익 결과 파일<input id="ca-file" type="file" accept=".xlsx,.json" multiple aria-label="셀하 손익 엑셀 또는 쿠팡 손익 설정 파일"></label><button id="ca-preview" type="button">파일 확인</button></div>
+        <label class="ca-checkbox-label"><input id="ca-include-products" type="checkbox" checked>파일의 모든 옵션을 쿠팡 집계에 포함</label>
+        <p class="helper">새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.</p>
+        <div id="ca-import-preview" class="ca-scroll ca-import-preview" tabindex="0" aria-label="저장 전 일별 손익 확인" hidden></div>
+        <div id="ca-acquisition-fields" class="ca-toolbar ca-acquisition-fields">
           <label>신규고객확보 광고비 · 로켓그로스<input id="ca-acquisition-growth" type="number" min="0" step="0.01" inputmode="decimal" placeholder="미확인 · 광고비가 없으면 0"></label>
           <label>신규고객확보 광고비 · 판매자배송<input id="ca-acquisition-seller" type="number" min="0" step="0.01" inputmode="decimal" placeholder="미확인 · 광고비가 없으면 0"></label>
         </div>
-        <p class="helper">신규고객확보 광고비는 가져올 파일의 하루 사용액입니다. 해당 배송 방식에서 사용하지 않았다면 <strong>0</strong>을 입력하세요. 빈칸은 미확인으로 보관하며 추가 광고비 반영 순이익을 확정하지 않습니다.</p>
+        <p id="ca-acquisition-note" class="helper">신규고객확보 광고비는 가져올 파일의 하루 사용액입니다. 해당 배송 방식에서 사용하지 않았다면 <strong>0</strong>을 입력하세요. 빈칸은 미확인으로 보관하며 추가 광고비 반영 순이익을 확정하지 않습니다.</p>
         <div class="ca-toolbar"><button id="ca-save" class="primary" type="button" disabled>손익 자료 저장</button><p id="ca-import-status" role="status" aria-live="polite">파일을 선택하고 확인해 주세요.</p></div>
       </fieldset>
     </details>

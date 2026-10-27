@@ -4,8 +4,8 @@
   const view = document.body.dataset.coupangView;
   const channels = { all: '전체 배송', growth: '로켓그로스', seller: '판매자배송' };
   const sourceNames = { sellha: '셀하 손익 파일', ledger: '확인한 매출·비용', api: 'API 주문 · 반품 미확정', missing: '자료 없음' };
-  const moneyFields = new Set(['sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'unitCost', 'salePrice', 'otherCosts', 'acquisitionAdvertising']);
-  const summable = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
+  const moneyFields = new Set(['sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'unitCost', 'salePrice', 'otherCosts', 'acquisitionAdvertising', 'nonAdvertisingCosts']);
+  const summable = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'sourceNetProfit', 'advertising', 'adSales', 'adProfitBeforeAds', 'adNetProfit', 'netProfit', 'nonAdvertisingCosts', 'estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment'];
   const series = [
     { key: 'sales', label: '매출', color: '#508fd1' },
     { key: 'profitBeforeAds', label: '이익금 · 광고비 차감 전', color: '#d75c78' },
@@ -16,10 +16,12 @@
     { key: 'inventory', label: '재고', note: '현재 수집 자료에 재고가 없으면 표시하지 않습니다.' },
     { key: 'quantity', label: '판매량' }, { key: 'adQuantity', label: '광고 판매량' }, { key: 'organicQuantity', label: '일반 판매량' },
     { key: 'sales', label: '할인 후 매출' }, { key: 'profitBeforeAds', label: '이익금', note: '매출성장 광고비 차감 전 · 원가 및 기타비용 반영' },
+    { key: 'nonAdvertisingCosts', label: '광고 외 비용 합계', note: '할인 후 매출 − 이익금. 원가·수수료 등의 합계이며 항목별 확정 비용은 아닙니다.' },
     { key: 'sourceNetProfit', label: '셀하 순이익', note: '이익금 − 매출성장 광고비. 신규고객확보 광고비 제외' },
     { key: 'advertising', label: '매출성장 광고비' }, { key: 'adSales', label: '광고 집행 매출' },
     { key: 'roas', label: '광고 ROAS', note: '광고 집행 매출 ÷ 매출성장 광고비 × 100' },
     { key: 'adProfitBeforeAds', label: '광고 집행 이익금' }, { key: 'adNetProfit', label: '광고 집행 순이익', note: '광고 집행 이익금 − 매출성장 광고비. 신규고객확보 광고비 제외' },
+    { key: 'adReturnOnSpend', label: '광고 집행 순이익률', note: '광고 집행 순이익 ÷ 광고 집행비 × 100. 광고비가 0이면 미확인' },
     { key: 'unitCost', label: '개당 원가' }, { key: 'salePrice', label: '등록 판매가' },
     { key: 'estimatedProductCost', label: 'API 추정 상품원가' }, { key: 'estimatedCommission', label: 'API 추정 수수료' },
     { key: 'estimatedFulfillment', label: 'API 추정 입출고·배송비' }
@@ -38,7 +40,7 @@
   const won = value => isNumber(value) ? number(value) + '원' : '—';
   const percent = value => isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '—';
   const sum = (rows, key) => rows.length && rows.every(row => isNumber(row[key])) ? rows.reduce((total, row) => total + row[key], 0) : null;
-  const valueText = (value, key) => key === 'roas' ? percent(value) : moneyFields.has(key) ? won(value) : number(value);
+  const valueText = (value, key) => ['roas', 'adReturnOnSpend'].includes(key) ? percent(value) : moneyFields.has(key) ? won(value) : number(value);
   function displayedValue(row, key) {
     if (isNumber(row?.[key])) return row[key];
     return ['sales', 'quantity'].includes(key) && isNumber(row?.available?.[key]) ? row.available[key] : row?.[key];
@@ -133,7 +135,7 @@
     const coverage = report.coverage || {}, imported = Array.isArray(report.importedDates) ? report.importedDates : [];
     const last = report.lastImportedAt ? new Date(report.lastImportedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : null;
     $('ca-coverage').textContent = '조회 ' + report.since + ' ~ ' + report.until + ' · 셀하 파일 ' + (coverage.sellhaDays || 0) + '일 · API 자료 ' + (coverage.apiDays || 0) + '일 / ' + (coverage.totalDays || report.daily.length) + '일' +
-      (imported.length ? ' · 셀하 저장 기간 ' + imported[0] + ' ~ ' + imported.at(-1) : ' · 셀하 파일 미등록') + (last ? ' · 마지막 저장 ' + last : '') + (isNumber(displayedValue(summary, 'sales')) ? ' · 수집된 매출은 누락 자료와 구분해 표시합니다. 미수집 부분은 0원으로 계산하지 않습니다.' : ' · 조회 기간에 저장된 주문·손익 파일이 없습니다. 주문 수집 또는 손익 엑셀 가져오기를 이용하세요.');
+      (imported.length ? ' · 셀하 저장 기간 ' + imported[0] + ' ~ ' + imported.at(-1) : ' · 셀하 파일 미등록') + (last ? ' · 마지막 저장 ' + last : '') + (coverage.fileScopeDays > 0 ? ' · 엑셀 포함 옵션 기준 · 기존/추후 추가한 다른 옵션은 해당 원본 합계에 포함하지 않습니다.' : '') + (isNumber(displayedValue(summary, 'sales')) ? ' · 수집된 매출은 누락 자료와 구분해 표시합니다. 미수집 부분은 0원으로 계산하지 않습니다.' : ' · 조회 기간에 저장된 주문·손익 파일이 없습니다. 주문 수집 또는 손익 엑셀 가져오기를 이용하세요.');
   }
   function sourceBadge(row) {
     const partial = isPartialValue(row, 'sales') || isPartialValue(row, 'quantity');
@@ -217,7 +219,7 @@
     host.append(svg); $('ca-chart-detail').textContent = '그래프에 마우스를 올리거나 Tab과 방향키로 날짜별 값을 확인할 수 있습니다. 자료가 없는 날짜의 선은 연결하지 않습니다. 일부 미수집일은 수집된 매출만 표시합니다.';
   }
   const dailyColumns = [
-    ['sales', '매출'], ['profitBeforeAds', '이익금'], ['advertising', '매출성장 광고비'], ['otherCosts', '기타비용'], ['sourceNetProfit', '셀하 순이익'], ['acquisitionAdvertising', '신규고객확보 광고비'], ['netProfit', '전체 광고비 반영 순이익']
+    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규고객확보 광고비'], ['netProfit', '전체 광고비 반영 순이익']
   ];
   let dailySort = { key: 'date', ascending: false };
   function compareValues(a, b, key, ascending) {
@@ -280,6 +282,7 @@
   function aggregateRows(rows) {
     const result = Object.fromEntries(summable.map(key => [key, sum(rows, key)]));
     result.available = { sales: availableSum(rows, 'sales'), quantity: availableSum(rows, 'quantity') };
+    result.adReturnOnSpend = result.advertising > 0 && isNumber(result.adNetProfit) ? result.adNetProfit / result.advertising * 100 : null;
     result.roas = isNumber(result.advertising) && result.advertising > 0 && isNumber(result.adSales) ? result.adSales / result.advertising * 100 : null;
     for (const key of ['unitCost', 'salePrice', 'inventory']) result[key] = rows.length && rows.every(r => isNumber(r[key]) && r[key] === rows[0][key]) ? rows[0][key] : null;
     result.source = rows.every(r => r.source === rows[0]?.source) ? rows[0]?.source : 'mixed'; return result;
@@ -367,39 +370,108 @@
     const blob = new Blob(['\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob), link = element('a'); link.href = url; link.download = name + '_' + report.since + '_' + report.until + '.csv'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  function normalizeImportReports(reports) {
+    if (!Array.isArray(reports) || !reports.length || reports.length > 31) throw Error('하루 단위 손익 자료를 한 번에 1~31개 선택해 주세요.');
+    const seen = new Set();
+    for (const entry of reports) {
+      if (!entry || typeof entry.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || !Number.isFinite(Date.parse(entry.date)) || new Date(entry.date).toISOString().slice(0, 10) !== entry.date || entry.date > today) throw Error('손익 자료의 날짜를 확인해 주세요.');
+      if (seen.has(entry.date)) throw Error(entry.date + ' 날짜가 중복됩니다. 같은 날짜 파일은 하나만 선택해 주세요.');
+      seen.add(entry.date);
+      if (!Array.isArray(entry.rows) || !entry.rows.length || entry.rows.length > 2000) throw Error(entry.date + ' 손익 옵션 행은 1~2,000개여야 합니다.');
+      for (const row of entry.rows) {
+        if (!row || !['growth', 'seller'].includes(row.channel)) throw Error(entry.date + ' 배송 방식을 확인해 주세요.');
+        for (const key of ['quantity', 'sales', 'profitBeforeAds', 'advertising']) if (!isNumber(row[key])) throw Error(entry.date + ' 손익 금액·판매량이 숫자인지 확인해 주세요.');
+        for (const key of ['adQuantity', 'organicQuantity', 'adSales', 'adProfitBeforeAds']) if (row[key] != null && !isNumber(row[key])) throw Error(entry.date + ' 광고 실적이 숫자인지 확인해 주세요.');
+      }
+    }
+    return [...reports].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  function importTotals(entry) {
+    const totals = Object.fromEntries(['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds'].map(key => [key, sum(entry.rows, key)]));
+    totals.nonAdvertisingCosts = totals.sales - totals.profitBeforeAds;
+    totals.sourceNetProfit = totals.profitBeforeAds - totals.advertising;
+    totals.adNetProfit = isNumber(totals.adProfitBeforeAds) ? totals.adProfitBeforeAds - totals.advertising : null;
+    totals.adReturnOnSpend = totals.advertising > 0 && isNumber(totals.adNetProfit) ? totals.adNetProfit / totals.advertising * 100 : null;
+    totals.roas = totals.advertising > 0 && isNumber(totals.adSales) ? totals.adSales / totals.advertising * 100 : null;
+    return totals;
+  }
+  function renderImportPreview(reports) {
+    const host = $('ca-import-preview'); host.replaceChildren();
+    const table = element('table', undefined, 'ca-table'), head = element('thead'), body = element('tbody'), tr = element('tr');
+    const fields = [['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '할인 후 매출'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['advertising', '광고 집행비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률']];
+    for (const title of ['일자', '옵션 수', ...fields.map(c => c[1])]) { const th = element('th', title); th.scope = 'col'; tr.append(th); } head.append(tr);
+    const totals = reports.map(entry => ({ ...importTotals(entry), date: entry.date, rows: entry.rows }));
+    const combined = Object.fromEntries(fields.filter(([key]) => !['roas', 'adReturnOnSpend'].includes(key)).map(([key]) => [key, sum(totals, key)]));
+    combined.adReturnOnSpend = combined.advertising > 0 && isNumber(combined.adNetProfit) ? combined.adNetProfit / combined.advertising * 100 : null;
+    combined.roas = combined.advertising > 0 && isNumber(combined.adSales) ? combined.adSales / combined.advertising * 100 : null;
+    for (const entry of [...totals, { ...combined, date: '합계', rows: reports.flatMap(r => r.rows) }]) {
+      const row = element('tr', undefined, entry.date === '합계' ? 'ca-totals-row' : undefined); addCell(row, entry.date); addCell(row, number(entry.rows.length), 'ca-number');
+      for (const [key] of fields) addCell(row, valueText(entry[key], key), 'ca-number'); body.append(row);
+    }
+    table.append(head, body); host.append(table); host.hidden = false;
+  }
+  function configureImportAcquisition(reports) {
+    const batch = reports.length > 1;
+    $('ca-acquisition-fields').hidden = batch;
+    $('ca-acquisition-note').textContent = batch
+      ? '여러 날짜는 자료에 저장된 날짜별 신규고객확보 광고비만 반영합니다. 금액이 없으면 미확인으로 저장합니다. 이익금·셀하 순이익은 그대로 표시하며, 추가 광고비는 하루 파일씩 다시 선택해 확인할 수 있습니다.'
+      : '신규고객확보 광고비는 가져올 파일의 하루 사용액입니다. 사용하지 않았다면 0을 입력하세요. 빈칸은 미확인으로 보관하며 추가 광고비 반영 순이익을 확정하지 않습니다.';
+    for (const channel of ['growth', 'seller']) {
+      const input = $('ca-acquisition-' + channel); input.disabled = batch;
+      if (!batch) input.value = reports[0].acquisitionAdvertising?.[channel] ?? '';
+    }
+  }
   async function previewImport() {
     if (importSaving) return;
-    const sequence = ++parseSequence;
-    pendingImport = null; $('ca-save').disabled = true; const file = $('ca-file').files[0];
-    if (!file) return message('셀하 손익 결과.xlsx 파일을 선택해 주세요.', true);
+    const sequence = ++parseSequence, files = [...$('ca-file').files];
+    pendingImport = null; $('ca-save').disabled = true; $('ca-import-preview').replaceChildren(); $('ca-import-preview').hidden = true;
+    if (!files.length) return message('셀하 하루 단위 엑셀 또는 손익 설정 JSON 파일을 선택해 주세요.', true);
     $('ca-preview').disabled = true; $('ca-import-status').textContent = '손익 파일을 확인합니다.';
     try {
-      if (!window.CoupangSheets?.parseSales) throw Error('엑셀 읽기 기능을 불러오지 못했습니다. 페이지를 새로고침해 주세요.');
-      const parsed = await window.CoupangSheets.parseSales(file);
-      if (sequence !== parseSequence || $('ca-file').files[0] !== file) return;
-      pendingImport = parsed;
-      $('ca-import-status').textContent = pendingImport.date + ' · ' + pendingImport.rows.length + '개 옵션 확인. 같은 날짜 파일은 이전 손익 자료를 교체하여 중복 합산하지 않습니다. 신규고객확보 광고비를 확인한 후 저장해 주세요.'; $('ca-save').disabled = false;
+      if (files.length > 31) throw Error('하루 단위 엑셀은 한 번에 31개까지 선택할 수 있습니다.');
+      const parsed = [];
+      for (const file of files) {
+        if (file.size > 12 * 1024 * 1024) throw Error('파일 하나의 크기는 12MB 이하여야 합니다.');
+        if (/\.json$/i.test(file.name)) {
+          if (files.length !== 1) throw Error('손익 설정 JSON은 하나만 선택해 주세요.');
+          let data; try { data = JSON.parse((await file.text()).replace(/^\uFEFF/, '')); } catch (_) { throw Error('손익 설정 JSON 파일을 읽을 수 없습니다.'); }
+          if (data?.schema !== 'roas-coupang-sales-v1') throw Error('ROAS Pilot 쿠팡 손익 설정 파일을 선택해 주세요.');
+          parsed.push(...normalizeImportReports(data.reports));
+        } else {
+          if (!window.CoupangSheets?.parseSales) throw Error('엑셀 읽기 기능을 불러오지 못했습니다. 페이지를 새로고침해 주세요.');
+          parsed.push(await window.CoupangSheets.parseSales(file));
+        }
+      }
+      if (sequence !== parseSequence || files.some((file, index) => $('ca-file').files[index] !== file) || $('ca-file').files.length !== files.length) return;
+      const reports = normalizeImportReports(parsed); pendingImport = { reports };
+      renderImportPreview(reports); configureImportAcquisition(reports);
+      $('ca-import-status').textContent = reports.length + '일 · ' + reports[0].date + ' ~ ' + reports.at(-1).date + ' · 옵션 행 ' + number(reports.reduce((n, r) => n + r.rows.length, 0)) + '개 확인. 아래 일별 수치를 확인한 뒤 저장하세요. 같은 날짜는 교체하여 중복 합산하지 않습니다.'; $('ca-save').disabled = false;
     } catch (error) { if (sequence === parseSequence) { $('ca-import-status').textContent = error.message; message(error.message, true); } }
     finally { if (sequence === parseSequence) $('ca-preview').disabled = false; }
   }
   async function saveImport() {
     if (importSaving) return;
     if (!pendingImport) return message('손익 파일을 먼저 확인해 주세요.', true);
-    const payload = pendingImport, date = payload.date;
-    const acquisitionAdvertising = {};
-    for (const channel of ['growth', 'seller']) {
-      const raw = $('ca-acquisition-' + channel).value; const value = raw === '' ? null : Number(raw);
-      if (value !== null && (!Number.isFinite(value) || value < 0 || value > 1e12)) return message('신규고객확보 광고비는 0 이상의 금액으로 입력해 주세요.', true); acquisitionAdvertising[channel] = value;
+    const payload = pendingImport, reports = payload.reports.map(entry => ({ ...entry })), includeProducts = $('ca-include-products').checked;
+    if (reports.length === 1) {
+      const acquisitionAdvertising = {};
+      for (const channel of ['growth', 'seller']) {
+        const raw = $('ca-acquisition-' + channel).value; const value = raw === '' ? null : Number(raw);
+        if (value !== null && (!Number.isFinite(value) || value < 0 || value > 1e12)) return message('신규고객확보 광고비는 0 이상의 금액으로 입력해 주세요.', true); acquisitionAdvertising[channel] = value;
+      }
+      reports[0].acquisitionAdvertising = acquisitionAdvertising;
     }
     importSaving = true; ++parseSequence;
-    const lockedInputs = ['ca-file', 'ca-acquisition-growth', 'ca-acquisition-seller'].map(id => ({ input: $(id), disabled: $(id).disabled }));
+    const lockedInputs = ['ca-file', 'ca-acquisition-growth', 'ca-acquisition-seller', 'ca-include-products'].map(id => ({ input: $(id), disabled: $(id).disabled }));
     lockedInputs.forEach(({ input }) => { input.disabled = true; });
     $('ca-save').disabled = true; $('ca-preview').disabled = true;
     try {
-      const result = await request('sales-import', { ...payload, acquisitionAdvertising });
+      const result = await request('sales-import-batch', { reports, includeProducts });
       if (pendingImport === payload) pendingImport = null;
-      $('ca-import-status').textContent = date + ' 손익 자료 저장 완료' + (Number.isFinite(result.imported) ? ' · ' + result.imported + '개 옵션' : '') + '. 집계 대상으로 선택한 상품만 통계에 반영합니다.';
-      $('ca-since').value = $('ca-until').value = date; $('ca-month').value = ''; markPreset(null); await load();
+      const results = Array.isArray(result.reports) ? result.reports : Array.isArray(result.results) ? result.results : [];
+      const excluded = results.reduce((n, r) => n + (r.excluded || 0), 0);
+      $('ca-import-status').textContent = reports.length + '일 손익 자료 저장 완료. ' + (includeProducts ? '파일의 옵션을 쿠팡 집계에 포함했습니다. 기존 등록 원가는 유지합니다.' : '기존 집계 대상만 반영합니다.') + (excluded ? ' 집계 제외 옵션 행 ' + number(excluded) + '개.' : '');
+      $('ca-since').value = reports[0].date; $('ca-until').value = reports.at(-1).date; $('ca-channel').value = 'all'; $('ca-month').value = ''; markPreset(null); await load();
     } catch (error) { message(error.message, true); $('ca-import-status').textContent = error.message; }
     finally { importSaving = false; lockedInputs.forEach(({ input, disabled }) => { input.disabled = disabled; }); $('ca-preview').disabled = false; $('ca-save').disabled = !pendingImport; }
   }
@@ -416,7 +488,7 @@
     $('ca-since').value = month + '-01'; const last = dateShift(next.toISOString().slice(0, 10), -1), yesterday = dateShift(today, -1); $('ca-until').value = last < yesterday ? last : yesterday >= month + '-01' ? yesterday : today;
     markPreset(null); load();
   });
-  $('ca-file').addEventListener('change', () => { if (importSaving) return; ++parseSequence; pendingImport = null; $('ca-save').disabled = true; $('ca-preview').disabled = false; $('ca-import-status').textContent = ''; });
+  $('ca-file').addEventListener('change', () => { if (importSaving) return; ++parseSequence; pendingImport = null; $('ca-save').disabled = true; $('ca-preview').disabled = false; $('ca-import-status').textContent = ''; $('ca-import-preview').replaceChildren(); $('ca-import-preview').hidden = true; });
   $('ca-preview').addEventListener('click', previewImport); $('ca-save').addEventListener('click', saveImport);
   if (view === 'dashboard') {
     for (const s of series) {
