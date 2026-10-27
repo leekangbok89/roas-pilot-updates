@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const updateDir=path.join(__dirname,'.roas-updates');
 const managedFiles=['server.js','package.json','public/index.html','public/app.js','public/styles.css','public/app-shell.css','public/app-shell.js','public/display-analysis.html','public/visual-overview.html','public/cost-management.html','public/other-ad-costs.js','public/ga4.html','public/ga4.js','public/ga4.css','public/meta-experiments.html','public/detail-analysis.html','public/detail-analysis.js','public/detail-tracker.js','public/ad-changes.html','public/ad-changes.js','public/ad-changes.css','public/naver-search.html','public/naver-search.js','public/naver-search.css','public/naver-analysis.js','public/gfa-data.js','public/gfa-analysis.js','public/coupang.html','public/coupang.js','public/coupang.css','public/coupang-dashboard.html','public/coupang-sales.html','public/coupang-analytics.js','public/coupang-analytics.css','public/coupang-sheets.js','public/coupang-products.html','public/coupang-products.js','public/coupang-products.css','public/coupang-ads.html','public/coupang-ads.js','public/coupang-ads.css','public/coupang-thumbnails.js','public/coupang-thumbnails.css','public/coupang-product-names.js'];
-const appVersion='2.8.160';
+const appVersion='2.8.161';
 const maxUpdateSize=8*1024*1024;
 function diskPath(dir,rel){return path.join(dir,...rel.split('/'));}
 function copyManaged(from,to,{allowMissing=false}={}){for(const rel of managedFiles){const f=diskPath(from,rel);if(!fs.existsSync(f)){if(allowMissing)continue;throw Error('업데이트 파일 누락: '+rel);}const dest=diskPath(to,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(f,dest);}}
@@ -478,13 +478,13 @@ async function naverDetails(ids,token){
  }
  return found;
 }
-async function naverRun(mode){
+async function naverRun(mode,refreshDays=3){
  if(naverJobs.running)throw Object.assign(Error('네이버 주문 동기화가 이미 실행 중입니다.'),{status:409});
  if(cafeRecoveryJob.running)throw Object.assign(Error('카페24 선택 기간 매출 복구가 진행 중입니다.'),{status:409});
  if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  if(!readNaverCredentials())throw Object.assign(Error('네이버 인증정보를 먼저 저장하세요.'),{status:400});
  naverJobs.running=true;naverJobs.startedAt=new Date().toISOString();naverJobs.finishedAt=null;naverJobs.mode=mode;naverJobs.progress='네이버 인증 중';naverJobs.error=null;naverJobs.daysCompleted=0;naverJobs.changedOrders=0;
- const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-7*86400000);
+ const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-(refreshDays-1)*86400000):dayString(dayUTC(last)-7*86400000);
  let dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
  naverJobs.totalDays=dates.length;
  // Background task runs in the user's local server; process failures are visible in UI.
@@ -947,11 +947,11 @@ function cafeSalesState(){
  }
  return {job:{...cafeJob},daysChecked:Object.keys(sync.days||{}).length,lastSync:sync.lastSync||null,totalOrders:Object.keys(store.orders||{}).length,unverified,days:Object.values(daily).sort((a,b)=>a.date.localeCompare(b.date))};
 }
-async function cafeCollect(mode){
+async function cafeCollect(mode,refreshDays=3){
  if(cafeJob.running)throw Object.assign(Error('카페24 수집 진행 중'),{status:409});
  if(catalogJob.running)throw Object.assign(Error('주문 상품 상세 복구가 진행 중입니다. 완료 후 다시 수집하세요.'),{status:409});
  cafeJob.running=true;cafeJob.error=null;cafeJob.progress='수집 시작';cafeJob.startedAt=new Date().toISOString();cafeJob.finishedAt=null;cafeJob.done=0;
- const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-2*86400000):dayString(dayUTC(last)-14*86400000);
+ const last=todaySeoul(),first=mode==='backfill'?'2026-06-01':mode==='recent3'?dayString(dayUTC(last)-(refreshDays-1)*86400000):dayString(dayUTC(last)-14*86400000);
  const dates=[];for(let ts=dayUTC(first);ts<=dayUTC(last);ts+=86400000)dates.push(dayString(ts));
  cafeJob.total=dates.length;cafeJob.itemsRestored=0;cafeJob.itemsMissing=0;
  try{
@@ -1035,13 +1035,13 @@ function otherAdCostDays(saved){
  const amounts=new Map();for(const entry of saved.entries)amounts.set(entry.date,(amounts.get(entry.date)||0)+entry.amount);return amounts;
 }
 
-function recent3DateWindow(today=todaySeoul()){if(!isDate(today))throw Error('기준 날짜가 유효하지 않습니다.');return {since:dayString(dayUTC(today)-2*86400000),until:today};}
+function recent3DateWindow(today=todaySeoul(),days=3){if(![3,7,30].includes(days))throw Object.assign(Error('업데이트 기간은 3일, 7일, 30일 중 선택하세요.'),{status:400});if(!isDate(today))throw Error('기준 날짜가 유효하지 않습니다.');return {since:dayString(dayUTC(today)-(days-1)*86400000),until:today};}
 const recent3Job={running:false,since:null,until:null,startedAt:null,finishedAt:null,progress:'업데이트 대기',sources:{},error:null};
 function recent3Status(){return {...recent3Job,sources:{...recent3Job.sources}};}
-async function recent3Refresh(accounts){
+async function recent3Refresh(accounts,days=3){
  const ids=profitAccounts(accounts);
  if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)throw Object.assign(Error('다른 주문 수집 또는 상품 상세 복구가 진행 중입니다.'),{status:409});
- const {since,until}=recent3DateWindow();
+ const {since,until}=recent3DateWindow(todaySeoul(),days);
  Object.assign(recent3Job,{running:true,since,until,startedAt:new Date().toISOString(),finishedAt:null,progress:'스마트스토어·카페24·Meta 업데이트 중',error:null,sources:{
   naver:{status:'대기'},cafe24:{status:'대기'},meta:Object.fromEntries(ids.map(id=>[id,{status:'대기'}]))
  }});
@@ -1053,12 +1053,12 @@ async function recent3Refresh(accounts){
   const work=[
    (async()=>{
     updateStatus('naver',null,{status:'진행 중'});
-    try{await naverRun('recent3');updateStatus('naver',null,{status:naverJobs.error?'실패':'완료',daysCompleted:naverJobs.daysCompleted,changedOrders:naverJobs.changedOrders,error:naverJobs.error||null});}
+    try{await naverRun('recent3',days);updateStatus('naver',null,{status:naverJobs.error?'실패':'완료',daysCompleted:naverJobs.daysCompleted,changedOrders:naverJobs.changedOrders,error:naverJobs.error||null});}
     catch(e){updateStatus('naver',null,{status:'실패',error:e.message});}
    })(),
    (async()=>{
     updateStatus('cafe24',null,{status:'진행 중'});
-    try{await cafeCollect('recent3');updateStatus('cafe24',null,{status:cafeJob.error?'실패':'완료',daysCompleted:cafeJob.done,itemsRestored:cafeJob.itemsRestored,error:cafeJob.error||null});}
+    try{await cafeCollect('recent3',days);updateStatus('cafe24',null,{status:cafeJob.error?'실패':'완료',daysCompleted:cafeJob.done,itemsRestored:cafeJob.itemsRestored,error:cafeJob.error||null});}
     catch(e){updateStatus('cafe24',null,{status:'실패',error:e.message});}
    })(),
    ...ids.map(id=>(async()=>{
@@ -1075,8 +1075,8 @@ async function recent3Refresh(accounts){
   if(!ids.length)recent3Job.sources.metaNotice='광고 계정이 연결되어 있지 않아 Meta 데이터를 업데이트하지 않았습니다.';
   const failed=[recent3Job.sources.naver,recent3Job.sources.cafe24,...Object.values(recent3Job.sources.meta)].filter(x=>x&&['실패','부분 완료'].includes(x.status));
   recent3Job.error=failed.length?'일부 수집에 실패하거나 누락이 있습니다. 채널별 결과를 확인하세요.':null;
-  recent3Job.progress=failed.length?'최근 3일 데이터 일부 업데이트':'최근 3일 데이터 업데이트 완료';
- }catch(e){recent3Job.error=e.message;recent3Job.progress='최근 3일 업데이트 실패';}
+  recent3Job.progress=failed.length?'최근 '+days+'일 데이터 일부 업데이트':'최근 '+days+'일 데이터 업데이트 완료';
+ }catch(e){recent3Job.error=e.message;recent3Job.progress='최근 '+days+'일 업데이트 실패';}
  finally{recent3Job.running=false;recent3Job.finishedAt=new Date().toISOString();}
  return recent3Status();
 }
@@ -4239,8 +4239,10 @@ const server=http.createServer(async (req,res)=> {
       if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
       const data=JSON.parse((await payload(req)).toString('utf8')),accounts=profitAccounts(data.accounts||[]);
       if(recent3Job.running||naverJobs.running||cafeJob.running||catalogJob.running)return json(res,409,{error:'기존 주문 수집 또는 상품 상세 복구가 진행 중입니다.'});
-      recent3Refresh(accounts).catch(e=>{if(!recent3Job.running){recent3Job.error=e.message;recent3Job.progress='수집 오류';}});
-      return json(res,202,{ok:true,...recent3DateWindow(),status:'업데이트 시작'});
+      const days=data.days===undefined?3:data.days;
+      const window=recent3DateWindow(todaySeoul(),days);
+      recent3Refresh(accounts,days).catch(e=>{if(!recent3Job.running){recent3Job.error=e.message;recent3Job.progress='수집 오류';}});
+      return json(res,202,{ok:true,...window,status:'업데이트 시작'});
     }
     if(u.pathname==='/api/costs/catalog/diagnostics'&&req.method==='GET')return json(res,200,catalogDiagnostics());
     if(u.pathname==='/api/costs/aliases'&&req.method==='POST'){

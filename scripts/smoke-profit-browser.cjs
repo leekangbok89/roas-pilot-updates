@@ -474,6 +474,7 @@ async function verifyScope(base, requests) {
   check('scope: reported 7-day unknown-order pattern keeps all known daily figures and lists both-channel names');
 
   const responsePromise = page.waitForResponse(res => new URL(res.url()).pathname === '/api/data/recent3/refresh' && res.request().method() === 'POST');
+  await page.locator('#refresh-period-menu > summary').click();
   await page.locator('#recent3-refresh').click();
   const started = await responsePromise;
   assert.equal(started.status(), 202);
@@ -502,6 +503,8 @@ async function verifyHistoryRepair(base, requests) {
   };
   await range(selected.since, selected.until);
   await page.locator('#chart-window').selectOption('1');
+  assert.equal(await page.locator('#collection-status-panel').evaluate(node => node.open), false);
+  await page.locator('#collection-status-panel > summary').click();
   await page.locator('#coverage-details > summary').click();
   assert.equal((await row('2026-09-15'))[5], '미확정', 'Stored payments without items must not become zero sales or a guessed loss');
   assert.equal(await page.locator('#graph circle[data-metric="profit"][data-point-date="2026-09-15"]').count(), 0);
@@ -747,7 +750,7 @@ async function verifySummaryCardDrag(requests) {
   await drag(7, 0);
   await drag(0, 0);
   assert.deepEqual(await saved(), original, 'Dropping on the same card is a no-op');
-  await card(1).locator('.summary-card-move').dragTo(page.locator('#summary-cards-title'));
+  await card(1).locator('.summary-card-move').dragTo(page.locator('#summary-edit'));
   assert.deepEqual(await keys(), original, 'Dropping outside the grid leaves order unchanged');
   assert.equal(await page.locator('.summary-card-dragging,.summary-card-drop-target').count(), 0, 'Cancelled drag removes drag markers');
   await drag(0, 7);
@@ -1285,6 +1288,7 @@ async function verifyCafeRevenueRecovery(base, requests) {
     return (await response.json()).job;
   };
   const start = async (selector, selected) => {
+    await page.locator('#collection-status-panel').evaluate(node => { node.open = true; });
     const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/cafe24/orders/recover' && response.request().method() === 'POST');
     await page.locator(selector).click();
     const response = await responsePromise;
@@ -1322,6 +1326,7 @@ async function verifyCafeRevenueRecovery(base, requests) {
   const { selected } = before, untouched = protectedFiles(), requestStart = requests.length;
   await page.reload();
   await idle();
+  await page.locator('#collection-status-panel > summary').click();
   await page.mouse.move(1000, 80);
   await range(selected.since, selected.until);
   await cafeCard().locator('[data-cafe-revenue-diagnostic="open"]').click();
@@ -1381,6 +1386,7 @@ async function verifyCafeRevenueRecovery(base, requests) {
   const reloadStart = requests.length;
   await page.reload();
   await idle();
+  await page.locator('#collection-status-panel > summary').click();
   await page.mouse.move(1000, 80);
   await page.waitForFunction(() => document.getElementById('cafe-revenue-recover').disabled);
   assert.ok(requests.slice(reloadStart).some(request => new URL(request.url).pathname === '/api/cafe24/orders/recovery/status' && request.method === 'GET'), 'Reload reconnects to the running job by GET');
