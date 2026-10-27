@@ -46,7 +46,11 @@
     const names = { idle: '대기', running: '수집 중', completed: '수집 완료', failed: '수집 중단 · 오류 확인', paused: '수집 일시정지' };
     $('cp-history-progress').max = Math.max(1, h.totalDays || 0); $('cp-history-progress').value = h.completedDays || 0;
     $('cp-history-status').textContent = (names[h.status] || '상태 확인') + ' · 저장/확인 ' + (h.completedDays || 0) + '/' + (h.totalDays || 0) + '일·배송방식' + (h.skippedDays ? ' · 기존 저장분 ' + h.skippedDays + '일 재사용' : '');
-    $('cp-history-detail').textContent = [h.kind === 'startup' ? '프로그램 실행 시 최근 7일 자동 재확인' : '', h.since && h.until ? '대상: ' + h.since + ' ~ ' + h.until : '', h.current ? channels[h.current.channel] + ' ' + h.current.since + ' ~ ' + h.current.until : '', h.pauseRequested && h.running ? '현재 구간 저장 후 중지합니다.' : '', h.error || ''].filter(Boolean).join('\n');
+    const failed = h.lastFailure, diagnosis = failed?.diagnosis;
+    const failedRange = failed?.since && failed?.until ? '중단 구간: ' + (channels[failed.channel] || '배송 방식 확인') + ' ' + failed.since + ' ~ ' + failed.until : '';
+    const failureCode = Number.isInteger(diagnosis?.httpStatus) ? 'HTTP ' + diagnosis.httpStatus : '';
+    const failureDetail = diagnosis ? ['중단 원인: ' + (diagnosis.message || diagnosis.category || '상세 진단 확인'), failureCode, diagnosis.action || ''].filter(Boolean).join(' · ') : '';
+    $('cp-history-detail').textContent = [h.kind === 'startup' ? '프로그램 실행 시 최근 7일 자동 재확인' : '', h.since && h.until ? '대상: ' + h.since + ' ~ ' + h.until : '', h.current ? channels[h.current.channel] + ' ' + h.current.since + ' ~ ' + h.current.until : '', failedRange, failureDetail, h.pauseRequested && h.running ? '현재 구간 저장 후 중지합니다.' : '', h.error || ''].filter(Boolean).join('\n');
     $('cp-resume').disabled = !['failed', 'paused'].includes(h.status); $('cp-pause').disabled = !h.running;
     return h;
   }
@@ -93,10 +97,43 @@
     for (const key of Object.keys(costs)) $('cp-cost-' + key).value = r.entry?.[key] ?? (key === 'productCost' ? r.estimatedProductCost ?? '' : '');
     $('cp-ledger').scrollIntoView({ behavior: 'smooth', block: 'start' }); $('cp-cost-netSales').focus();
   }
-  async function status() {
-    const v = await request('status'); configured = v.configured; selected = v.products || []; options = selected.slice();
+  function renderConnection(v) {
     $('cp-vendor').value = v.vendorId || ''; $('cp-connection').open = !configured;
     $('cp-identity').textContent = configured ? v.vendorId + ' · 키 저장됨 · 각 배송 방식의 수집 버튼으로 연결 확인' : '미연결';
+    for (const id of ['cp-access', 'cp-secret']) $(id).placeholder = configured ? '저장됨 · 변경할 때만 입력' : '미등록 · 발급받은 키 입력';
+    $('cp-key-storage').textContent = configured ? '키 저장 확인 완료. 키는 저장 후 입력칸에 다시 표시하지 않습니다. 저장된 키로 연결 진단을 눌러 쿠팡 인증을 확인하세요.' : '키는 저장 후 입력칸에 다시 표시하지 않습니다. 먼저 발급받은 업체코드와 두 키를 입력하고 암호화 저장하세요.';
+  }
+  function renderDiagnosis(result) {
+    const host = $('cp-diagnosis'); host.replaceChildren();
+    if (!result) { host.dataset.state = 'idle'; host.textContent = '저장된 키로 연결 진단을 누르면 키 저장 상태와 배송 방식별 인증 결과를 확인할 수 있습니다.'; return; }
+    host.dataset.state = result.ok ? 'success' : 'error';
+    const title = document.createElement('strong'); title.textContent = result.keysReadable ? '키 저장 확인 완료 · 저장된 키를 읽었습니다.' : '쿠팡 연결 진단 결과'; host.append(title);
+    const stamp = Date.parse(result.checkedAt), checked = Number.isFinite(stamp) ? new Date(stamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '확인 시각 없음';
+    const when = document.createElement('p'); when.textContent = '진단 대상: ' + (result.date || '최근 하루') + ' · 확인 시각: ' + checked; host.append(when);
+    for (const check of Array.isArray(result.checks) ? result.checks.slice(0, 2) : []) {
+      const block = document.createElement('div'), heading = document.createElement('strong'), detail = document.createElement('p'); block.className = 'cp-diagnosis-check';
+      const code = Number.isInteger(check.httpStatus) && check.httpStatus >= 100 && check.httpStatus <= 599 ? ' · HTTP ' + check.httpStatus : '';
+      heading.textContent = (channels[check.channel] || '배송 방식 확인') + ' · ' + (check.ok ? '인증·접근 정상' : '진단 실패') + code;
+      detail.textContent = check.label || check.message || (check.ok ? '쿠팡 API가 정상 응답했습니다.' : '원인을 확인하지 못했습니다.'); block.append(heading, detail);
+      if (check.message && check.message !== detail.textContent) { const message = document.createElement('p'); message.textContent = check.message; block.append(message); }
+      if (check.action) { const action = document.createElement('p'); action.textContent = '확인할 내용: ' + check.action; block.append(action); }
+      host.append(block);
+    }
+    const note = document.createElement('p'); note.className = 'helper'; note.textContent = '연결 진단은 주문 수집 진행률을 바꾸지 않습니다. 인증 문제를 해결한 뒤 기존 수집 작업의 이어서 수집을 눌러주세요.'; host.append(note);
+  }
+  async function diagnoseConnection() {
+    $('cp-connection').open = true;
+    if (!configured) throw Error('먼저 쿠팡 API 정보를 암호화 저장하세요.');
+    message('저장된 키로 로켓그로스·판매자배송의 최근 하루 API 연결을 진단합니다.');
+    $('cp-diagnosis').textContent = '쿠팡 응답을 확인하고 있습니다.';
+    try {
+      const result = await request('diagnose', { channel: 'all' }); renderDiagnosis(result);
+      message(result.ok ? '연결 진단 완료 · 두 배송 방식 모두 정상 응답했습니다. 기존 오류 기록은 이어서 수집을 실행하면 갱신됩니다.' : '연결 진단 완료 · 쿠팡 API 연결의 진단 결과와 확인할 내용을 아래에서 확인하세요.');
+    } catch (error) { $('cp-diagnosis').textContent = '연결 진단을 완료하지 못했습니다. ' + error.message; throw error; }
+  }
+  async function status() {
+    const v = await request('status'); configured = v.configured; selected = v.products || []; options = selected.slice();
+    renderConnection(v); renderDiagnosis(v.connectionCheck);
     renderHistory(v.history);
     renderOptions(); return v;
   }
@@ -122,6 +159,7 @@
     finally { $('cp-access').value = ''; $('cp-secret').value = ''; }
     report = null; render(); await status(); message('암호화 저장 완료. 각 배송 방식의 주문 수집 버튼으로 API 연결을 확인하세요.');
   }); });
+  $('cp-diagnose').addEventListener('click', () => work(diagnoseConnection));
   for (const channel of ['growth', 'seller']) $('cp-sync-' + channel).addEventListener('click', () => work(async () => {
     if (!configured) throw Error('먼저 API 정보를 등록하세요.');
     const { since, until } = period();

@@ -97,13 +97,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function status() {
     if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
     const c = config(), s = scope(c);
-    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: read(path.join(dir(c), 'automatic.json'), {}) };
+    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: read(path.join(dir(c), 'automatic.json'), {}), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
   }
   function saveCredentials(v) {
     if (busy || historyActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
     const c = credentials(v); let encrypted;
     try { encrypted = protect('encrypt', JSON.stringify(c)); } catch { throw fail(500, 'Windows 계정 암호화에 실패했습니다. 기존 연결은 유지됩니다.'); }
-    atomic(privateFile, encrypted); return status();
+    atomic(privateFile, encrypted);
+    const previousCheck = path.join(dir(c), 'connection-check.json');
+    if (fs.existsSync(previousCheck)) atomic(previousCheck, 'null');
+    return status();
   }
   function saveScope(v) {
     const c = config();
@@ -135,6 +138,91 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     atomic(path.join(dir(c),'scope.json'), JSON.stringify({products,key:hash(products.map(p=>p.itemId))}));
     return {...status(), imported:incoming.length, missingCost:incoming.filter(p=>p.unitCost===null).length};
   }
+  // Only fixed categories leave this process; upstream bodies may contain keys,
+  // customer fields, or arbitrary text and must never be returned or persisted.
+  async function authDiagnosis(response) {
+    const limit = 16384;
+    let text = '';
+    try {
+      if (response.body && typeof response.body.getReader === 'function') {
+        const reader = response.body.getReader(), chunks = []; let length = 0;
+        try {
+          while (true) {
+            const part = await reader.read(); if (part.done) break;
+            length += part.value.byteLength;
+            if (length > limit) { await reader.cancel(); return classifyAuth('', response); }
+            chunks.push(Buffer.from(part.value));
+          }
+          text = Buffer.concat(chunks, length).toString('utf8');
+        } finally { reader.releaseLock?.(); }
+      } else if (typeof response.text === 'function') {
+        const value = await response.text();
+        if (typeof value === 'string' && Buffer.byteLength(value) <= limit) text = value;
+      } else if (typeof response.json === 'function') {
+        const value = JSON.stringify(await response.json());
+        if (typeof value === 'string' && Buffer.byteLength(value) <= limit) text = value;
+      }
+    } catch { text = ''; }
+    finally { try { await response.body?.cancel?.(); } catch {} }
+    return classifyAuth(text, response);
+  }
+  function classifyAuth(text, response) {
+    // Classify the documented message fields, never credential/customer fields
+    // that might be echoed elsewhere in an upstream JSON error response.
+    try {
+      const value = JSON.parse(text);
+      text = typeof value === 'string' ? value : value && !Array.isArray(value) ? [value.message, value.errorMessage, typeof value.error === 'string' ? value.error : value.error?.message].filter(v => typeof v === 'string').map(v => v.slice(0, 2048)).join(' ') : '';
+    } catch { if (/^\s*[\[{]/.test(text)) text = ''; }
+    let category = 'auth_unknown';
+    if (/not[\s_-]*allowed[\s_-]*ip|ip.{0,60}(?:not[\s_-]*(?:allowed|registered)|denied|whitelist)|(?:denied|unregistered).{0,20}ip/i.test(text)) category = 'ip_not_allowed';
+    else if (/(?:api|access|secret)[\s_-]*key.{0,60}(?:expired|revoked)|expired.{0,30}(?:api|access|secret)[\s_-]*key/i.test(text)) category = 'key_expired';
+    else if (/signature.{0,50}expired|request.{0,30}(?:expired|time.{0,15}skew)|time.{0,25}skew/i.test(text)) category = 'signature_expired';
+    else if (/invalid.{0,30}access[\s_-]*key|access[\s_-]*key.{0,40}(?:invalid|not[\s_-]*found|unknown|does[\s_-]*not[\s_-]*exist|not[\s_-]*exist)|unknown.{0,20}access[\s_-]*key/i.test(text)) category = 'invalid_key';
+    else if (/invalid.{0,20}signature|signature.{0,40}(?:mismatch|not[\s_-]*match)|hmac.{0,30}(?:invalid|error|fail)/i.test(text)) category = 'invalid_signature';
+    else if (/access[\s!:_-]*denied|forbidden|not[\s_-]*authorized|permission[\s_-]*denied/i.test(text)) category = 'access_denied';
+    const descriptions = {
+      ip_not_allowed: ['허용 IP·연동업체 설정 거절', 'WING 추가판매정보의 OPEN API에서 연동 방식과 현재 공인 IP를 확인하세요. 수정했다면 최대 30분 뒤 다시 진단하세요.'],
+      signature_expired: ['요청 서명 시간 만료', 'Windows 날짜·시간을 자동 설정하고 지금 동기화를 실행한 뒤 다시 진단하세요.'],
+      key_expired: ['API 키 만료·해지', 'WING에서 API 키 유효기간을 확인하고 새로 발급한 키를 ROAS Pilot에 다시 저장하세요.'],
+      invalid_key: ['Access Key 확인 필요', '업체코드와 같은 계정에서 발급한 Access Key·Secret Key를 확인해 다시 저장하세요.'],
+      invalid_signature: ['인증 서명 불일치', '같은 발급 건의 Access Key·Secret Key인지 확인하고 Windows 시간을 동기화하세요.'],
+      access_denied: ['쿠팡 접근 권한 거절', 'WING의 연동업체·허용 공인 IP·API 이용 권한을 확인하세요.'],
+      auth_unknown: ['쿠팡 응답에서 인증 거절 사유를 구분하지 못했습니다.', 'WING의 업체코드·키 유효기간·연동 방식·허용 공인 IP와 Windows 시간을 확인하세요.']
+    };
+    const [message, action] = descriptions[category], result = { category, httpStatus: response.status, message, action };
+    try {
+      const serverTime = Date.parse(response.headers?.get?.('date') || ''), offset = Math.round((serverTime - now()) / 1000);
+      if (Number.isSafeInteger(offset) && Math.abs(offset) > 300 && Math.abs(offset) <= 3155760000) {
+        result.clockOffsetSeconds = offset;
+        result.action += ' 응답 서버와 PC 시각이 5분 이상 다르게 감지됐으므로 Windows 시간도 확인하세요.';
+      }
+    } catch {}
+    return result;
+  }
+  async function diagnose(v = {}) {
+    const c = config();
+    if (busy || historyActive) throw fail(409, '쿠팡 자료를 수집 중입니다. 일시정지 후 연결 진단을 실행하세요.');
+    const channel = v.channel || 'all';
+    if (![...CHANNELS, 'all'].includes(channel)) throw fail(400, '진단할 배송 방식을 확인하세요.');
+    const date = kstDay(now() - DAY), checkedAt = new Date(now()).toISOString(), checks = [];
+    busy = true;
+    try {
+      for (const ch of channel === 'all' ? CHANNELS : [channel]) {
+        const uri = ch === 'growth' ? '/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders' : '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets';
+        const params = ch === 'growth' ? { paidDateFrom: date.replaceAll('-', ''), paidDateTo: date.replaceAll('-', '') } : { createdAtFrom: date + '+09:00', createdAtTo: date + '+09:00', status: 'FINAL_DELIVERY', maxPerPage: '50' };
+        try {
+          await get(c, uri, params);
+          checks.push({ channel: ch, ok: true, httpStatus: 200, label: '인증·접근 정상', message: '최근 하루 주문 조회에 정상 응답했습니다.', action: '이어서 수집으로 미완료 구간을 다시 수집할 수 있습니다.' });
+        } catch (error) {
+          if (error.diagnosis) checks.push({ channel: ch, ok: false, ...error.diagnosis, label: error.diagnosis.message });
+          else checks.push({ channel: ch, ok: false, httpStatus: Number.isInteger(error.upstreamStatus) ? error.upstreamStatus : null, label: '조회 실패 · 인증 판정 불가', message: '쿠팡 요청이 완료되지 않아 인증 여부를 판정할 수 없습니다.', action: '인터넷 연결과 쿠팡 API 상태를 확인한 뒤 다시 진단하세요.' });
+        }
+      }
+      const result = { configured: true, keysReadable: true, date, checkedAt, ok: checks.every(check => check.ok), checks };
+      atomic(path.join(dir(c), 'connection-check.json'), JSON.stringify(result));
+      return result;
+    } finally { busy = false; }
+  }
   async function get(c, uri, params) {
     const allowed = ['/v2/providers/rg_open_api/apis/api/v1/vendors/' + c.vendorId + '/rg/orders', '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets'];
     if (!allowed.includes(uri)) throw fail(400, '지원하지 않는 쿠팡 조회입니다.');
@@ -145,7 +233,14 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     try { r = await fetchImpl('https://api-gateway.coupang.com' + uri + '?' + query, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(25000), headers: { Authorization: signature(c, uri, query, now()), 'X-Requested-By': c.vendorId, Accept: 'application/json' } }); }
     catch { if (attempt < 2) { await sleep(1000 * 2 ** attempt); continue; } throw fail(502, '쿠팡 API에 연결하지 못했습니다. 인터넷 연결을 확인하세요.'); }
     if ((r.status === 429 || r.status >= 500) && attempt < 2) { await r.body?.cancel?.(); await sleep(2000 * 2 ** attempt); continue; }
-    if (!r.ok) { await r.body?.cancel?.(); throw fail(r.status === 429 ? 429 : 502, [401, 403].includes(r.status) ? '쿠팡 인증에 실패했습니다. API 키·업체코드·허용 IP·PC 시간을 확인하세요.' : '쿠팡 API 조회 실패 (HTTP ' + r.status + '). 기존 저장 자료는 유지됩니다.'); }
+    if (!r.ok) {
+      if ([401, 403].includes(r.status)) {
+        const diagnosis = await authDiagnosis(r);
+        throw Object.assign(fail(502, '쿠팡 인증에 실패했습니다. [' + diagnosis.message + ' · HTTP ' + diagnosis.httpStatus + '] ' + diagnosis.action), { diagnosis, upstreamStatus: r.status });
+      }
+      await r.body?.cancel?.();
+      throw Object.assign(fail(r.status === 429 ? 429 : 502, '쿠팡 API 조회 실패 (HTTP ' + r.status + '). 기존 저장 자료는 유지됩니다.'), { upstreamStatus: r.status });
+    }
     let v; try { v = await r.json(); } catch { throw fail(502, '쿠팡 API 응답 형식을 확인할 수 없습니다.'); }
     if (v?.code !== 200 || !Array.isArray(v.data)) throw fail(502, '쿠팡 API가 정상 목록을 반환하지 않았습니다.');
     return v;
@@ -235,7 +330,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       job = { id: crypto.randomBytes(12).toString('hex'), kind: source, since: v.since, until: v.until, channels: [...channels], done,
         totalDays: days.length * channels.length, completedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), skippedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), startedAt: new Date(now()).toISOString() };
     }
-    Object.assign(job, { status: 'running', pauseRequested: false, error: null, current: null, updatedAt: new Date(now()).toISOString() });
+    Object.assign(job, { status: 'running', pauseRequested: false, error: null, current: null, lastFailure: null, updatedAt: new Date(now()).toISOString() });
     saveHistory(c, job); historyActive = true;
     // Return immediately to the browser. Collection belongs to the local server, not the open tab.
     historyTask = Promise.resolve().then(async () => {
@@ -254,7 +349,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           saveHistory(c, job);
         }
         job.status = 'completed';
-      } catch (e) { job.status = 'failed'; job.error = e.message || '쿠팡 수집에 실패했습니다.'; }
+      } catch (e) {
+        job.status = 'failed'; job.error = e.message || '쿠팡 수집에 실패했습니다.';
+        job.lastFailure = { ...(job.current || {}), failedAt: new Date(now()).toISOString(), ...(e.diagnosis ? { diagnosis: { ...e.diagnosis } } : {}) };
+      }
       finally {
         job.current = null; job.updatedAt = new Date(now()).toISOString();
         try {
@@ -497,6 +595,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, saveScope, importCatalog, importSales, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
+  return { status, saveCredentials, diagnose, saveScope, importCatalog, importSales, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, automatic, waitForHistory: () => historyTask };
 }
 module.exports = { createService, signature, normalize, money, apiMoney, orderDate, COSTS, range };
