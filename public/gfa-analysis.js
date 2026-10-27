@@ -20,7 +20,16 @@
   function parse(){parsed=m.parseAds($('paste').value);const a=m.metrics(parsed);$('spend').textContent=won(a.spend);$('orders').textContent=fmt(a.purchases);$('sales').textContent=won(a.revenue);$('roas').textContent=pct(a.roas);$('rows').innerHTML=campaignRows(parsed);message('status',parsed.length?parsed.length+'개 캠페인 인식'+(parsed.some(r=>r.revenueEstimated)?' · * 구매매출은 구매 ROAS와 광고비로 역산한 추정값입니다.':''):'캠페인 이름·광고비 열과 데이터 행을 함께 붙여넣으세요.');compare();return parsed;}
   function compare(){const a=m.metrics(parsed),rev=m.number($('lastRevenue').value),orders=m.number($('lastOrders').value);$('lastValue').textContent=won(rev);$('lastCount').textContent=fmt(orders);$('lastRoas').textContent=pct(m.rate(rev,a.spend));$('ratio').textContent=pct(m.rate(a.revenue,rev));}
   function remember(){try{const h=JSON.parse(localStorage.getItem('roas-gfa-display-v1')||'{}');h[$('from').value+' ~ '+$('to').value]={from:$('from').value,to:$('to').value,raw:$('paste').value,lastRevenue:$('lastRevenue').value,lastOrders:$('lastOrders').value};localStorage.setItem('roas-gfa-display-v1',JSON.stringify(h));}catch{/* Server storage is authoritative. */}}
+  function renderSourceCoverage(){
+    for(const [kind,id] of [['channels','channels-collected-until'],['ads','ads-collected-until']]){
+      const entries=(store?.entries||[]).filter(entry=>entry.kind===kind);
+      const ends=entries.flatMap(entry=>kind==='channels'?entry.rows.map(row=>row.until||entry.until):[entry.until]).filter(Boolean).sort();
+      $(id).textContent=ends.length?'최근 수집일: '+ends[ends.length-1]+'까지':'저장 자료 없음';
+      $(id).title='업로드하여 저장된 자료의 마지막 날짜입니다. 현재 조회 기간과는 별개입니다.';
+    }
+  }
   function history(){
+    renderSourceCoverage();
     const h=new Map();try{for(const [key,v] of Object.entries(JSON.parse(localStorage.getItem('roas-gfa-display-v1')||'{}')))h.set(key,{since:v.from,until:v.to,raw:v.raw,lastRevenue:v.lastRevenue,lastOrders:v.lastOrders});}catch{}
     for(const e of store?.entries||[])if(e.kind==='ads')h.set(e.since+' ~ '+e.until,e);
     $('history').replaceChildren();for(const [key,e] of [...h].sort((a,b)=>b[0].localeCompare(a[0]))){const b=document.createElement('button');b.className='secondary';b.textContent=key;b.onclick=()=>{$('from').value=e.since;$('to').value=e.until;$('paste').value=e.raw||'';$('lastRevenue').value=e.lastRevenue||'';$('lastOrders').value=e.lastOrders||'';parse();selectPeriod(e.since,e.until);};$('history').appendChild(b);}
@@ -221,5 +230,5 @@ render();
 
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),shift=n=>new Date(Date.parse(today+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
   for(const id of ['from','file-since','report-from'])$(id).value=shift(-7);for(const id of ['to','file-until','report-to'])$(id).value=shift(-1);
-  api().then(value=>{store=value;history();if(store.entries.length)selectPeriod(store.entries[0].since,store.entries[0].until);else renderReport();}).catch(e=>message('report-status',e.message,true));
+  api().then(value=>{store=value;history();if(store.entries.length)selectPeriod(store.entries[0].since,store.entries[0].until);else renderReport();}).catch(e=>{message('report-status',e.message,true);for(const id of ['channels-collected-until','ads-collected-until'])$(id).textContent='수집일 확인 실패 · 다시 조회해 주세요.';});
 })();
