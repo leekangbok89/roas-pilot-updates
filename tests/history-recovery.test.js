@@ -135,3 +135,9 @@ test('invalid selected ranges fail before API calls, and Naver missing quantity 
  assert.equal(result.job.sources.naver.restored,0);assert.equal(result.job.sources.naver.remaining,1);assert.match(result.job.sources.naver.error,/수량/);
  assert.deepEqual(f.read('naver-orders/orders.json').orders['10000001'].items,[]);
 });
+
+ test('refresh windows include today for each supported duration and reject invalid durations',()=>{
+ const {recent3DateWindow}=require('../server');
+ for(const [days,since] of [[3,'2026-10-25'],[7,'2026-10-21'],[30,'2026-09-28']])assert.deepEqual(recent3DateWindow('2026-10-27',days),{since,until:'2026-10-27'});
+ for(const days of [0,4,31,'7',null])assert.throws(()=>recent3DateWindow('2026-10-27',days));
+ });
