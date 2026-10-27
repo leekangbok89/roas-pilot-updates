@@ -22,16 +22,16 @@ function xlsx(){
  await fetch(base+'/api/naver/ad-spend',{method:'POST',headers:{'Content-Type':'application/json','X-ROAS-Local-Action':'yes'},body:JSON.stringify({since:'2026-09-01',until:'2026-09-30',amounts:{gfa:300000},revision:0})});
  await page.goto(base+'/display-analysis.html');await page.waitForFunction(()=>document.querySelectorAll('#legacy-costs tr').length===1);
  page.once('dialog',d=>d.accept());await page.locator('#legacy-costs button').click();await page.waitForFunction(()=>document.querySelector('#legacy-costs').textContent.includes('저장된 GFA 광고비가 없습니다'));
- await page.locator('#report-from').click();await page.locator('.gfa-date-dialog').waitFor({state:'visible'});
- await page.locator('#gfa-calendar-year').selectOption('2024');await page.locator('#gfa-calendar-month').selectOption('1');
- assert.equal(await page.locator('[data-calendar-date]').count(),29,'leap February contains its own 29 dates');
- const calendarLayout=await page.locator('#gfa-calendar-days').evaluate(el=>({columns:getComputedStyle(el).gridTemplateColumns.split(' ').length,gap:parseFloat(getComputedStyle(el).gap)}));assert.equal(calendarLayout.columns,7);assert.ok(calendarLayout.gap>=6,'dates have visible spacing');
- await page.locator('[data-calendar-date="2024-02-29"]').click();assert.equal(await page.locator('#report-from').inputValue(),'2024-02-29');assert.equal(await page.locator('.gfa-date-dialog').isVisible(),false);
- await page.locator('#report-to').click();await page.locator('#gfa-calendar-year').selectOption('2025');await page.locator('#gfa-calendar-month').selectOption('1');assert.equal(await page.locator('[data-calendar-date]').count(),28);
- await page.locator('#gfa-calendar-month').selectOption('0');await page.locator('[data-month-step="-1"]').click();assert.equal(await page.locator('#gfa-calendar-year').inputValue(),'2024');assert.equal(await page.locator('#gfa-calendar-month').inputValue(),'11');
- await page.locator('[data-month-step="1"]').click();assert.equal(await page.locator('#gfa-calendar-year').inputValue(),'2025');
- await page.locator('[data-calendar-date="2025-01-15"]').click();assert.equal(await page.locator('#report-to').inputValue(),'2025-01-15');
- await page.locator('#report-to').click();await page.keyboard.press('Escape');assert.equal(await page.locator('.gfa-date-dialog').isVisible(),false);
+ await page.locator('#report-from').click();await page.locator('.roas-range-modal').waitFor({state:'visible'});
+ assert.equal(await page.locator('.roas-range-months > div').count(),2,'range picker separates two months');
+ await page.locator('.roas-range-quick button').filter({hasText:/^7일$/}).click();
+ const selected=await page.locator('.roas-range-grid button.selected').count();assert.ok(selected>=1);
+ await page.locator('[data-apply]').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);
+ assert.equal(await page.locator('.roas-range-modal').count(),0);
+ const start=await page.locator('#report-from').inputValue(),end=await page.locator('#report-to').inputValue();assert.equal((Date.parse(end)-Date.parse(start))/86400000,6);
+ await page.locator('#report-month').fill('2024-02');await page.locator('#report-month').dispatchEvent('change');await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);
+ assert.equal(await page.locator('#report-from').inputValue(),'2024-02-01');assert.equal(await page.locator('#report-to').inputValue(),'2024-02-29');
+ await page.locator('#report-to').click();await page.keyboard.press('Escape');assert.equal(await page.locator('.roas-range-modal').count(),0);
  await page.locator('#from').fill('2026-09-01');await page.locator('#to').fill('2026-09-07');
  const paste='캠페인 이름\t캠페인 ID\t총비용\t구매완료 수\t구매완료 전환매출액\t노출수\t클릭수\n위마망 A\t1234567\t100000\t5\t1995000\t10000\t500';
  await page.locator('#paste').fill(paste);await page.locator('#save').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('전체 통계에 반영'));
@@ -55,7 +55,7 @@ function xlsx(){
  await page.locator('#metrics-all').click();await page.locator('#metrics-apply').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);assert.equal(await page.locator('#combined-kpis .kpi').count(),9);
 
  const externalContext=await browser.newContext(),other=await externalContext.newPage();await other.goto(base+'/display-analysis.html');await other.waitForFunction(()=>document.querySelectorAll('#stored-files tr').length===2);assert.equal(await other.locator('#history button').count(),1,'campaign data survives empty browser storage');assert.match(await other.locator('#combined-kpis').textContent(),/798%/);await externalContext.close();
- await page.locator('#report-from').fill('2026-09-02');await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);assert.match(await page.locator('#report-status').textContent(),/제외/);assert.doesNotMatch(await page.locator('#combined-kpis').textContent(),/798%/);
+ await page.locator('#report-from').evaluate(el=>{el.value='2026-09-02';el.dispatchEvent(new Event('change',{bubbles:true}));});await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);assert.match(await page.locator('#report-status').textContent(),/제외/);assert.doesNotMatch(await page.locator('#combined-kpis').textContent(),/798%/);
  await page.locator('#report-from').fill('2026-09-01');await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
  const row=page.locator('#stored-files tr').filter({hasText:'전체채널 파일'});await row.locator('[data-load]').click();await page.locator('#channel-preview input:checked').uncheck();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);assert.match(await page.locator('#report-status').textContent(),/GFA 경로를 선택/);
  await page.locator('#channel-preview input').first().check();await page.locator('#file-save').click();await page.waitForFunction(()=>document.querySelector('#file-save').disabled===false);

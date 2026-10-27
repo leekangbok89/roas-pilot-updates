@@ -154,25 +154,71 @@
   $('report-load').onclick=async()=>{if(busy)return;applyMetrics();setBusy(true);try{store=await api();history();renderReport();}catch(e){message('report-status',e.message,true);}finally{setBusy(false);}};
   async function storedFileAction(e){const id=e.target.dataset.load||e.target.dataset.delete,entry=store?.entries.find(r=>r.id===id);if(!entry||busy)return;if(e.target.dataset.load){selectPeriod(entry.since,entry.until);if(entry.kind==='ads'){$('from').value=entry.since;$('to').value=entry.until;$('paste').value=entry.raw;parse();}else{pending=structuredClone(entry);$('file-since').value=entry.since;$('file-until').value=entry.until;preview();}return;}if(!confirm('이 '+(entry.kind==='ads'?'GFA 성과와 같은 기간의 GFA 광고비':'전체채널 자료')+'를 삭제할까요?'))return;setBusy(true);try{store=await api('DELETE',{id:entry.id,revision:store.revision});if(entry.kind==='ads'){try{const h=JSON.parse(localStorage.getItem('roas-gfa-display-v1')||'{}');delete h[entry.since+' ~ '+entry.until];localStorage.setItem('roas-gfa-display-v1',JSON.stringify(h));}catch{}}history();renderReport();message('report-status','선택한 자료를 삭제했습니다.');}catch(err){message('report-status',err.message,true);}finally{setBusy(false);}};
   $('stored-files').onclick=storedFileAction;
-  // Separate each month into a labelled seven-column calendar instead of a native popup.
-  const dateDialog=document.createElement('dialog');dateDialog.className='gfa-date-dialog';dateDialog.setAttribute('aria-labelledby','gfa-calendar-title');
-  dateDialog.innerHTML='<h2 id="gfa-calendar-title"></h2><div class="gfa-calendar-nav"><button type="button" data-month-step="-1" aria-label="이전 달">‹</button><select aria-label="달력 연도" id="gfa-calendar-year"></select><select aria-label="달력 월" id="gfa-calendar-month"></select><button type="button" data-month-step="1" aria-label="다음 달">›</button></div><div class="gfa-calendar-grid" id="gfa-calendar-days"></div><div class="gfa-calendar-footer"><button type="button" id="gfa-calendar-close">닫기</button></div>';
-  document.body.appendChild(dateDialog);
-  let dateTarget=null,calendarYear=0,calendarMonth=0;
-  const padDate=n=>String(n).padStart(2,'0');
-  function drawCalendar(){
-    const year=$('gfa-calendar-year'),month=$('gfa-calendar-month');
-    year.innerHTML=Array.from({length:201},(_,i)=>'<option value="'+(1900+i)+'">'+(1900+i)+'년</option>').join('');year.value=calendarYear;
-    month.innerHTML=Array.from({length:12},(_,i)=>'<option value="'+i+'">'+(i+1)+'월</option>').join('');month.value=calendarMonth;
-    const first=new Date(calendarYear,calendarMonth,1).getDay(),count=new Date(calendarYear,calendarMonth+1,0).getDate();
-    const prefix=calendarYear+'-'+padDate(calendarMonth+1)+'-';
-    $('gfa-calendar-days').innerHTML=['일','월','화','수','목','금','토'].map(day=>'<span>'+day+'</span>').join('')+'<span aria-hidden="true"></span>'.repeat(first)+Array.from({length:count},(_,i)=>{const value=prefix+padDate(i+1);return '<button type="button" data-calendar-date="'+value+'" aria-label="'+calendarYear+'년 '+(calendarMonth+1)+'월 '+(i+1)+'일" aria-pressed="'+(dateTarget.value===value)+'">'+(i+1)+'</button>';}).join('');
-  }
-  function openCalendar(input){dateTarget=input;const value=input.value.split('-').map(Number),fallback=new Date();calendarYear=value[0]||fallback.getFullYear();calendarMonth=value[1]?value[1]-1:fallback.getMonth();$('gfa-calendar-title').textContent=input.id==='report-from'?'비교 시작일 선택':'비교 종료일 선택';drawCalendar();dateDialog.showModal();}
-  for(const id of ['report-from','report-to']){const input=$(id);input.setAttribute('aria-haspopup','dialog');input.title='월별 달력을 열어 날짜 선택';input.addEventListener('click',event=>{event.preventDefault();if(!dateDialog.open)openCalendar(input);});input.addEventListener('keydown',event=>{if(event.key==='Enter'||(event.altKey&&event.key==='ArrowDown')){event.preventDefault();if(!dateDialog.open)openCalendar(input);}});}
-  dateDialog.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.calendarDate){dateTarget.value=button.dataset.calendarDate;dateTarget.dispatchEvent(new Event('input',{bubbles:true}));dateTarget.dispatchEvent(new Event('change',{bubbles:true}));dateDialog.close();dateTarget.focus();}else if(button.dataset.monthStep){const next=new Date(calendarYear,calendarMonth+Number(button.dataset.monthStep),1);if(next.getFullYear()<1900||next.getFullYear()>2100)return;calendarYear=next.getFullYear();calendarMonth=next.getMonth();drawCalendar();}else if(button.id==='gfa-calendar-close')dateDialog.close();});
-  $('gfa-calendar-year').onchange=event=>{calendarYear=Number(event.target.value);drawCalendar();};
-  $('gfa-calendar-month').onchange=event=>{calendarMonth=Number(event.target.value);drawCalendar();};
+function overviewPeriodRange(period,now=new Date()){
+ const end=new Date(now);end.setHours(12,0,0,0);
+ const start=new Date(end);
+ if(period!=='today')end.setDate(end.getDate()-1);
+ if(period==='yesterday')start.setTime(end.getTime());
+ else if(period!=='today'){
+  const months={'1month':1,'2months':2,'3months':3,'6months':6,'1year':12}[period];
+  if(months){
+   const day=start.getDate();start.setDate(1);start.setMonth(start.getMonth()-months);
+   start.setDate(Math.min(day,new Date(start.getFullYear(),start.getMonth()+1,0).getDate()));
+  }else start.setDate(start.getDate()-Number(period));
+ }
+ return {start,end};
+}
+function overviewCalendarMonthRange(month,now=new Date()){
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))return null;
+ const [year,number]=month.split('-').map(Number),start=new Date(year,number-1,1,12),end=new Date(year,number,0,12);
+ const latest=new Date(now);latest.setHours(12,0,0,0);latest.setDate(latest.getDate()-1);
+ if(start>latest)return null;
+ return {start,end:end>latest?latest:end};
+}
+
+  const dateIso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  for(const button of document.querySelectorAll('[data-period]'))button.onclick=()=>{
+    const range=overviewPeriodRange(button.dataset.period);$('report-from').value=dateIso(range.start);$('report-to').value=dateIso(range.end);$('report-month').value='';
+    document.querySelectorAll('[data-period]').forEach(b=>b.classList.toggle('active',b===button));$('report-load').click();
+  };
+  $('report-month').max=dateIso(overviewPeriodRange('yesterday').end).slice(0,7);
+  $('report-month').onchange=()=>{const range=overviewCalendarMonthRange($('report-month').value);if(!range){message('report-status','선택한 월에는 어제까지 완료된 날짜가 없습니다.');return;}$('report-from').value=dateIso(range.start);$('report-to').value=dateIso(range.end);document.querySelectorAll('[data-period]').forEach(b=>b.classList.remove('active'));$('report-load').click();};
+  for(const id of ['report-from','report-to'])$(id).addEventListener('change',()=>{$('report-month').value='';document.querySelectorAll('[data-period]').forEach(b=>b.classList.remove('active'));});
+(function(){
+const pairs=[['report-from','report-to']];
+const iso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const from=s=>new Date(s+'T12:00:00');
+for(const [startId,endId] of pairs){
+const first=document.getElementById(startId),last=document.getElementById(endId);if(!first||!last)continue;
+[first,last].forEach(el=>{el.type='text';el.readOnly=true;el.style.cursor='pointer';el.title='달력을 열어 시작일과 종료일을 선택합니다.';el.addEventListener('click',open);});
+function open(){
+let a=first.value,b=last.value,month=from(a||iso(new Date()));month.setDate(1);
+const mask=document.createElement('div');mask.className='roas-range-mask';mask.innerHTML='<div class="roas-range-modal" role="dialog" aria-modal="true" aria-label="기간 선택"><div class="roas-range-top"><strong>조회 기간 선택</strong><span class="roas-range-label" data-label></span></div><div class="roas-range-quick"></div><div class="roas-range-top"><button type="button" data-prev>◀ 이전</button><span class="roas-range-label">시작일을 선택한 다음 종료일을 선택하세요</span><button type="button" data-next>다음 ▶</button></div><div class="roas-range-months"></div><div class="roas-range-bottom"><span class="roas-range-label">선택한 기간이 강조됩니다.</span><div><button type="button" data-cancel>취소</button> <button type="button" class="apply" data-apply>적용</button></div></div></div>';
+document.body.append(mask);
+const close=()=>{mask.remove();document.removeEventListener('keydown',escape);first.focus();};const escape=e=>{if(e.key==='Escape')close();};document.addEventListener('keydown',escape);mask.addEventListener('click',e=>{if(e.target===mask)close();});
+mask.querySelector('[data-cancel]').onclick=close;
+mask.querySelector('[data-prev]').onclick=()=>{month.setMonth(month.getMonth()-1);render();};
+mask.querySelector('[data-next]').onclick=()=>{month.setMonth(month.getMonth()+1);render();};
+mask.querySelector('[data-apply]').onclick=()=>{if(!a||!b){alert('시작일과 종료일을 모두 선택해 주세요.');return;}first.value=a;last.value=b;last.dispatchEvent(new Event('change',{bubbles:true}));close();$('report-load').click();};
+for(const preset of document.querySelectorAll('[data-period]')){const bt=document.createElement('button');bt.type='button';bt.textContent=preset.textContent;bt.onclick=()=>{const {start,end}=overviewPeriodRange(preset.dataset.period);a=iso(start);b=iso(end);month=new Date(start);month.setDate(1);render();};mask.querySelector('.roas-range-quick').append(bt);}
+function render(){
+mask.querySelector('[data-label]').textContent=(a||'시작일')+' ~ '+(b||'종료일');
+const root=mask.querySelector('.roas-range-months');root.innerHTML='';
+for(let step=0;step<2;step++){const dt=new Date(month);dt.setMonth(dt.getMonth()+step);const y=dt.getFullYear(),m=dt.getMonth(),days=new Date(y,m+1,0).getDate(),offset=new Date(y,m,1).getDay();
+const wrap=document.createElement('div');wrap.innerHTML='<div class="roas-range-month-title">'+y+'년 '+(m+1)+'월</div>';
+const grid=document.createElement('div');grid.className='roas-range-grid';
+for(const weekday of ['일','월','화','수','목','금','토']){let sp=document.createElement('span');sp.textContent=weekday;grid.append(sp);}
+for(let z=0;z<offset;z++)grid.append(document.createElement('span'));
+for(let day=1;day<=days;day++){const date=iso(new Date(y,m,day,12)),button=document.createElement('button');button.type='button';button.textContent=day;button.dataset.calendarDate=date;
+if(date===a||date===b)button.classList.add('selected');else if(a&&b&&date>a&&date<b)button.classList.add('in-range');
+button.onclick=()=>{if(!a||b){a=date;b='';}else if(date<a){b=a;a=date;}else{b=date;}render();};
+grid.append(button);}wrap.append(grid);root.append(wrap);}
+}
+render();
+}
+}
+})();
+
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),shift=n=>new Date(Date.parse(today+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
   for(const id of ['from','file-since','report-from'])$(id).value=shift(-7);for(const id of ['to','file-until','report-to'])$(id).value=shift(-1);
   api().then(value=>{store=value;history();if(store.entries.length)selectPeriod(store.entries[0].since,store.entries[0].until);else renderReport();}).catch(e=>message('report-status',e.message,true));
