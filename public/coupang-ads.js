@@ -75,7 +75,7 @@
     if (!response.ok) throw Error(data.error || '쿠팡 자료를 불러오지 못했습니다.');
     return data;
   }
-  function clear() { report = null; shown = []; $('cad-summary').replaceChildren(); $('cad-body').replaceChildren(); $('cad-count').textContent = ''; }
+  function clear() { window.CoupangThumbnails?.setContext(null); report = null; shown = []; $('cad-summary').replaceChildren(); $('cad-body').replaceChildren(); $('cad-count').textContent = ''; }
   function markPreset(days) { document.querySelectorAll('[data-cad-preset]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.cadPreset) === days))); }
   async function load() {
     const values = query(), valid = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
@@ -86,7 +86,7 @@
       const results = await Promise.allSettled([get('analytics?' + new URLSearchParams(values) + '&view=sales'), get('workspace')]);
       if (token !== sequence) return;
       if (results[0].status === 'rejected') throw results[0].reason;
-      report = results[0].value;
+      report = results[0].value; window.CoupangThumbnails?.setContext(report);
       const previous = $('cad-group').value;
       const workspaceMatches = results[1].status === 'fulfilled' && results[1].value.revision === report.workspaceRevision && results[1].value.scopeKey === report.scopeKey;
       savedGroups = workspaceMatches && Array.isArray(results[1].value.groups) ? results[1].value.groups : [];
@@ -121,8 +121,8 @@
       const tr = el('tr', undefined, 'ca-totals-row'), label = el('td', '현재 표 합계'); label.colSpan = 3; tr.append(label); metrics.forEach(([key]) => valueCell(tr, total, key)); tr.append(el('td', '미수집은 0원으로 계산하지 않음')); host.append(tr);
       for (const group of shown) {
         const tr = el('tr', undefined, 'ca-group-row'), toggleCell = el('td'), toggle = el('button', expanded.has(group.id) ? '−' : '+', 'ca-expand'); toggle.type = 'button'; toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기')); toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); render(); }); toggleCell.append(toggle); tr.append(toggleCell);
-        const name = el('td', group.name, 'ca-name'); name.append(el('small', '상품 ID ' + group.id + ' · ' + group.options.length + '개 옵션·배송 방식')); tr.append(name, el('td', group.channel)); metrics.forEach(([key]) => valueCell(tr, group, key)); tr.append(el('td', sourceNames[group.source] || '혼합 자료')); host.append(tr);
-        if (expanded.has(group.id)) for (const option of group.options) { const child = el('tr', undefined, 'ca-option-row'); child.append(el('td', '')); const name = el('td', option.name, 'ca-name'); name.append(el('small', '옵션 ID ' + option.itemId)); child.append(name, el('td', option.channel)); metrics.forEach(([key]) => valueCell(child, option, key)); child.append(el('td', sourceNames[option.source] || '혼합 자료')); host.append(child); }
+        const name = el('td', group.name, 'ca-name'); name.append(el('small', '상품 ID ' + group.id + ' · ' + group.options.length + '개 옵션·배송 방식')); window.CoupangThumbnails?.decorate(name, { productId: group.id, name: group.name }); tr.append(name, el('td', group.channel)); metrics.forEach(([key]) => valueCell(tr, group, key)); tr.append(el('td', sourceNames[group.source] || '혼합 자료')); host.append(tr);
+        if (expanded.has(group.id)) for (const option of group.options) { const child = el('tr', undefined, 'ca-option-row'); child.append(el('td', '')); const name = el('td', option.name, 'ca-name'); name.append(el('small', '옵션 ID ' + option.itemId)); window.CoupangThumbnails?.decorate(name, { itemId: option.itemId, productId: group.id, name: option.name }); child.append(name, el('td', option.channel)); metrics.forEach(([key]) => valueCell(child, option, key)); child.append(el('td', sourceNames[option.source] || '혼합 자료')); host.append(child); }
       }
     }
     const collapse = shown.length > 0 && shown.every(group => expanded.has(group.id)); $('cad-expand').textContent = collapse ? '옵션 모두 접기' : '옵션 모두 펼치기'; $('cad-expand').disabled = !shown.length; $('cad-export').disabled = !shown.length;

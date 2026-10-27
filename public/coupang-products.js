@@ -24,7 +24,7 @@
     finally { busy = false; controls.forEach(([e, disabled]) => { if (e.isConnected) e.disabled = disabled; }); updateSelection(); }
   }
   function accept(data) {
-    workspace = data; const ids = new Set((data.products || []).map(p => p.itemId)); selected = new Set([...selected].filter(id => ids.has(id)));
+    workspace = data; window.CoupangThumbnails?.setContext(data); const ids = new Set((data.products || []).map(p => p.itemId)); selected = new Set([...selected].filter(id => ids.has(id)));
     deleting = null; render();
   }
   function filteredProducts() {
@@ -63,12 +63,14 @@
       choose.append(checkBox(group.options.map(p => p.itemId), group.name + ' 조회 옵션 모두 선택')); toggle.type = 'button'; toggle.setAttribute('aria-expanded', String(expanded.has(group.id))); toggle.setAttribute('aria-label', group.name + ' 옵션 ' + (expanded.has(group.id) ? '접기' : '펼치기'));
       toggle.addEventListener('click', () => { if (expanded.has(group.id)) expanded.delete(group.id); else expanded.add(group.id); renderTable(); });
       title.append(toggle, node('strong', group.name)); name.append(title, node('small', (group.id.startsWith('option:') ? '상품 ID 미등록' : '상품 ID ' + group.id) + ' · ' + group.options.length + '개 옵션'));
+      window.CoupangThumbnails?.decorate(name, group.id.startsWith('option:') ? { itemId: group.options[0].itemId, name: group.name } : { productId: group.id, name: group.name });
       const channel = node('td', [...new Set(group.options.map(p => channels[p.channel] || '미분류'))].join(' / ')), detail = node('td', '옵션을 펼쳐 비용 확인'); detail.colSpan = 6;
       tr.append(choose, name, channel, detail, node('td', '')); rows.push(tr);
       if (!expanded.has(group.id)) continue;
       for (const p of group.options) {
         const option = node('tr', undefined, 'cpm-option-row'), select = node('td'), optionName = node('td', undefined, 'ca-name'); select.append(checkBox([p.itemId], (p.optionName || p.name) + ' 선택'));
         optionName.append(node('strong', p.optionName || p.name), node('small', '옵션 ID ' + p.itemId, 'cpm-option-id'));
+        window.CoupangThumbnails?.decorate(optionName, { itemId: p.itemId, productId: p.productId, name: p.optionName || p.name });
         option.append(select, optionName, node('td', channels[p.channel] || '미분류'));
         for (const key of ['salePrice', 'unitCost', 'commissionRate', 'inboundFee', 'deliveryFee']) { const value = key === 'commissionRate' ? known(p[key]) ? p[key].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '미등록' : money(p[key]); option.append(node('td', value, !known(p[key]) ? 'cpm-unknown' : '')); }
         option.append(node('td', p.costSince || '시작일 미지정')); const manage = node('td'), edit = node('button', '비용 수정'); edit.type = 'button'; edit.addEventListener('click', () => openEditor(p)); manage.append(edit); option.append(manage); rows.push(option);
