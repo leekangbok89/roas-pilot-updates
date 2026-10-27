@@ -51,6 +51,9 @@ test('paginates growth orders, deduplicates repeated rows, isolates brands and s
   assert.equal(calls.length, 2); assert.equal(calls[1].url.searchParams.get('nextToken'), 'next-page'); assert.equal(calls[0].init.method, 'GET');
   const raw = fs.readFileSync(path.join(baseDir, '.roas-data/coupang/A00012345/orders/' + date + '-growth.json'), 'utf8');
   assert.ok(!raw.includes('PRIVATE')); assert.equal(s.products({ since: date, until: date }).products.length, 2);
+  s.saveScope({ products: s.products({ since: date, until: date }).products.map(p => ({ ...p, unitCost: p.itemId === '123' ? 3000 : 2000 })) });
+  const combined = s.report({ since: date, until: date }).daily[0];
+  assert.equal(combined.gross, 120000); assert.equal(combined.quantity, 12); assert.equal(combined.estimatedProductCost, 26000);
   assert.ok(!JSON.stringify(s.status()).includes('test-secret-key'));
   assert.ok(!fs.readFileSync(path.join(baseDir, '.roas-private/coupang.dpapi'), 'utf8').includes('test-secret-key'));
 });

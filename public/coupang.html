@@ -20,7 +20,7 @@
     <div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div>
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
-    <header class="app-page-head"><div><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">로켓그로스 중심으로, 판매자배송의 매출과 비용을 함께 확인합니다.</p></div></header>
+    <header class="app-page-head"><div><h1 class="app-page-title">쿠팡 수익 분석</h1><p class="app-page-subtitle">트루버 + 위마망 · 로켓그로스 중심으로, 판매자배송의 매출과 비용을 함께 확인합니다.</p></div></header>
     <p id="cp-message" class="cp-notice" role="status" aria-live="polite">쿠팡 연결을 확인합니다.</p>
     <details class="panel" id="cp-connection" open><summary>쿠팡 API 연결 · <span id="cp-identity">미연결</span></summary>
       <p class="helper">쿠팡 WING에서 발급한 업체코드·Access Key·Secret Key를 등록하세요. 키는 이 PC의 Windows 계정으로 암호화합니다. API 허용 IP는 실제 인터넷 공인 IP를 사용합니다.</p>
@@ -42,19 +42,19 @@
       <p id="cp-history-status" role="status" aria-live="polite">대기 · 저장/확인 0/0일·배송방식</p><progress id="cp-history-progress" value="0" max="1" aria-label="쿠팡 주문 수집 진행률"></progress><p id="cp-history-detail" class="helper"></p>
       <p class="helper">그로스와 판매자배송을 최근 365일 기준으로 7일씩 나누어 저장합니다. 과거 저장분은 재사용하고 최근 7일은 갱신합니다. 브라우저를 닫아도 수집은 계속되며, ROAS Pilot 프로그램은 실행해 두세요. 재시작 또는 오류 후에는 이어서 수집을 누르세요. 최초 1년 수집이 끝나면 프로그램을 켤 때 오늘을 포함한 최근 7일만 자동 재확인합니다. 이전 자료는 보존하며 자동 삭제하지 않습니다.</p>
     </section>
-    <details class="panel" open><summary>집계할 위마망 상품 선택</summary>
-      <p class="helper">주문 수집 후 위마망 옵션만 체크하고 저장하세요. 트루버·다른 브랜드는 체크하지 않습니다. 원가는 관세·수입운송비 등을 포함한 개당 원가를 등록하세요. 원가 미등록은 0원으로 계산하지 않습니다.</p>
-      <fieldset><div id="cp-products" class="cp-products"></div><button id="cp-save-scope" class="primary" type="button">선택한 위마망 상품 저장</button></fieldset>
+    <details class="panel" open><summary>집계할 트루버·위마망 상품 선택</summary>
+      <p class="helper">주문 수집 후 트루버·위마망 옵션을 체크하고 저장하세요. 쿠팡 수익 분석에서만 두 브랜드를 함께 집계하며, 다른 메뉴는 위마망만 분석합니다. 원가는 관세·수입운송비 등을 포함한 개당 원가를 등록하세요. 원가 미등록은 0원으로 계산하지 않습니다. 선택 상품이 바뀌면 해당 상품 조합의 매출·비용을 다시 확인해 주세요.</p>
+      <fieldset><div class="cp-actions"><button id="cp-select-all" type="button">전체 선택</button><button id="cp-select-none" type="button">전체 해제</button></div><div id="cp-products" class="cp-products"></div><button id="cp-save-scope" class="primary" type="button">선택한 트루버·위마망 상품 저장</button></fieldset>
       <form id="cp-add"><fieldset><div class="cp-form"><label>직접 추가 · 옵션 ID<input id="cp-item-id" inputmode="numeric" maxlength="20" required></label><label>상품명<input id="cp-item-name" maxlength="300" required></label><div class="cp-actions"><button type="submit">옵션 추가</button></div></div></fieldset></form>
     </details>
     <div id="cp-summary" class="cp-summary"></div><p id="cp-missing" class="helper"></p>
     <section class="panel"><h2>날짜별 매출과 예상 이익</h2><div class="cp-scroll"><table><thead><tr><th>날짜</th><th>배송 방식</th><th>API 판매수량</th><th>API 판매금액</th><th>확인한 매출</th><th>예상 이익</th><th>확인 상태</th><th>비용 관리</th></tr></thead><tbody id="cp-daily"></tbody></table></div></section>
     <details id="cp-ledger" class="panel"><summary>매출·비용 입력 및 확인</summary>
-      <p class="helper">선택한 위마망 상품에 해당하는 금액만 입력하세요. 환불 반영 매출은 판매일 기준으로 통일하고 판매자 부담 할인을 반영하세요. 쿠팡 광고비는 실제 사용액과 부가세를 포함하세요. 이미 포함한 비용을 다시 차감하지 않습니다. 수입비를 원가에 넣었다면 입고 운송비에 중복 입력하지 않습니다.</p>
+      <p class="helper">선택한 트루버·위마망 상품에 해당하는 금액만 입력하세요. 환불 반영 매출은 판매일 기준으로 통일하고 판매자 부담 할인을 반영하세요. 쿠팡 광고비는 실제 사용액과 부가세를 포함하세요. 이미 포함한 비용을 다시 차감하지 않습니다. 수입비를 원가에 넣었다면 입고 운송비에 중복 입력하지 않습니다.</p>
       <form id="cp-cost-form"><fieldset><div class="cp-toolbar"><label>대상 날짜<input id="cp-date" type="date" required></label><label>배송 방식<select id="cp-cost-channel"><option value="growth">로켓그로스</option><option value="seller">판매자배송</option></select></label><button id="cp-cost-date-load" type="button">이 날짜의 입력값 불러오기</button></div>
         <div id="cp-cost-fields" class="cp-form"></div>
         <p class="helper">상품 원가가 등록되어 있으면 API 수량 기준 원가를 초안으로 채웁니다. 환불·재입고·폐기·포장비 등을 확인해 수정하세요. 로켓그로스 입출고비에 배송비가 포함되어 있으면 별도 배송비는 0으로 입력하세요. 비용이 없으면 0을 명시하세요.</p>
-        <label class="cp-review"><input id="cp-reviewed" type="checkbox" required><span>선택한 위마망 상품의 취소·반품·할인과 비용 누락·중복을 확인했습니다.</span></label>
+        <label class="cp-review"><input id="cp-reviewed" type="checkbox" required><span>선택한 트루버·위마망 상품의 취소·반품·할인과 비용 누락·중복을 확인했습니다.</span></label>
         <button class="primary" type="submit">매출·비용 저장하고 이익 계산</button>
       </fieldset></form>
     </details>
