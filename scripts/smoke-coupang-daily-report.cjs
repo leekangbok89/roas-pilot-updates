@@ -59,8 +59,9 @@ async function main() {
   assert.match(await page.locator('#ca-import-preview').innerText(), /106,000원/);
   await page.locator('#ca-save').click();
   await page.waitForFunction(() => document.getElementById('ca-import-status').textContent.includes('저장 완료'));
-  assert.deepEqual(posts.map(p => p.endpoint), ['catalog-import', 'sales-import-batch']);
-  assert.equal(posts[1].body.dailyTotals.length, 2); assert.equal(posts[1].body.reports.length, 0);
+  assert.deepEqual(posts.map(p => p.endpoint), ['sales-import-batch'], 'catalogue costs and daily totals are saved atomically in one request');
+  assert.equal(posts[0].body.products.length, 1); assert.equal(posts[0].body.products[0].unitCost, 3000);
+  assert.equal(posts[0].body.dailyTotals.length, 2); assert.equal(posts[0].body.reports.length, 0);
   assert.deepEqual(errors, []);
   console.log('PASS daily report desktop fit, six columns, known subtotals, missing dates, details, CSV and combined settings import');
 }
