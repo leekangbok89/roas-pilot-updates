@@ -431,7 +431,7 @@ async function verifyScope(base, requests) {
   await scopeAmount('2026-09-01', 99000, true);
   assert.ok((await pointTitles()).some(title => title.includes('99,000원')));
   assert.match(await page.locator('#profit-total').innerText(), /확인분|부분/);
-  assert.match(await page.locator('#profit-chart-status').innerText(), /부분/);
+  assert.equal(await page.locator('#profit-chart-status').isVisible(), false);
   const review = await page.locator('#profit-brand-list').innerText();
   assert.ok(review.includes(scopeNames.unknown) && review.includes(scopeNames.both));
   assert.ok(!review.includes(scopeNames.excluded));
@@ -1625,7 +1625,7 @@ async function verifyResponsiveHover(requests) {
     assert.equal(cells[5], '미확정');
     assert.ok(cells[6].includes(reason));
     assert.equal(await page.locator('#graph circle[data-metric="profit"]').count(), 0);
-    assert.ok((await page.locator('#profit-chart-status').innerText()).length > 0);
+    assert.equal(await page.locator('#profit-chart-status').isVisible(), false);
   }
   check('browser: missing costs/ads/orders show reasons and never appear as zero profit');
 
