@@ -36,6 +36,49 @@ function harness({ids={naver:'111',cafe:'222'},fetch=async()=>{throw Error('unex
  return {context,node,run:code=>vm.runInContext(code,context)};
 }
 const profit=(date,value,extras={})=>({date,revenue:100000,fee:7000,cost:40000,adSpend:53000-value,profit:value,complete:value!=null,reasons:[],naver:{revenue:100000},cafe24:{revenue:0},...extras});
+test('overview rolling periods use full days ending yesterday and preserve the selected length',()=>{
+ const h=harness();
+ for(const [period,since] of [['7','2026-10-20'],['14','2026-10-13'],['21','2026-10-06'],['1month','2026-09-27'],['2months','2026-08-27'],['3months','2026-07-27'],['6months','2026-04-27'],['1year','2025-10-27']]){
+  h.context.period=period;
+  const range=JSON.parse(h.run("JSON.stringify((()=>{const {start,end}=overviewPeriodRange(period,new Date('2026-10-27T00:05:00'));return [iso(start),iso(end)]})())"));
+  assert.deepEqual(range,[since,'2026-10-26'],period);
+ }
+ for(const [period,expected] of [['today',['2026-10-27','2026-10-27']],['yesterday',['2026-10-26','2026-10-26']]]){
+  h.context.period=period;
+  assert.deepEqual(JSON.parse(h.run("JSON.stringify((()=>{const {start,end}=overviewPeriodRange(period,new Date('2026-10-27T23:59:00'));return [iso(start),iso(end)]})())")),expected);
+ }
+});
+
+test('calendar month selection covers full past months and caps this month at yesterday',()=>{
+ const h=harness();
+ for(const [date,month,expected] of [
+  ['2026-10-27','2026-08',['2026-08-01','2026-08-31']],
+  ['2026-10-27','2026-09',['2026-09-01','2026-09-30']],
+  ['2026-10-27','2026-10',['2026-10-01','2026-10-26']],
+  ['2026-03-01','2026-02',['2026-02-01','2026-02-28']],
+  ['2024-03-01','2024-02',['2024-02-01','2024-02-29']],
+  ['2026-01-01','2025-12',['2025-12-01','2025-12-31']],
+  ['2026-10-01','2026-10',null],['2026-10-27','2026-11',null],['2026-10-27','2026-13',null],['2026-10-27','',null]
+ ]){
+  h.context.date=date;h.context.month=month;
+  assert.deepEqual(JSON.parse(h.run("JSON.stringify((()=>{const range=overviewCalendarMonthRange(month,new Date(date+'T00:05:00'));return range?[iso(range.start),iso(range.end)]:null})())")),expected,date+' '+month);
+ }
+});
+
+test('completed-day overview periods handle year boundaries, short months, and leap years',()=>{
+ const h=harness();
+ for(const [date,period,expected] of [
+  ['2026-01-01','7',['2025-12-25','2025-12-31']],
+  ['2026-03-01','1month',['2026-02-01','2026-02-28']],
+  ['2026-03-31','1month',['2026-02-28','2026-03-30']],
+  ['2024-03-31','1month',['2024-02-29','2024-03-30']],
+  ['2024-02-29','1year',['2023-02-28','2024-02-28']]
+ ]){
+  h.context.date=date;h.context.period=period;
+  assert.deepEqual(JSON.parse(h.run("JSON.stringify((()=>{const {start,end}=overviewPeriodRange(period,new Date(date+'T12:00:00'));return [iso(start),iso(end)]})())")),expected,date+' '+period);
+ }
+});
+
 function completeAdCoverage(h,accounts=['111','222']){
  h.context.coveredAccounts=accounts;
  h.run("summaryAdLoadedAccounts=new Set(coveredAccounts);dataCoverage={since:$('since').value,until:$('until').value,sources:{meta:Object.fromEntries(coveredAccounts.map(account=>[account,{missingDays:[]}]))}};");

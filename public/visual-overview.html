@@ -54,10 +54,10 @@ body .app-main #summary-cards .summary-card-dragging{opacity:.45;cursor:grabbing
 body .app-main #summary-cards .summary-card-drop-target{outline:2px solid var(--app-accent);outline-offset:2px}
 </style><link rel="stylesheet" href="/app-shell.css"></head><body data-app-page="overview"><div class="app-nav-rail" id="app-nav-rail"><button type="button" class="app-rail-button" id="app-nav-toggle" aria-label="메뉴 열기" title="메뉴 열기 · 왼쪽 가장자리에 마우스를 올려도 열립니다" aria-controls="app-drawer" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button type="button" class="app-rail-button" id="app-theme-toggle" aria-label="다크 모드로 전환" title="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span></button></div>
 <aside class="app-drawer" id="app-drawer" aria-label="주 메뉴" aria-hidden="true" inert><div class="app-brand">ROAS<span>Pilot</span><small>광고 · 매출 · 이익 분석</small></div><nav id="app-nav" class="app-nav" aria-label="워크스페이스"><a class="app-nav-link active" data-app-route="overview" href="/visual-overview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>한눈에 보기</span></a><a class="app-nav-link" data-app-route="ads-section" href="/#ads-section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg><span>광고별 진단</span></a><a class="app-nav-link" data-app-route="daily-compare" href="/#daily-compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 10h18M8 14h2M14 14h2M8 17h2"/></svg><span>날짜별 비교</span></a><a class="app-nav-link" data-app-route="sales-impact" href="/#sales-impact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5"/></svg><span>전체 매출 분석</span></a><a class="app-nav-link" data-app-route="cost" href="/cost-management.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg><span>원가관리</span></a><a class="app-nav-link" data-app-route="ga4" href="/ga4.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 16v-3M13 16V9M18 16V5"/></svg><span>GA4 유입 분석</span></a><a class="app-nav-link" data-app-route="data-source" href="/#data-source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>설정 관리</span></a></nav><div class="app-nav-footer"><button id="app-theme-drawer-toggle" class="app-theme-drawer-toggle" type="button" aria-label="다크 모드로 전환" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span id="app-theme-label">다크 모드로 전환</span></button></div></aside>
-<main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">한눈에 보기</h1><p class="app-page-subtitle">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다.</p></div></header>
+<main id="app-main" class="app-main" tabindex="-1"><header class="app-page-head"><div><h1 class="app-page-title">한눈에 보기</h1><p class="app-page-subtitle">네이버 스마트스토어와 카페24의 광고 성과를 같은 기간으로 비교합니다. 7일~1년은 오늘을 제외하고 어제까지 조회합니다.</p></div></header>
 <section class="toolbar"><label>채널<select id="channel"><option value="all">네이버 + 카페24 전체</option><option value="naver">네이버 스마트스토어</option><option value="cafe">카페24 자사몰</option></select></label>
 <button data-period="yesterday">어제</button><button data-period="today">오늘</button><button data-period="7" class="active">7일</button><button data-period="14">14일</button><button data-period="21">21일</button><button data-period="1month">한달</button><button data-period="2months">두달</button><button data-period="3months">세달</button><button data-period="6months">반년</button><button data-period="1year">1년</button>
-<label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
+<label>월별 선택<input type="month" id="calendar-month" title="선택한 월의 1일부터 말일까지 조회합니다. 이번 달은 어제까지 조회합니다."></label><label>시작일<input type="date" id="since"></label><label>종료일<input type="date" id="until"></label>
 <button id="reload" class="primary" title="선택한 시작일과 종료일의 저장된 데이터를 조회합니다. 외부 API를 새로 호출하지 않습니다.">기간별 데이터 조회</button><button id="recent3-refresh" type="button" title="오늘 포함 최근 3일간 스마트스토어·카페24 주문과 연결된 전체 Meta 광고계정의 데이터를 업데이트합니다.">최근 3일 데이터 업데이트 (오늘 포함)</button><span class="status small" id="updated">조회 대기</span><span id="recent3-status" role="status" class="small" style="flex-basis:100%;display:none"></span></section>
 <div id="alert" class="alert"></div>
 <section class="panel" id="data-coverage"><div class="panelhead"><div><h2>기간별 수집·주문 상세 현황</h2><span id="coverage-period" class="small">조회 기간의 저장 상태를 확인합니다.</span></div><div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="cafe-revenue-recover" class="primary" title="선택한 기간의 카페24 주문 목록과 상품 상세를 다시 가져옵니다. 수집 완료로 표시된 날짜도 다시 확인합니다.">카페24 매출 강제 재수집</button><button type="button" id="history-repair" title="위에서 선택한 기간에 이미 저장된 주문 중 상품명·옵션이 없는 주문 상세만 다시 조회합니다.">선택 기간 주문 상세 복구</button><button type="button" id="history-repair-status-check">복구 진행 상태 확인</button></div></div><div id="coverage-summary" role="status" style="margin-bottom:10px">저장된 자료 확인 중…</div><details id="coverage-details"><summary>채널별 저장·누락 상세 보기</summary><div style="padding-top:12px"><p class="small" style="margin:0 0 10px">카페24 매출이 0원이거나 빠져 있으면 “카페24 매출 강제 재수집”으로 선택 기간의 주문 목록·최종 결제금액·상품 상세를 수집 완료 기록과 관계없이 다시 확인하세요. “선택 기간 주문 상세 복구”는 이미 저장된 스마트스토어·카페24 주문의 상품 상세만 확인합니다.</p><div id="coverage-table" style="overflow:auto"></div><div id="coverage-blockers" style="font-size:12px;line-height:1.8;margin-top:10px"></div></div></details><div id="history-repair-progress" style="display:none;border-top:1px solid #e2e7f0;margin-top:12px;padding-top:12px"><strong id="history-repair-summary" role="status"></strong><div id="history-repair-sources" style="overflow:auto;margin-top:8px"></div></div></section>
@@ -78,16 +78,23 @@ const iso=d=>{const v=new Date(d.getTime()-d.getTimezoneOffset()*60000);return v
 function overviewPeriodRange(period,now=new Date()){
  const end=new Date(now);end.setHours(12,0,0,0);
  const start=new Date(end);
- if(period==='yesterday'){end.setDate(end.getDate()-1);start.setTime(end.getTime());}
+ if(period!=='today')end.setDate(end.getDate()-1);
+ if(period==='yesterday')start.setTime(end.getTime());
  else if(period!=='today'){
   const months={'1month':1,'2months':2,'3months':3,'6months':6,'1year':12}[period];
   if(months){
    const day=start.getDate();start.setDate(1);start.setMonth(start.getMonth()-months);
    start.setDate(Math.min(day,new Date(start.getFullYear(),start.getMonth()+1,0).getDate()));
-   start.setDate(start.getDate()+1);
-  }else start.setDate(start.getDate()-(Number(period)-1));
+  }else start.setDate(start.getDate()-Number(period));
  }
  return {start,end};
+}
+function overviewCalendarMonthRange(month,now=new Date()){
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))return null;
+ const [year,number]=month.split('-').map(Number),start=new Date(year,number-1,1,12),end=new Date(year,number,0,12);
+ const latest=new Date(now);latest.setHours(12,0,0,0);latest.setDate(latest.getDate()-1);
+ if(start>latest)return null;
+ return {start,end:end>latest?latest:end};
 }
 function metricNumber(v){if(!['number','string'].includes(typeof v)||String(v).trim()==='')return null;const parsed=Number(v);return Number.isFinite(parsed)?parsed:null;}
 function value(a){if(!Array.isArray(a))return null;for(const type of types){const x=a.find(y=>y.action_type===type),amount=metricNumber(x?.value);if(amount!==null)return amount;}return null;}
@@ -1228,7 +1235,19 @@ async function run(){
   $('alert').style.display='block';$('alert').textContent=e.message;$('updated').textContent='조회 실패';
  }finally{if(version===requestVersion)$('reload').disabled=false;}
 }
-let now=new Date();$('until').value=iso(now);now.setDate(now.getDate()-6);$('since').value=iso(now);
+let now=new Date();const initialPeriod=overviewPeriodRange('7',now);$('until').value=iso(initialPeriod.end);$('since').value=iso(initialPeriod.start);
+$('calendar-month').max=iso(initialPeriod.end).slice(0,7);
+$('calendar-month').onchange=()=>{
+ if(!$('calendar-month').value)return;
+ const range=overviewCalendarMonthRange($('calendar-month').value);
+ if(!range){$('updated').textContent='선택한 월에는 어제까지 완료된 날짜가 없습니다.';return;}
+ $('since').value=iso(range.start);$('until').value=iso(range.end);
+ document.querySelectorAll('[data-period]').forEach(button=>button.classList.remove('active'));
+ run();
+};
+for(const id of ['since','until'])$(id).addEventListener('change',()=>{
+ $('calendar-month').value='';document.querySelectorAll('[data-period]').forEach(button=>button.classList.remove('active'));
+});
 setupSummaryCards();
 if(typeof window!=='undefined'){
  // ResizeObserver already runs before paint. Draw here so the new SVG is ready
@@ -1238,7 +1257,7 @@ if(typeof window!=='undefined'){
  else window.addEventListener('resize',resizeChart);
 }
 if(typeof window!=='undefined')window.addEventListener('roas:meta-spend-ready',()=>{if(!summaryLoading)renderSummaryCards();});
-document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-period]').forEach(t=>t.classList.toggle('active',t===b));const {start,end}=overviewPeriodRange(b.dataset.period);$('since').value=iso(start);$('until').value=iso(end);run()});
+document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-period]').forEach(t=>t.classList.toggle('active',t===b));$('calendar-month').value='';const {start,end}=overviewPeriodRange(b.dataset.period);$('since').value=iso(start);$('until').value=iso(end);run()});
 async function showCafeRepairDiagnosis(){
  const textArea=$('profit-diagnostic-output'),hint=$('profit-diagnostic-hint'),panel=$('cafe-repair-detail');
  try{

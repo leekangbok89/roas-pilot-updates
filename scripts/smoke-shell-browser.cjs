@@ -132,6 +132,51 @@ async function activeLabel(){
 async function labelList(){return page.locator(selectors.links).evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label')||node.querySelector('.app-nav-label')?.textContent?.trim()||node.textContent.trim()));}
 async function mainBox(){const box=await page.locator(selectors.main).boundingBox();assert.ok(box);return {x:box.x,width:box.width};}
 function sameBox(a,b,label){assert.ok(Math.abs(a.x-b.x)<0.6,label+' must not move main content horizontally: '+JSON.stringify({a,b}));assert.ok(Math.abs(a.width-b.width)<0.6,label+' must not resize main content: '+JSON.stringify({a,b}));}
+async function verifyOverviewCompletedDays(){
+ const today=await page.evaluate(()=>new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()));
+ const daysAgo=days=>new Date(Date.parse(today+'T12:00:00Z')-days*86400000).toISOString().slice(0,10);
+ const values=()=>page.evaluate(()=>[document.getElementById('since').value,document.getElementById('until').value]);
+ assert.deepEqual(await values(),[daysAgo(7),daysAgo(1)],'Initial seven-day overview excludes today');
+ const requests=[];
+ const observe=request=>{const url=new URL(request.url());if(url.pathname==='/api/overview/snapshot')requests.push(url);};
+ page.on('request',observe);
+ for(const [period,expected] of [['14',[daysAgo(14),daysAgo(1)]],['21',[daysAgo(21),daysAgo(1)]],['today',[today,today]],['yesterday',[daysAgo(1),daysAgo(1)]],['7',[daysAgo(7),daysAgo(1)]]]){
+  requests.length=0;
+  await page.locator('[data-period="'+period+'"]').click();
+  await page.waitForFunction(()=>document.getElementById('reload').disabled===false);
+  assert.deepEqual(await values(),expected,period+' button updates both date fields');
+  assert.ok(requests.length>0,'Selected period requests the overview snapshot');
+  for(const url of requests)assert.deepEqual([url.searchParams.get('since'),url.searchParams.get('until')],expected,'Cards, graph and coverage request the same selected dates');
+ }
+ const reference=new Date(today+'T12:00:00Z');
+ for(const offset of [2,1,0]){
+  if(offset===0&&reference.getUTCDate()===1)continue;
+  const start=new Date(Date.UTC(reference.getUTCFullYear(),reference.getUTCMonth()-offset,1,12));
+  const month=start.toISOString().slice(0,7),end=offset===0?daysAgo(1):new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+1,0,12)).toISOString().slice(0,10);
+  requests.length=0;
+  await page.locator('#calendar-month').fill(month);await page.locator('#calendar-month').press('Tab');
+  await page.waitForFunction(()=>document.getElementById('reload').disabled===false);
+  assert.deepEqual(await values(),[month+'-01',end],'Monthly selection spans the full month, ending yesterday for the current month');
+  assert.equal(await page.locator('[data-period].active').count(),0,'Monthly selection clears rolling-period highlight');
+  assert.ok(requests.length>0,'Monthly selection reloads the snapshot automatically');
+  for(const url of requests)assert.deepEqual([url.searchParams.get('since'),url.searchParams.get('until')],[month+'-01',end]);
+ }
+ await page.locator('#since').click();
+ await page.locator('.roas-range-quick button').filter({hasText:/^21일$/}).click();
+ assert.equal(await page.locator('.roas-range-modal [data-label]').textContent(),daysAgo(21)+' ~ '+daysAgo(1),'Calendar shortcuts also end yesterday');
+ await page.locator('.roas-range-modal [data-apply]').click();
+ assert.deepEqual(await values(),[daysAgo(21),daysAgo(1)]);
+ assert.equal(await page.locator('#calendar-month').inputValue(),'','Custom calendar selection clears the selected month');
+ await page.locator('#until').click();
+ await page.locator('.roas-range-quick button').filter({hasText:/^오늘$/}).click();
+ await page.locator('.roas-range-modal [data-apply]').click();
+ assert.deepEqual(await values(),[today,today],'Explicit calendar selection may include today');
+ await page.locator('[data-period="7"]').click();
+ await page.waitForFunction(()=>document.getElementById('reload').disabled===false);
+ page.off('request',observe);
+ assert.equal(await page.locator('#calendar-month').inputValue(),'','Rolling shortcuts clear the monthly selector');
+ pass('Initial range, rolling shortcuts, monthly selection, snapshot requests and calendar exclude today; explicit today remains available');
+}
 async function verifyOverviewFolds(){
  const panels=[['details.fold-panel:has(#channels)','#channels'],['details.fold-panel:has(#daily)','#daily'],['#profit-panel','#profit-save-fees'],['#budget-efficiency','#budget-step']];
  assert.equal(await page.locator('details.fold-panel').count(),4,'Four overview panels retain the new folded presentation after installation/update');
@@ -260,7 +305,7 @@ async function verifyBrowserScenario(){
  await context.addInitScript(ids=>localStorage.setItem('roas-account-ids',JSON.stringify(ids)),accountIds);
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(base+'/'))return route.continue();externalRequests.push(url);return route.abort();});
  page=await context.newPage();page.on('pageerror',error=>pageErrors.push(error.message));
- await go('/visual-overview.html');await verifyOverviewFolds();
+ await go('/visual-overview.html');await verifyOverviewCompletedDays();await verifyOverviewFolds();
  const assertSpendBreakdownRemoved=async context=>assert.equal(await page.locator('#ad-spend-breakdown,.ad-spend-heading').count(),0,context+' does not render the removed advertising-spend block');
  await assertSpendBreakdownRemoved('한눈에 보기');
 
