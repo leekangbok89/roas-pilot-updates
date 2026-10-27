@@ -725,8 +725,8 @@ test('Cafe24 zero-sales diagnostics distinguish an empty cache from paid orders 
   assert.equal(fields.allPaidRevenue,(diagnostic.allPaidRevenue||0).toLocaleString('ko-KR')+'원');
   assert.equal(fields.confirmedRevenue,'0원');assert.equal(h.node('mallRevenue').textContent,'0원');
   if(diagnostic.excludedProducts?.length){const report=h.run('cafeRevenueDiagnosticText()');assert.match(report,/제외 판정 상품명/);assert.match(report,/트루버 표기가 있는 위마망 후보/);}
-  const inspect=descendantElements(h.node('summary-cards')).find(node=>node.attributes['data-cafe-revenue-diagnostic']==='open');
-  assert.ok(inspect,'A zero Cafe24 card offers a direct route to its collection and brand diagnostics');
+  const inspect=descendantElements(h.node('summary-connections-list')).find(node=>node.attributes['data-cafe-revenue-diagnostic']==='open');
+  assert.ok(inspect,'Cafe24 connection details offer a direct route to collection and brand diagnostics');
   inspect.onclick();assert.equal(h.node('cafe-revenue-diagnostic').open,true);
   assert.match(h.node('cafe-revenue-diagnostic-output').value,new RegExp(diagnostic.reason.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
  }
