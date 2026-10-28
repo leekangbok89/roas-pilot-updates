@@ -44,6 +44,16 @@ async function main() {
   const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
   await page.goto(base + '/coupang-dashboard.html?since=2026-10-25&until=2026-10-27&channel=all');
   await page.waitForFunction(() => document.querySelectorAll('#ca-daily-head th').length === 6);
+  assert.equal(await page.locator('html').getAttribute('data-workspace'), 'sellha');
+  assert.equal(await page.locator('#app-drawer').count(), 0);
+  assert.equal(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'), '/coupang-dashboard.html');
+  assert.equal(await page.locator('.growth-supplemental').evaluate(node => node.open), false);
+  const chartBox = await page.locator('.ca-chart-panel').boundingBox(), dailyBox = await page.locator('.ca-daily-panel').boundingBox();
+  assert.ok(Math.abs(chartBox.y - dailyBox.y) < 2 && dailyBox.x > chartBox.x + chartBox.width, 'Chart and report occupy separate side-by-side columns');
+  if (process.env.ROAS_GROWTH_SCREENSHOT_DIR) {
+    fs.mkdirSync(process.env.ROAS_GROWTH_SCREENSHOT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.ROAS_GROWTH_SCREENSHOT_DIR, 'growth-dashboard.png'), fullPage: false });
+  }
   assert.deepEqual(await page.locator('#ca-daily-head th').allTextContents(), ['일자 ↓', '매출', '이익금', '광고비', '기타비용', '순이익금']);
   assert.deepEqual(await page.locator('#ca-daily-body tr').first().locator('td').allTextContents(), ['합계', '250,000원수집분', '136,000원수집분', '30,000원수집분', '48,000원수집분', '106,000원수집분']);
   const unknown = await page.locator('#ca-daily-body tr').nth(1).locator('td').allTextContents();
@@ -53,6 +63,9 @@ async function main() {
     await page.setViewportSize({ width, height: 1000 });
     assert.equal(await page.locator('.ca-daily-panel .ca-scroll').evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'six main columns must fit at ' + width);
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Mobile tables scroll inside their containers');
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('#ca-daily-details').click(); assert.ok(await page.locator('#ca-daily-head th').count() > 6);
   await page.locator('#ca-daily-details').click(); assert.equal(await page.locator('#ca-daily-head th').count(), 6);
   await page.locator('#ca-calculation summary').click();

@@ -1,0 +1,86 @@
+/* Sellha-inspired growth workspace: all selectors are scoped to this mode. */
+:root[data-workspace="sellha"]{--app-bg:#f8f9fb;--app-surface:#fff;--app-surface-soft:#f7f8fa;--app-text:#25282e;--app-muted:#69707c;--app-border:#e6e8ed;--app-accent:#4866e9;--app-accent-soft:#eff3ff;--app-link:#405bd0;--app-chart-grid:#eceef3;--app-shadow:0 2px 6px #242b3d03;--app-tone-blue-bg:#fff;--app-tone-violet-bg:#fff;--app-tone-amber-bg:#fff;--app-tone-green-bg:#fff}
+body[data-workspace="sellha"]{font-weight:400}
+body[data-workspace="sellha"] :is(.app-nav-rail,.app-drawer){display:none}
+.growth-header{background:#fff;border-bottom:1px solid var(--app-border)}
+.growth-header-inner{max-width:1400px;margin:auto;padding:0 32px}
+.growth-topline{min-height:86px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.growth-brand{display:flex;gap:0;align-items:baseline;color:#18191d;text-decoration:none;font-size:31px;font-weight:850;letter-spacing:-1.5px;white-space:nowrap}
+.growth-brand>span{color:#efb820}.growth-brand small{margin-left:10px;font-size:14px;letter-spacing:-.5px;color:#8c7441;font-weight:650}
+.growth-modes{display:flex;align-items:center;background:#f0f1f3;border-radius:24px;padding:3px;gap:2px}
+.growth-modes a{padding:6px 15px;border-radius:22px;color:#777f8b;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap}
+.growth-modes a[aria-current]{background:#4866e9;color:#fff}.growth-modes i{display:inline-block;width:9px;height:9px;background:#f16b66;border-radius:50%;margin-right:7px}
+.growth-return{margin-left:auto;text-decoration:none;color:#5d6470;font-size:13px;white-space:nowrap}
+.growth-context{display:flex;align-items:center;gap:22px;font-size:12px;color:#757b87;padding:1px 0 13px}.growth-context b{color:#e9b82c;margin-right:5px}.growth-context-note{margin-left:auto}
+.growth-navigation{display:flex;gap:30px;overflow-x:auto;scrollbar-width:thin}.growth-navigation a{padding:11px 0 13px;position:relative;flex-shrink:0;text-decoration:none;color:#555c67;font-size:15px;font-weight:550;border-bottom:3px solid transparent}.growth-navigation a[aria-current]{border-bottom-color:#f1c643;color:#1d2430;font-weight:750}
+body[data-workspace="sellha"] .app-main{zoom:1;width:100%;max-width:1400px;min-height:calc(100vh - 250px);margin:0 auto;padding:28px 32px 36px}
+body[data-workspace="sellha"] .app-main .app-page-head{margin-bottom:22px;align-items:center}
+body[data-workspace="sellha"] .app-main .app-page-title{font-size:24px;letter-spacing:-.8px}
+body[data-workspace="sellha"] .app-main .app-page-subtitle{font-size:13px;margin-top:6px;color:#858b95;font-weight:400}
+body[data-workspace="sellha"] .app-main :is(.helper,small,p,label){font-weight:400}
+body[data-workspace="sellha"] .app-main .ca-eyebrow{font-size:11px!important;letter-spacing:.08em;color:#9a8a62!important}
+body[data-workspace="sellha"] .app-main .panel{padding:20px;margin-bottom:18px;border:1px solid var(--app-border);border-radius:9px;box-shadow:var(--app-shadow);background:#fff}
+body[data-workspace="sellha"] .app-main :is(input,select,button){border-radius:5px;min-height:35px}
+body[data-workspace="sellha"] .app-main h2{font-size:17px;font-weight:650}
+body[data-workspace="sellha"] .app-main .ca-toolbar{gap:10px}
+body[data-workspace="sellha"] .app-main .ca-cards{gap:14px;margin-bottom:20px}
+body[data-workspace="sellha"] .app-main .ca-card{background:#fff;padding:19px 20px;border-radius:9px;border:1px solid var(--app-border);border-top:3px solid #e0c47a;box-shadow:none}
+body[data-workspace="sellha"] .app-main .ca-card:nth-child(2){border-top-color:#a8baf3}body[data-workspace="sellha"] .app-main .ca-card:nth-child(3){border-top-color:#eeab9f}body[data-workspace="sellha"] .app-main .ca-card:nth-child(4){border-top-color:#91cbbb}
+body[data-workspace="sellha"] .app-main .ca-card strong{font-size:28px;letter-spacing:-.8px;margin:10px 0 6px}
+body[data-workspace="sellha"] .app-main .ca-notice{border-radius:6px;background:#f0f4ff;border-color:#e1e8fb;font-size:13px;margin-bottom:18px!important;padding:10px 13px!important}
+body[data-workspace="sellha"] .app-main :is(th,td){border-color:#eef0f3;padding:12px 11px}
+body[data-workspace="sellha"] .app-main th{background:#f7f8fa;color:#656c78;font-weight:550}
+body[data-workspace="sellha"] .app-main .ca-auto-panel{background:#fff!important}
+.growth-footer{max-width:1336px;margin:0 auto;padding:25px 16px 36px;border-top:1px solid var(--app-border);color:#9298a2;font-size:12px;text-align:center}
+@media(max-width:800px){.growth-header-inner{padding:0 18px}.growth-topline{gap:12px;padding:18px 0;min-height:0}.growth-brand{font-size:25px}.growth-brand small{font-size:12px}.growth-return{font-size:12px}.growth-modes{order:3}.growth-context{gap:12px}.growth-context-note{display:none}.growth-navigation{gap:24px}body[data-workspace="sellha"] .app-main{padding:22px 16px}body[data-workspace="sellha"] .app-main .panel{padding:15px}body[data-workspace="sellha"] .app-main .ca-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.app-mode-entry small{display:none}}
+@media(max-width:440px){.growth-brand small{display:none}.growth-return{margin-left:auto}body[data-workspace="sellha"] .app-main .ca-card{padding:14px 12px}body[data-workspace="sellha"] .app-main .ca-card strong{font-size:23px}}
+/* Dashboard geometry follows the inspected growth dashboard. */
+:root[data-workspace="sellha"]{--app-bg:#fff;--app-chart-grid:#dedede;--app-shadow:0 1px 5px #00000012}
+.growth-header-inner{max-width:1170px;padding:0 24px}.growth-topline{min-height:82px}.growth-navigation{gap:28px}
+body[data-workspace="sellha"] .app-main{max-width:1170px;padding:30px 24px 36px}
+body[data-workspace="sellha"] .app-main .ca-dashboard-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:stretch}
+body[data-workspace="sellha"] .app-main .ca-dashboard-grid>.panel{padding:12px 10px;border-radius:16px;box-shadow:0 1px 5px #00000012}
+body[data-workspace="sellha"] .app-main .ca-dashboard-grid .ca-panel-head{min-height:38px;margin-bottom:8px}
+body[data-workspace="sellha"] .app-main .ca-daily-panel .ca-toolbar{gap:5px}
+body[data-workspace="sellha"] .app-main .ca-daily-panel button{font-size:12px!important;padding:6px 8px}
+body[data-workspace="sellha"] .app-main #ca-daily-details{background:#111;color:#fff;border-color:#111}
+body[data-workspace="sellha"] .app-main .ca-daily-table:not(.ca-daily-expanded){min-width:0;width:100%;table-layout:auto}
+body[data-workspace="sellha"] .app-main .ca-daily-table:not(.ca-daily-expanded) :is(th,td):first-child{width:auto}
+body[data-workspace="sellha"] .app-main .ca-table :is(th,td){font-size:12px!important;line-height:1.5;padding:10px 8px;font-weight:400}
+body[data-workspace="sellha"] .app-main .ca-table th{background:#fafafa;color:#656b75}
+body[data-workspace="sellha"] .app-main .ca-scroll{border:0;border-radius:0;scrollbar-gutter:auto}
+body[data-workspace="sellha"] .app-main .ca-daily-panel .ca-scroll{max-height:390px}
+body[data-workspace="sellha"] .app-main .ca-table .ca-totals-row td{background:#fff;font-weight:550;border-bottom:1px solid #ededed}
+body[data-workspace="sellha"] .app-main .ca-legend{gap:10px;margin:8px 0 12px;font-size:12px;justify-content:center}
+body[data-workspace="sellha"] .app-main .ca-legend label{font-size:12px!important;font-weight:400!important}
+body[data-workspace="sellha"] .app-main .ca-chart{min-height:340px}body[data-workspace="sellha"] .app-main .ca-chart svg{min-height:340px}
+body[data-workspace="sellha"][data-coupang-view="dashboard"] .app-page-head{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+body[data-workspace="sellha"][data-coupang-view="dashboard"] .app-main>.ca-filter-panel{padding:0;border:0;box-shadow:none;margin-bottom:12px}
+body[data-workspace="sellha"][data-coupang-view="dashboard"] .app-main>.ca-notice{margin:0 0 12px!important}
+body[data-workspace="sellha"] .app-main #ca-query .ca-toolbar{align-items:center;gap:8px}
+body[data-workspace="sellha"] .app-main #ca-query label{font-size:11px;gap:3px!important}
+body[data-workspace="sellha"] .app-main .growth-range-tools{margin-top:7px}.growth-range-tools>summary{font-size:12px;color:#7c818a;cursor:pointer}
+body[data-workspace="sellha"] .app-main .growth-supplemental{margin-top:18px}.growth-supplemental>summary{font-size:14px;cursor:pointer;font-weight:550}.growth-supplemental[open]>summary{margin-bottom:16px}
+body[data-workspace="sellha"] .app-main .ca-method-note{font-size:12px;background:#fffdf7;border:1px dashed #e8d7aa;border-radius:12px;padding:13px;color:#797464}
+body[data-workspace="sellha"] .app-main .cpm-product-row td{background:#f5faff}
+body[data-workspace="sellha"] .app-main .cpm-group-panel{background:#fff!important}
+@media(min-width:1600px){body[data-workspace="sellha"] .app-main{max-width:1400px}.growth-header-inner{max-width:1400px}}
+@media(max-width:1050px){body[data-workspace="sellha"] .app-main .ca-dashboard-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:800px){.growth-header-inner{padding:0 18px}body[data-workspace="sellha"] .app-main{padding:22px 16px}.growth-topline{min-height:0}.growth-navigation{gap:22px}body[data-workspace="sellha"] .app-main .ca-daily-table:not(.ca-daily-expanded){min-width:490px}body[data-workspace="sellha"] .app-main .ca-chart svg{min-height:230px}body[data-workspace="sellha"] .app-main .ca-chart{min-height:230px}}
+
+/* Keep the primary dashboard as compact as the reference. */
+.growth-topline{min-height:78px}.growth-navigation a{padding-top:9px;padding-bottom:10px}
+body[data-workspace="sellha"][data-coupang-view="dashboard"] .app-main>.ca-notice:not([data-error="true"]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;padding:0!important;margin:0!important;border:0}
+body[data-workspace="sellha"] .app-main #ca-query label{font-size:0;gap:0!important}
+body[data-workspace="sellha"] .app-main #ca-query label:has(#ca-channel){order:-1}
+
+/* Smart monitoring keeps its reference width without changing growth pages. */
+body[data-app-page="daily-monitoring"] .growth-header-inner{max-width:1110px;padding:0 24px}
+body[data-app-page="daily-monitoring"] .growth-topline{min-height:78px}
+body[data-app-page="daily-monitoring"] .growth-context{min-height:32px;box-sizing:border-box;padding:0 0 12px}
+body[data-app-page="daily-monitoring"] .growth-navigation{gap:28px;min-height:43px}
+body[data-app-page="daily-monitoring"] .growth-navigation a{padding:10px 0 11px}
+.growth-smart-header .growth-modes a[aria-current]{background:#28ae83;color:#fff}
+.growth-smart-header .growth-context b{color:#28ae83}
+body[data-app-page="daily-monitoring"] .growth-footer{max-width:1062px}
+@media(max-width:800px){body[data-app-page="daily-monitoring"] .growth-header-inner{padding:0 18px}body[data-app-page="daily-monitoring"] .growth-topline{min-height:0}body[data-app-page="daily-monitoring"] .growth-context{gap:12px;min-height:32px}body[data-app-page="daily-monitoring"] .growth-navigation{gap:24px}}

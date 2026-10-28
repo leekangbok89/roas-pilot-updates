@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROAS Pilot | 일간 모니터링</title>
+<script src="/app-shell.js"></script><link rel="stylesheet" href="/app-shell.css"><link rel="stylesheet" href="/growth-mode.css"><link rel="stylesheet" href="/daily-monitoring.css">
+<script src="/coupang-sheets.js" defer></script><script src="/monitoring-import.js" defer></script><script src="/daily-monitoring.js" defer></script></head>
+<body data-app-page="daily-monitoring" data-monitoring>
+<main class="app-main dm-main" id="app-main" tabindex="-1">
+  <a class="dm-breadcrumb" href="/daily-monitoring.html">일간 모니터링</a>
+  <div id="dm-status" class="dm-status" role="status" aria-live="polite" hidden></div>
+  <section id="dm-list">
+    <form class="dm-search" id="dm-search-form"><input id="dm-search" aria-label="상품 검색" placeholder="폴더명, 상품명 또는 키워드를 검색해 보세요" autocomplete="off"><button class="dm-primary" type="submit"><span aria-hidden="true">⌕</span> 분석</button></form>
+    <div class="dm-market-row"><div class="dm-market-tabs" role="tablist" aria-label="마켓 선택"><button type="button" role="tab" data-platform="naver" aria-selected="true">네이버</button><button type="button" role="tab" data-platform="coupang" aria-selected="false">쿠팡</button></div><button id="dm-order" type="button">상품 순서 설정</button></div>
+    <div class="dm-counts" id="dm-counts"></div><div id="dm-last-import" class="dm-coverage" hidden></div>
+    <div class="dm-toolbar"><label class="dm-folder-filter">폴더 <select id="dm-folder-filter" aria-label="폴더별 상품"><option value="">전체 상품</option></select></label><button id="dm-folder-add" type="button">폴더 관리</button><button id="dm-import-list" type="button">자료 가져오기</button><button id="dm-backup" type="button">전체 자료 내보내기</button><button id="dm-zoom" class="dm-primary" type="button" aria-pressed="false">↔　크게보기</button></div>
+    <div id="dm-cards"><p class="dm-empty">저장한 모니터링 자료를 불러오고 있습니다.</p></div>
+  </section>
+  <section id="dm-detail" hidden>
+    <div class="dm-detail-top"><button id="dm-back" class="dm-text-button" type="button">‹ 상품 목록</button><div class="dm-toolbar"><button id="dm-edit" type="button">상품 편집</button><button id="dm-import-detail" type="button">자료 가져오기</button></div></div>
+    <div id="dm-product-summary" class="dm-product-summary"></div>
+    <div class="dm-detail-tabs" role="tablist" aria-label="상품 모니터링 항목"><button role="tab" type="button" data-detail-tab="keywords" aria-selected="true">키워드 모니터링 <span aria-hidden="true">ⓘ</span></button><button role="tab" type="button" data-detail-tab="reviews" aria-selected="false">리뷰 모니터링 <span aria-hidden="true">ⓘ</span></button><button role="tab" type="button" data-detail-tab="sales" aria-selected="false">판매량 모니터링 <span aria-hidden="true">ⓘ</span></button></div>
+    <div id="dm-keywords-view">
+      <details class="dm-accordion dm-keyword-accordion"><summary>키워드 추가/편집 <span aria-hidden="true">ⓘ</span></summary><form id="dm-keyword-form" class="dm-keyword-editor"><label for="dm-keyword-lines">한 줄에 키워드 하나를 입력하세요. 검색량을 함께 저장하려면 키워드 뒤에 탭 또는 쉼표로 입력하세요.</label><textarea id="dm-keyword-lines" rows="6" placeholder="자동분유제조기,700&#10;분유제조기,8450"></textarea><div class="dm-dialog-actions"><button class="dm-primary" type="submit">키워드 저장</button></div></form></details>
+      <details class="dm-accordion"><summary>순위 알림 <span aria-hidden="true">ⓘ</span></summary><form id="dm-alert-form" class="dm-alert-form"><label><input id="dm-alert-enabled" type="checkbox"> 저장된 순위에서 기준 밖 키워드 강조</label><label>기준 순위 <input id="dm-alert-threshold" type="number" min="1" max="1000000" value="10"></label><button type="submit">저장</button><p class="dm-muted">이 화면의 순위 표시를 강조합니다. 외부 메시지는 발송하지 않습니다.</p></form></details>
+      <section class="dm-rank-panel"><div class="dm-panel-head"><div><h2>순위 모니터링 <span aria-hidden="true">ⓘ</span></h2><span class="dm-muted" id="dm-rank-note">저장된 일간 검색 순위</span></div><button class="dm-primary" id="dm-detail-zoom" type="button">↔　크게보기</button></div>
+        <div class="dm-toolbar dm-table-tools"><button id="dm-export" type="button">▧　CSV 다운로드</button><select id="dm-keyword-sort" aria-label="키워드 정렬"><option value="saved">셀러 관심순</option><option value="volume">검색량순</option><option value="rank">최근 순위순</option></select><button id="dm-save-sort" type="button">저장</button><div class="dm-spacer"></div><select id="dm-orientation" aria-label="순위표 방향"><option value="horizontal">가로로 보기</option><option value="vertical">세로로 보기</option></select><details class="dm-options"><summary class="dm-primary">순위 보기 옵션 <span aria-hidden="true">Ⓝ</span></summary><div><p>테이블에 표시할 순위 데이터를 선택하세요.</p><label><input type="checkbox" data-rank-option="normal" checked> 일반 순위</label><label><input type="checkbox" data-rank-option="group" checked> 묶음 순위</label><label><input type="checkbox" data-rank-option="ads" checked> 광고 순위</label><label><input type="checkbox" data-rank-option="adCount"> 광고 개수</label></div></details></div>
+        <div id="dm-rank-table" class="dm-table-scroll" tabindex="0" aria-label="일간 순위표"></div>
+      </section>
+    </div>
+    <section id="dm-metric-view" class="dm-rank-panel" hidden></section>
+  </section>
+  <div class="dm-data-note">순위·리뷰·판매량은 가져온 자료의 날짜를 기준으로 표시됩니다. 새 자료를 가져오면 같은 날짜의 기록을 갱신합니다.</div>
+</main>
+<input id="dm-file" type="file" accept=".json,.csv,.tsv,.xlsx" hidden>
+<dialog id="dm-product-dialog" class="dm-dialog" aria-labelledby="dm-product-dialog-title"><form id="dm-product-form"><div class="dm-dialog-head"><h2 id="dm-product-dialog-title">모니터링 상품 추가</h2><button type="button" data-close aria-label="닫기">×</button></div><div class="dm-form-grid">
+  <label>마켓<select name="platform"><option value="naver">네이버</option><option value="coupang">쿠팡</option></select></label><label>폴더<select name="folderId"><option value="">미분류</option></select></label>
+  <label class="dm-full">상품 URL<input name="url" type="url" maxlength="2048" placeholder="https://smartstore.naver.com/…"></label><label>상품 ID<input name="productId" required maxlength="120"></label><label>브랜드·스토어<input name="brand" maxlength="100"></label>
+  <label class="dm-full">상품명<input name="name" required maxlength="500"></label><label class="dm-full">썸네일 URL<input name="imageUrl" type="url" maxlength="2048"></label>
+  <label>가격<input name="price" type="number" min="0" step="1"></label><label>배송비<input name="shipping" type="number" min="0" step="1"></label><label>리뷰 수<input name="reviews" type="number" min="0" step="1"></label><label>평점<input name="rating" type="number" min="0" max="5" step="0.1"></label>
+  <label class="dm-full">카테고리<input name="category" maxlength="500"></label><label class="dm-full">태그 (쉼표로 구분)<input name="tags" maxlength="1500"></label><label class="dm-full">모니터링 키워드 (한 줄에 하나)<textarea name="keywords" rows="4" maxlength="200000"></textarea></label>
+  </div><p id="dm-product-error" class="dm-error" role="alert" hidden></p><div class="dm-dialog-actions"><button id="dm-archive" type="button" hidden>상품 보관</button><div class="dm-spacer"></div><button type="button" data-close>취소</button><button class="dm-primary" type="submit">저장</button></div></form></dialog>
+<dialog id="dm-folder-dialog" class="dm-dialog" aria-labelledby="dm-folder-title"><div class="dm-dialog-head"><h2 id="dm-folder-title">폴더 관리</h2><button type="button" data-close aria-label="닫기">×</button></div><form id="dm-folder-form" class="dm-toolbar"><input id="dm-folder-name" required maxlength="100" placeholder="새 폴더 이름" aria-label="폴더 이름"><button class="dm-primary" type="submit">폴더 추가</button></form><div id="dm-folders"></div></dialog>
+<dialog id="dm-order-dialog" class="dm-dialog" aria-labelledby="dm-order-title"><div class="dm-dialog-head"><h2 id="dm-order-title">상품 순서 설정</h2><button type="button" data-close aria-label="닫기">×</button></div><p class="dm-muted">위·아래 버튼으로 상품 순서를 바꾼 뒤 저장하세요.</p><div id="dm-order-list"></div><div class="dm-dialog-actions"><button type="button" data-close>취소</button><button id="dm-order-save" class="dm-primary" type="button">순서 저장</button></div></dialog>
+</body></html>

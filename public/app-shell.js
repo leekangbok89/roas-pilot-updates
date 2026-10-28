@@ -3,13 +3,112 @@
   'use strict';
   var themeKey = 'roas-pilot-theme';
   var root = document.documentElement;
+  // A URL selects the workspace. No shared "last mode" setting can redirect
+  // legacy links or mix the saved Naver theme into the growth workspace.
+  var growthPages = ['/coupang-dashboard.html', '/coupang-products.html', '/coupang-sales.html', '/coupang-ads.html', '/coupang.html', '/daily-monitoring.html'];
+  var sellhaMode = growthPages.indexOf(location.pathname) !== -1;
+  var dailyMonitoring = location.pathname === '/daily-monitoring.html';
+  root.dataset.workspace = sellhaMode ? 'sellha' : 'naver';
   var savedTheme = 'dark';
   try { savedTheme = localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'; } catch (_) {}
+  if (sellhaMode) savedTheme = 'light';
   root.dataset.theme = savedTheme;
   root.style.colorScheme = savedTheme;
 
+  function initializeGrowthShell(body) {
+    body.dataset.workspace = 'sellha';
+    // Remove the legacy navigation entirely; only an explicit mode switch
+    // returns to Naver. The existing Coupang controllers and APIs stay scoped.
+    ['app-nav-rail', 'app-drawer'].forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node) node.remove();
+    });
+    var header = document.createElement('header');
+    header.className = 'growth-header' + (dailyMonitoring ? ' growth-smart-header' : '');
+    header.innerHTML = '<div class="growth-header-inner"><div class="growth-topline">' +
+      '<a class="growth-brand" href="/coupang-dashboard.html" aria-label="ROAS Pilot 셀하 모드 대시보드">ROAS<span>Pilot.</span><small>셀하 모드</small></a>' +
+      '<nav class="growth-modes" aria-label="분석 모드"><a href="/daily-monitoring.html"' + (dailyMonitoring ? ' aria-current="page"' : '') + '>스마트 분석</a><a href="/coupang-dashboard.html"' + (dailyMonitoring ? '' : ' aria-current="page"') + '><i aria-hidden="true"></i>그로스 분석</a></nav>' +
+      '<a class="growth-return" href="/visual-overview.html">기존 네이버 모드로 ↗</a></div>' +
+      '<div class="growth-context"><span><b aria-hidden="true">●</b> ' + (dailyMonitoring ? '네이버 · 쿠팡 상품 모니터링' : '쿠팡 수익 분석') + '</span><span>' + (dailyMonitoring ? '위마망' : '트루버 · 위마망') + '</span><span class="growth-context-note">' + (dailyMonitoring ? '상품별 일간 흐름을 확인합니다' : '쿠팡 자료만 조회합니다') + '</span></div>' +
+      '<nav class="growth-navigation" aria-label="셀하 모드 메뉴"></nav></div>';
+    var navigation = header.querySelector('.growth-navigation');
+    var items = [
+      ['/coupang-products.html#cpm-groups-title', '그룹 관리'],
+      ['/coupang-products.html', '상품 리스트'],
+      ['/coupang-dashboard.html', '대시보드'],
+      ['/daily-monitoring.html', '모니터링'],
+      ['/coupang-sales.html', '매출 분석'],
+      ['/coupang-ads.html', '광고 분석'],
+      ['/coupang.html', '자료·연결 관리']
+    ];
+    items.forEach(function (item) {
+      var link = document.createElement('a');
+      link.href = item[0]; link.textContent = item[1];
+      navigation.appendChild(link);
+    });
+    function markGrowthPage() {
+      var active = location.pathname + (location.pathname === '/coupang-products.html' && location.hash === '#cpm-groups-title' ? location.hash : '');
+      Array.from(navigation.children).forEach(function (link) {
+        if (link.getAttribute('href') === active) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      });
+    }
+    markGrowthPage();
+    window.addEventListener('hashchange', markGrowthPage);
+    body.prepend(header);
+    var main = document.getElementById('app-main');
+    var subnav = main && main.querySelector('.ca-subnav');
+    if (subnav) subnav.remove();
+    var title = main && main.querySelector('.app-page-title');
+    var activePage = items.find(function (item) { return item[0] === location.pathname; });
+    if (title && activePage && !dailyMonitoring) title.textContent = activePage[1];
+    // Keep the same controllers and fields, but give the dashboard the observed
+    // chart/report-first layout. Supplemental tools remain available below it.
+    if (main && body.dataset.coupangView === 'dashboard') {
+      var supplemental = document.createElement('details');
+      supplemental.className = 'panel growth-supplemental';
+      var summary = document.createElement('summary');
+      summary.textContent = '기간 합계 · 자동 저장 상태';
+      supplemental.appendChild(summary);
+      ['ca-summary', 'ca-estimate-status'].forEach(function (id) {
+        var node = document.getElementById(id);
+        if (node) supplemental.appendChild(node);
+      });
+      var autoPanel = main.querySelector('.ca-auto-panel');
+      if (autoPanel) supplemental.appendChild(autoPanel);
+      var importPanel = document.getElementById('ca-import');
+      if (importPanel) main.insertBefore(supplemental, importPanel);
+      else main.appendChild(supplemental);
+      var filter = main.querySelector('.ca-filter-panel');
+      var query = document.getElementById('ca-query');
+      if (filter && query) {
+        var more = document.createElement('details'); more.className = 'growth-range-tools';
+        var label = document.createElement('summary'); label.textContent = '빠른 기간 선택 · 수집 범위'; more.appendChild(label);
+        var presets = filter.querySelector('.ca-presets'), coverage = document.getElementById('ca-coverage');
+        if (presets) more.appendChild(presets);
+        if (coverage) more.appendChild(coverage);
+        filter.appendChild(more);
+      }
+    }
+    var footer = document.createElement('footer');
+    footer.className = 'growth-footer';
+    footer.textContent = dailyMonitoring ? 'ROAS Pilot · 셀하 모드 | 일간 상품 모니터링' : 'ROAS Pilot · 셀하 모드 | 쿠팡 매출 · 상품 · 광고 분석';
+    body.appendChild(footer);
+    body.classList.add('app-route-ready');
+  }
+
   function initializeShell() {
     var body = document.body;
+    if (sellhaMode) {
+      initializeGrowthShell(body);
+      return;
+    }
+    var modeLink = document.createElement('a');
+    modeLink.className = 'app-mode-entry';
+    modeLink.href = '/coupang-dashboard.html';
+    modeLink.innerHTML = '<span aria-hidden="true">↗</span> 셀하 모드 <small>상품 모니터링 · 쿠팡 · 그로스 분석</small>';
+    var pageMain = document.getElementById('app-main');
+    if (pageMain) pageMain.prepend(modeLink);
     var rail = document.getElementById('app-nav-rail');
     var drawer = document.getElementById('app-drawer');
     var toggle = document.getElementById('app-nav-toggle');

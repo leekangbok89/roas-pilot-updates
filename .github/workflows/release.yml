@@ -16,6 +16,7 @@ on:
       - 'integrations/naver-search/**'
       - 'integrations/coupang/**'
       - 'integrations/gfa/**'
+      - 'integrations/monitoring/**'
   workflow_dispatch:
     inputs:
       version:
@@ -66,6 +67,9 @@ jobs:
           node --check public/ad-changes.js
           node scripts/bundle-naver-search.cjs --check
           node --check public/naver-search.js
+          node scripts/bundle-monitoring.cjs --check
+          node --check public/daily-monitoring.js
+          node --check public/monitoring-import.js
           node scripts/bundle-coupang.cjs --check
           node --check public/coupang.js
           node scripts/bundle-experiments.cjs --check
@@ -104,6 +108,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ad-changes-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-search-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-browser.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-growth-mode.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-daily-report.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-collector.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-browser.cjs

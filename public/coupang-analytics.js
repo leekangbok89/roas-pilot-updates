@@ -266,7 +266,7 @@
       else host.append(element('p', chosenSeries.length ? '선택한 지표에 확인된 값이 없습니다. 매출 지표를 선택하거나 손익 파일을 가져와 주세요.' : '표시할 지표를 선택해 주세요.', 'ca-empty'));
       return;
     }
-    const width = 900, height = 350, left = 82, right = 22, top = 20, bottom = 45;
+    const width = 600, height = 380, left = 82, right = 22, top = 20, bottom = 45;
     const min = Math.min(0, ...values), maximum = Math.max(0, ...values), span = maximum - min || 1;
     const yMin = min < 0 ? min - span * .06 : 0, yMax = maximum + span * .08, yRange = yMax - yMin;
     const x = index => left + (width - left - right) * (rows.length === 1 ? .5 : index / (rows.length - 1));
@@ -753,7 +753,7 @@
   if (view === 'dashboard') {
     for (const s of series) {
       const label = element('label'), input = element('input'); input.type = 'checkbox'; input.checked = true; input.style.accentColor = s.color;
-      input.addEventListener('change', () => { if (input.checked) activeSeries.add(s.key); else activeSeries.delete(s.key); if (report) renderChart(); }); const text = element('span', s.label); text.dataset.caSeriesLabel = s.key; label.append(input, text); $('ca-legend').append(label);
+      input.addEventListener('change', () => { if (input.checked) activeSeries.add(s.key); else activeSeries.delete(s.key); if (report) renderChart(); }); const text = element('span', ({profitBeforeAds:'이익금',advertising:'광고비',sourceNetProfit:'순이익금',estimatedProfitBeforeAds:'예상 이익'})[s.key] || s.label); label.title = s.label; text.dataset.caSeriesLabel = s.key; label.append(input, text); $('ca-legend').append(label);
     }
     $('ca-daily-details').addEventListener('click', () => {
       dailyDetails = !dailyDetails; $('ca-daily-details').setAttribute('aria-pressed', String(dailyDetails)); $('ca-daily-details').textContent = dailyDetails ? '세부 항목 접기' : '세부 항목'; if (report) renderDaily();

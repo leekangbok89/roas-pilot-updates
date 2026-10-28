@@ -7,7 +7,7 @@ const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 
 const project=path.resolve(__dirname,'..');
-const shellFiles=['app-shell.css','app-shell.js','display-analysis.html','naver-analysis.js','other-ad-costs.js'];
+const shellFiles=['app-shell.css','app-shell.js','growth-mode.css','display-analysis.html','naver-analysis.js','other-ad-costs.js'];
 
 function fixture(t,{copyAssets=false}={}){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-shell-bundle-'));
@@ -49,6 +49,15 @@ test('installed shared-shell assets take precedence over bundled fallback',async
     assert.equal(response.status,200);
     assert.equal(response.body,data);
   }
+});
+
+test('growth-mode stylesheet overrides an old installed copy so managed-file upgrades cannot leave a stale UI',async t=>{
+  const f=fixture(t,{copyAssets:true});
+  fs.writeFileSync(path.join(f.dir,'public','growth-mode.css'),'/* old stylesheet */');
+  const response=await f.request('/growth-mode.css');
+  assert.equal(response.status,200);
+  assert.equal(response.body,fs.readFileSync(path.join(project,'public','growth-mode.css'),'utf8'));
+  assert.equal(response.headers['Cache-Control'],'no-cache');
 });
 
 test('fallback is restricted to the three exact paths and ENOENT and preserves other missing-file and method behavior',async t=>{

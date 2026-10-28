@@ -248,3 +248,7 @@ body[data-app-page="cost"] .app-main>section th {
   background:color-mix(in srgb,var(--app-section-bg) 65%,var(--app-surface-soft));
 }
 
+
+
+.app-mode-entry{display:flex;align-items:center;gap:8px;width:max-content;max-width:100%;box-sizing:border-box;margin:0 0 14px auto;padding:9px 15px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-surface);text-decoration:none;font-weight:700}
+.app-mode-entry small{font-size:12px;color:var(--app-muted)}

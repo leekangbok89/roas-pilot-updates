@@ -17,7 +17,7 @@ function main(){
   const start=source.indexOf(begin),finish=source.indexOf(end);
   if(start<0||finish<start||source.indexOf(begin,start+begin.length)>=0||source.indexOf(end,finish+end.length)>=0)throw Error('Expected one generated shell-assets marker block in server.js');
   const assets={};
-  for(const name of ['app-shell.css','app-shell.js','display-analysis.html','naver-analysis.js','other-ad-costs.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
+  for(const name of ['app-shell.css','app-shell.js','growth-mode.css','display-analysis.html','naver-analysis.js','other-ad-costs.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
   const block=begin+'\nconst bundledShellAssets=Object.freeze('+JSON.stringify(assets,null,2)+');\n'+end;
   const output=source.slice(0,start)+block+source.slice(finish+end.length);
   if(args[0]==='--check'){
