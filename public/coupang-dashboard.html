@@ -29,6 +29,13 @@
       <p id="ca-auto-detail" class="helper">프로그램이 켜져 있는 동안 최근 7일 주문을 매시간 갱신합니다. 조회와 계산은 저장된 자료를 사용합니다.</p>
       <p id="ca-storage-status" class="helper">선택 기간의 저장 범위를 확인합니다.</p>
       <p id="ca-auto-error" class="helper ca-auto-error" role="status" hidden></p>
+
+    </section>
+    <section class="panel ca-history-panel" aria-label="과거 주문 수집">
+      <div class="ca-toolbar" aria-label="과거 주문 일괄 수집"><button id="ca-history-start" class="primary" type="button" disabled>과거 1년 일괄 수집</button><button id="ca-history-resume" type="button" disabled>이어서 수집</button><button id="ca-history-pause" type="button" disabled>수집 중지</button><span id="ca-history-state" class="helper" role="status" aria-live="polite">과거 수집 상태를 확인합니다.</span><progress id="ca-history-progress" max="1" value="0" aria-label="과거 주문 저장 진행률" hidden></progress></div>
+      <p id="ca-history-detail" class="helper">오늘 포함 최근 365일 · 판매자배송 + 로켓그로스</p>
+      <p id="ca-history-error" class="helper ca-auto-error" role="status" hidden></p>
+      <p class="helper">주문은 7일씩 나누어 저장하고 이미 저장한 과거 구간은 재사용합니다. 원가는 등록된 적용일 기준으로 계산합니다. 광고비는 <a href="/coupang-collector.html">광고 수집 연결</a>에서 별도로 가져옵니다.</p>
     </section>
     <section class="panel ca-filter-panel" aria-label="쿠팡 조회 조건">
       <form id="ca-query"><fieldset class="ca-toolbar">
@@ -98,3 +105,4 @@
     <div class="ca-method-note"><strong>금액 읽는 방법</strong><p>셀하 이익금에는 원가·수수료 등 광고 외 비용이 이미 반영되어 있습니다. 매출성장 차감 순이익은 이익금에서 매출성장 광고비를 뺀 값입니다. 전체 광고비 반영 순이익은 여기서 신규구매 고객 확보 광고비를 한 번 더 차감합니다. 자동 수집한 신규구매 보고서를 저장하면 날짜별 계산에 바로 반영합니다. 계정 전체 보고서 비용은 전체 배송 조회에서 현재 선택 상품의 이익에 전액 반영하며 상품·배송 방식별로 배분하지 않습니다. 보고서 금액에 임의 부가세 보정을 하지 않습니다.</p><p>주문은 날짜별로 저장하고 등록한 원가·수수료율·입출고·배송비를 적용해 광고비 차감 전 예상 이익을 계산합니다. 원가나 요금이 빠지면 계산 대기 사유를 표시합니다. API 주문금액은 반품·정산 미확정 자료입니다. 매출·판매량은 수집분을 먼저 표시하며 일부 미수집 여부를 함께 알립니다. 수집하지 않은 값은 <strong>—</strong>로 표시합니다. 재고는 현재 연결 자료에서 제공하지 않습니다.</p></div>
   </main>
 </body></html>
+

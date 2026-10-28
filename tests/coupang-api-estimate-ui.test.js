@@ -59,7 +59,7 @@ test('estimates aggregate separately from exact source profit and preserve missi
 test('status polling reloads saved analytics only after a refresh finishes, including first completion', async () => {
   const context = helpers();
   vm.runInContext(`
-    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,loading=false,importSaving=false;
+    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,lastHistoryStamp=undefined,loading=false,importSaving=false;
     const calls=[],states=[],loads=[],nodes={};
     const $=id=>nodes[id]||(nodes[id]={});
     async function request(route){calls.push(route);return states.shift();}
@@ -102,7 +102,7 @@ test('manual refresh sends one collection request while in flight and keeps save
 test('saved advertising revisions trigger analytics reload and wait for active imports', async () => {
   const context = helpers();
   vm.runInContext(`
-    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,loading=false,importSaving=false;
+    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,lastHistoryStamp=undefined,loading=false,importSaving=false;
     const calls=[],states=[],loads=[],nodes={};
     const $=id=>nodes[id]||(nodes[id]={});
     async function request(route){calls.push(route);return states.shift();}
@@ -141,3 +141,4 @@ test('advertising storage events reload only overlapping dates and defer during 
   events.setSaving(true); events.handleAdvertisingStorage(change(['2026-10-23'])); assert.equal(events.loads.length, 1);
   assert.equal(events.pending(), true); assert.deepEqual(Array.from(events.scheduled), [true]);
 });
+

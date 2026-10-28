@@ -542,6 +542,24 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       error: job.status === 'running' && !historyActive ? '프로그램이 재시작되었습니다. 이어서 수집을 누르면 저장된 구간 다음부터 계속합니다.' : job.error };
   }
   function saveHistory(c, job) { atomic(historyFile(c), JSON.stringify(job)); }
+  function savedHistoryDay(c, date, channel) {
+    const snap = snapshot(c, date, channel);
+    if (snap?.vendorId !== c.vendorId || snap.date !== date || snap.channel !== channel || !Array.isArray(snap.rows)) return false;
+    const keys = new Set();
+    return snap.rows.every(row => {
+      if (!row || !id(row.orderId) || !id(row.itemId) || typeof row.key !== 'string' || !row.key || row.key.length > 100 || keys.has(row.key) || !Number.isSafeInteger(row.quantity) || row.quantity < 0 || typeof row.gross !== 'number' || money(row.gross) === null) return false;
+      keys.add(row.key); return true;
+    });
+  }
+  function reconcileHistory(c, job) {
+    const days = range(job.since, job.until, now());
+    if (!Array.isArray(job.channels) || !job.channels.length || job.channels.some(ch => !CHANNELS.includes(ch)) || new Set(job.channels).size !== job.channels.length) throw fail(500, '저장한 쿠팡 수집 배송 방식을 확인하세요.');
+    const wanted = new Set(days);
+    job.done = Object.fromEntries(job.channels.map(ch => [ch, [...new Set(Array.isArray(job.done?.[ch]) ? job.done[ch] : [])].filter(date => wanted.has(date) && savedHistoryDay(c, date, ch)).sort()]));
+    job.totalDays = days.length * job.channels.length;
+    job.completedDays = Object.values(job.done).reduce((n, ds) => n + ds.length, 0);
+    return days;
+  }
   function pauseHistory() {
     const c = config(), job = read(historyFile(c), null);
     if (job && historyActive) { job.pauseRequested = true; saveHistory(c, job); }
@@ -549,13 +567,20 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   }
   function startHistory(v = {}, source = 'manual') {
     const c = config();
-    if (historyActive) { if (v.resume === true) return historyStatus(); throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.'); }
+    const maximum = v.mode === 'maximum';
+    if (maximum) {
+      const requestedAt = now();
+      v = { ...v, resume: false, since: kstDay(requestedAt - 364 * DAY), until: kstDay(requestedAt), channels: [...CHANNELS] };
+      const existing = read(historyFile(c), null);
+      if (existing && existing.status !== 'completed' && existing.since === v.since && existing.until === v.until && Array.isArray(existing.channels) && existing.channels.length === CHANNELS.length && CHANNELS.every(ch => existing.channels.includes(ch))) v.resume = true;
+    }
+    if (historyActive) { if (v.resume === true || maximum) return historyStatus(); throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.'); }
     if (busy || refreshActive) throw fail(409, '쿠팡 자료를 수집 중입니다.');
     let job;
     if (v.resume === true) {
       job = read(historyFile(c), null);
       if (!job || job.status === 'completed') throw fail(409, '이어서 수집할 미완료 작업이 없습니다.');
-      range(job.since, job.until, now());
+      reconcileHistory(c, job);
     } else {
       const days = range(v.since, v.until, now()), channels = v.channels || (v.channel ? [v.channel] : CHANNELS);
       if (!Array.isArray(channels) || !channels.length || channels.some(ch => !CHANNELS.includes(ch)) || new Set(channels).size !== channels.length) throw fail(400, '수집할 배송 방식을 확인하세요.');
@@ -563,34 +588,52 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       // Recent days can change as orders ship. Recollect them; older confirmed snapshots can be reused.
       const refreshFrom = kstDay(now() - 7 * DAY);
       for (const ch of channels) for (const date of days) {
-        const snap = snapshot(c, date, ch);
-        if (date < refreshFrom && snap?.vendorId === c.vendorId && snap.date === date && snap.channel === ch && Array.isArray(snap.rows)) done[ch].push(date);
+        if (date < refreshFrom && savedHistoryDay(c, date, ch)) done[ch].push(date);
       }
       job = { id: crypto.randomBytes(12).toString('hex'), kind: source, since: v.since, until: v.until, channels: [...channels], done,
         totalDays: days.length * channels.length, completedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), skippedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), startedAt: new Date(now()).toISOString() };
     }
-    Object.assign(job, { status: 'running', pauseRequested: false, error: null, current: null, lastFailure: null, updatedAt: new Date(now()).toISOString() });
+    if (maximum) job.mode = 'maximum';
+    Object.assign(job, { status: 'running', pauseRequested: false, error: null, current: null, lastFailure: null, failures: [], updatedAt: new Date(now()).toISOString() });
     saveHistory(c, job); historyActive = true;
     // Return immediately to the browser. Collection belongs to the local server, not the open tab.
     historyTask = Promise.resolve().then(async () => {
       try {
-        const days = range(job.since, job.until, now());
-        for (const ch of job.channels) for (let i = 0; i < days.length; i += 7) {
-          const block = days.slice(i, i + 7), completed = new Set(job.done[ch]);
+        const days = range(job.since, job.until, now()), blocks = [];
+        if (job.mode === 'maximum') for (let end = days.length; end > 0; end -= 7) blocks.push(days.slice(Math.max(0, end - 7), end));
+        else for (let i = 0; i < days.length; i += 7) blocks.push(days.slice(i, i + 7));
+        // Fetch both delivery methods for recent dates first. A delivery-method
+        // error cannot prevent the other method's available history from saving.
+        const tasks = job.mode === 'maximum' ? blocks.flatMap(block => job.channels.map(ch => ({ block, ch }))) : job.channels.flatMap(ch => blocks.map(block => ({ block, ch })));
+        const failedChannels = new Set();
+        for (const { block, ch } of tasks) {
+          if (failedChannels.has(ch)) continue;
+          const completed = new Set(job.done[ch]);
           if (block.every(d => completed.has(d))) continue;
           if (read(historyFile(c), {}).pauseRequested) { job.status = 'paused'; return; }
           job.current = { channel: ch, since: block[0], until: block.at(-1) }; saveHistory(c, job);
-          const result = await sync({ ...job.current }, true);
+          let result;
+          try { result = await sync({ ...job.current }, true); }
+          catch (error) {
+            const failure = { ...job.current, failedAt: new Date(now()).toISOString(), error: error.message || '쿠팡 수집에 실패했습니다.', ...(error.diagnosis ? { diagnosis: { ...error.diagnosis } } : {}) };
+            job.failures.push(failure); job.lastFailure = failure; failedChannels.add(ch);
+            job.error = job.failures.map(item => (item.channel === 'growth' ? '로켓그로스' : '판매자배송') + ': ' + item.error).join('\n');
+            job.updatedAt = new Date(now()).toISOString(); saveHistory(c, job);
+            continue;
+          }
           for (const date of result.savedDays) completed.add(date);
           job.done[ch] = [...completed].sort(); job.completedDays = Object.values(job.done).reduce((n, ds) => n + ds.length, 0);
           job.updatedAt = new Date(now()).toISOString();
           if (read(historyFile(c), {}).pauseRequested) job.pauseRequested = true;
           saveHistory(c, job);
         }
-        job.status = 'completed';
+        reconcileHistory(c, job);
+        job.status = job.completedDays === job.totalDays ? 'completed' : 'failed';
+        if (job.status === 'failed' && !job.error) job.error = '일부 날짜의 주문 자료가 저장되지 않았습니다. 이어서 수집을 실행하세요.';
       } catch (e) {
         job.status = 'failed'; job.error = e.message || '쿠팡 수집에 실패했습니다.';
         job.lastFailure = { ...(job.current || {}), failedAt: new Date(now()).toISOString(), ...(e.diagnosis ? { diagnosis: { ...e.diagnosis } } : {}) };
+        job.failures.push({ ...job.lastFailure, error: job.error });
       }
       finally {
         job.current = null; job.updatedAt = new Date(now()).toISOString();
@@ -656,7 +699,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       startupRefreshRequested = true;
     }
     if (refreshActive || historyActive || busy || !fs.existsSync(privateFile)) return { started: false, reason: 'busy-or-unconfigured' };
-    const c = config(); if (!scope(c).products.length) return { started: false, reason: 'products-not-selected' };
+    const c = config();
+    const interrupted = read(historyFile(c), null);
+    // Only a job that was actively running at shutdown is resumed. Explicit
+    // pauses and API failures (including 401/403) require a user retry.
+    if (startupRefreshRequested && !startupRefreshDone && interrupted?.status === 'running' && !interrupted.pauseRequested) {
+      startHistory({ resume: true }, 'startup'); startupRefreshDone = true; startupRefreshRequested = false;
+      await historyTask;
+      return { started: true, reason: 'history-resumed', history: historyStatus() };
+    }
+    if (!scope(c).products.length) return { started: false, reason: 'products-not-selected' };
     const state = read(path.join(dir(c), 'automatic.json'), {}), last = Date.parse(state.lastStartedAt || '');
     const startup = startupRefreshRequested && !startupRefreshDone;
     if (!startup && state.running !== true && Number.isFinite(last) && now() - last < 60 * 60000) return { started: false, reason: 'not-due', automatic: automaticStatus(c) };
@@ -1262,3 +1314,4 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, importAdvertising, advertisingReports, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
 }
 module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };
+

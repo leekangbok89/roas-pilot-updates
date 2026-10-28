@@ -29,6 +29,13 @@
       <p id="ca-auto-detail" class="helper">프로그램이 켜져 있는 동안 최근 7일 주문을 매시간 갱신합니다. 조회와 계산은 저장된 자료를 사용합니다.</p>
       <p id="ca-storage-status" class="helper">선택 기간의 저장 범위를 확인합니다.</p>
       <p id="ca-auto-error" class="helper ca-auto-error" role="status" hidden></p>
+
+    </section>
+    <section class="panel ca-history-panel" aria-label="과거 주문 수집">
+      <div class="ca-toolbar" aria-label="과거 주문 일괄 수집"><button id="ca-history-start" class="primary" type="button" disabled>과거 1년 일괄 수집</button><button id="ca-history-resume" type="button" disabled>이어서 수집</button><button id="ca-history-pause" type="button" disabled>수집 중지</button><span id="ca-history-state" class="helper" role="status" aria-live="polite">과거 수집 상태를 확인합니다.</span><progress id="ca-history-progress" max="1" value="0" aria-label="과거 주문 저장 진행률" hidden></progress></div>
+      <p id="ca-history-detail" class="helper">오늘 포함 최근 365일 · 판매자배송 + 로켓그로스</p>
+      <p id="ca-history-error" class="helper ca-auto-error" role="status" hidden></p>
+      <p class="helper">주문은 7일씩 나누어 저장하고 이미 저장한 과거 구간은 재사용합니다. 원가는 등록된 적용일 기준으로 계산합니다. 광고비는 <a href="/coupang-collector.html">광고 수집 연결</a>에서 별도로 가져옵니다.</p>
     </section>
     <section class="panel ca-filter-panel" aria-label="쿠팡 조회 조건">
       <form id="ca-query"><fieldset class="ca-toolbar">

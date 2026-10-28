@@ -35,6 +35,7 @@
   let report = null, groups = [], pendingImport = null, loading = false, loadSequence = 0, parseSequence = 0, importSaving = false;
   let savedGroups = [];
   let pipelinePending = false, pipelineRefreshing = false, pipelineNeedsReload = false, pipelineTimer = null, pipelineStopped = false, pipelineStatus = null, lastRefreshFinishedAt = undefined, lastAdvertisingRevision = undefined;
+  let historyActionPending = false, historyRequestError = '', lastHistoryStamp = undefined;
   let productDailyPage = 0, productDailyCache = null;
   const productDailyPageSize = 100;
   let expanded = new Set(), favoriteIds = new Set(readSetting('favorites', [])), visibleColumns = new Set(readSetting('columns', defaultColumns));
@@ -90,7 +91,7 @@
     const running = status?.busy === true || automatic.running === true || history.running === true;
     const channelErrors = Object.entries(automatic.channels || {}).filter(([, value]) => value?.status === 'failed').map(([key, value]) => (channels[key] || key) + ': ' + (value.error || '수집 실패'));
     const error = typeof automatic.error === 'string' && automatic.error ? automatic.error : channelErrors.join(' · ');
-    const title = !status?.configured ? '쿠팡 연결 필요' : running ? '주문 수집·저장 중' : automatic.status === 'partial' ? '일부 저장 완료 · 오류 확인' : automatic.status === 'failed' || automatic.status === 'paused' ? '최근 갱신 중단 · 오류 확인' : automatic.enabled === false ? '자동 갱신 꺼짐' : '최근 7일 매시간 자동 저장';
+    const title = !status?.configured ? '쿠팡 연결 필요' : history.running === true ? '과거 주문 수집·저장 중' : running ? '주문 수집·저장 중' : automatic.status === 'partial' ? '일부 저장 완료 · 오류 확인' : automatic.status === 'failed' || automatic.status === 'paused' ? '최근 갱신 중단 · 오류 확인' : automatic.enabled === false ? '자동 갱신 꺼짐' : '최근 7일 매시간 자동 저장';
     const verified = new Map();
     for (const channel of Object.values(automatic.channels || {})) for (const [field, priority] of [['unchangedDays', 1], ['newDays', 2], ['changedDays', 3]]) {
       for (const date of Array.isArray(channel?.verification?.[field]) ? channel.verification[field] : []) {
@@ -119,8 +120,39 @@
     host.textContent = state.title; host.dataset.error = String(!!state.error);
     $('ca-auto-detail').textContent = state.range + ' · ' + state.detail + (state.verification ? '\n' + state.verification : '');
     $('ca-auto-error').textContent = state.error; $('ca-auto-error').hidden = !state.error;
-    $('ca-refresh-orders').disabled = pipelineRefreshing || state.disabled;
+    $('ca-refresh-orders').disabled = pipelineRefreshing || historyActionPending || state.disabled;
+    renderHistory(status, state);
     return state;
+  }
+  function renderHistory(status, state = pipelineState(status)) {
+    const host = $('ca-history-state'); if (!host) return;
+    const job = status?.history || {}, names = { idle: '아직 시작하지 않음', running: '수집 중', completed: '전체 수집 완료', partial: '일부 저장 · 오류 확인', failed: '수집 중단 · 오류 확인', paused: '수집 일시정지' };
+    const total = Number.isFinite(job.totalDays) ? Math.max(0, job.totalDays) : 0, done = Number.isFinite(job.completedDays) ? Math.max(0, job.completedDays) : 0;
+    host.textContent = !status?.configured ? '쿠팡 연결 후 과거 주문을 수집할 수 있습니다.' : (names[job.status] || '상태 확인') + (total ? ' · 저장/확인 ' + done + '/' + total + '일·배송방식' : '');
+    const progress = $('ca-history-progress'); if (progress) { progress.max = Math.max(1, total); progress.value = Math.min(done, total); progress.hidden = !total; }
+    const failures = Array.isArray(job.failures) && job.failures.length ? job.failures : job.lastFailure ? [job.lastFailure] : [];
+    const detail = [job.since && job.until ? '대상 ' + job.since + ' ~ ' + job.until : '오늘 포함 최근 365일 · 판매자배송 + 로켓그로스', job.current ? (channels[job.current.channel] || '주문') + ' ' + job.current.since + ' ~ ' + job.current.until : '', job.skippedDays ? '기존 저장분 ' + job.skippedDays + '일·배송방식 재사용' : '', job.pauseRequested && job.running ? '현재 구간 저장 후 중지합니다.' : ''].filter(Boolean).join(' · ');
+    if ($('ca-history-detail')) $('ca-history-detail').textContent = detail;
+    const error = [historyRequestError, job.error || '', ...failures.map(failure => {
+      const diagnosis = failure.diagnosis;
+      return [failure.since && failure.until ? '오류 구간: ' + (channels[failure.channel] || '주문') + ' ' + failure.since + ' ~ ' + failure.until : '', diagnosis ? [Number.isInteger(diagnosis.httpStatus) ? 'HTTP ' + diagnosis.httpStatus : '', diagnosis.message || diagnosis.category || '', diagnosis.action || ''].filter(Boolean).join(' · ') : failure.error || ''].filter(Boolean).join(' · ');
+    })].filter(Boolean).join('\n');
+    if ($('ca-history-error')) { $('ca-history-error').textContent = error; $('ca-history-error').hidden = !error; }
+    if ($('ca-history-start')) $('ca-history-start').disabled = pipelineRefreshing || historyActionPending || state.disabled;
+    if ($('ca-history-resume')) $('ca-history-resume').disabled = pipelineRefreshing || historyActionPending || state.disabled || !['failed', 'paused', 'partial'].includes(job.status);
+    if ($('ca-history-pause')) $('ca-history-pause').disabled = historyActionPending || !job.running || !!job.pauseRequested;
+  }
+  async function historyAction(action) {
+    if (pipelineRefreshing || historyActionPending || !pipelineStatus?.configured) return;
+    if (action === 'pause' ? !pipelineStatus.history?.running : pipelineState(pipelineStatus).running) return;
+    historyActionPending = true; historyRequestError = ''; renderPipeline(pipelineStatus);
+    try {
+      const job = await request(action === 'pause' ? 'history-pause' : 'history', action === 'pause' ? {} : action === 'resume' ? { resume: true } : { mode: 'maximum' });
+      renderPipeline({ ...pipelineStatus, busy: job.running === true, history: job });
+      message(action === 'pause' ? '현재 구간을 저장한 후 과거 수집을 중지합니다. 저장된 자료는 유지됩니다.' : job.status === 'completed' ? '과거 주문의 저장 상태를 확인했습니다. 저장 자료를 다시 조회합니다.' : '과거 주문을 7일씩 나누어 수집합니다. 저장된 구간은 유지하며, ROAS Pilot 프로그램을 실행해 두면 계속 진행합니다.');
+      pipelineNeedsReload = true; await loadPipelineStatus();
+    } catch (error) { historyRequestError = error.message; message(error.message, true); }
+    finally { historyActionPending = false; renderPipeline(pipelineStatus); schedulePipeline(pipelineState(pipelineStatus).running || pipelineNeedsReload); }
   }
   function schedulePipeline(running) {
     clearTimeout(pipelineTimer);
@@ -133,11 +165,14 @@
       const wasRunning = pipelineState(pipelineStatus).running, state = renderPipeline(await request('status'));
       const changed = lastRefreshFinishedAt !== undefined && (state.finishedAt && state.finishedAt !== lastRefreshFinishedAt || wasRunning && !state.running && state.finishedAt);
       lastRefreshFinishedAt = state.finishedAt;
+      const job = pipelineStatus?.history || {}, historyStamp = [job.id || '', job.status || '', job.completedDays || 0].join(':');
+      const historyChanged = lastHistoryStamp !== undefined && lastHistoryStamp !== historyStamp;
+      lastHistoryStamp = historyStamp;
       const revision = pipelineStatus?.advertisingRevision;
       const hasRevision = revision === null || typeof revision === 'string';
       const advertisingChanged = hasRevision && lastAdvertisingRevision !== undefined && revision !== lastAdvertisingRevision;
       if (hasRevision) lastAdvertisingRevision = revision;
-      if (changed || advertisingChanged) pipelineNeedsReload = true;
+      if (changed || historyChanged || advertisingChanged) pipelineNeedsReload = true;
       if (pipelineNeedsReload && !loading && !importSaving) { pipelineNeedsReload = false; await load(); }
       schedulePipeline(state.running || pipelineNeedsReload);
     } catch (error) {
@@ -830,8 +865,12 @@
   $('ca-channel').value = ['all', 'growth', 'seller'].includes(initial.get('channel')) ? initial.get('channel') : 'all'; load();
   if ($('ca-refresh-orders')) {
     $('ca-refresh-orders').addEventListener('click', refreshOrders); loadPipelineStatus();
+    $('ca-history-start')?.addEventListener('click', () => historyAction('maximum'));
+    $('ca-history-resume')?.addEventListener('click', () => historyAction('resume'));
+    $('ca-history-pause')?.addEventListener('click', () => historyAction('pause'));
     window.addEventListener('pagehide', () => { pipelineStopped = true; clearTimeout(pipelineTimer); });
     window.addEventListener('pageshow', () => { if (pipelineStopped) { pipelineStopped = false; loadPipelineStatus(); } });
     document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(pipelineTimer); else loadPipelineStatus(); });
   }
 })();
+
