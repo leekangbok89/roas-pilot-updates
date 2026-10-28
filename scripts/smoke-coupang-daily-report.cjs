@@ -17,18 +17,19 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = 'http://127.0.0.1:' + server.address().port, posts = [], errors = [];
   const daily = [
-    { date: '2026-10-25', source: 'reconciled', sales: 100000, profitBeforeAds: 54000, advertising: 12000, otherCosts: 20000, sourceNetProfit: 42000, channels: [] },
-    { date: '2026-10-26', source: 'reconciled', sales: 150000, profitBeforeAds: 82000, advertising: 18000, otherCosts: 28000, sourceNetProfit: 64000, channels: [] },
-    { date: '2026-10-27', source: 'missing', sales: null, profitBeforeAds: null, advertising: null, otherCosts: null, sourceNetProfit: null, channels: [] }
+    { date: '2026-10-25', source: 'reconciled', sales: 100000, profitBeforeAds: 54000, advertising: 12000, otherCosts: 20000, sourceNetProfit: 42000, acquisitionAdvertising: 3000, netProfit: 39000, channels: [] },
+    { date: '2026-10-26', source: 'reconciled', sales: 150000, profitBeforeAds: 82000, advertising: 18000, otherCosts: 28000, sourceNetProfit: 64000, acquisitionAdvertising: 0, netProfit: 64000, channels: [] },
+    { date: '2026-10-27', source: 'missing', sales: null, profitBeforeAds: null, advertising: null, otherCosts: null, sourceNetProfit: null, acquisitionAdvertising: null, netProfit: null, channels: [] }
   ];
-  const moneyKeys = ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit'];
+  const moneyKeys = ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit'];
   daily.forEach((day, index) => {
     day.dailyReport = { ...Object.fromEntries(moneyKeys.map(key => [key, day[key]])), source: day.source, basis: day.source === 'missing' ? 'missing' : 'saved-daily-report',
-      estimated: Object.fromEntries(moneyKeys.map(key => [key, false])), partial: {},
+      estimated: Object.fromEntries(moneyKeys.map(key => [key, index === 1 && ['profitBeforeAds','sourceNetProfit','netProfit'].includes(key)])), partial: {},
+      advertisingSources: { pa: { source: 'saved-sales', scope: 'selected' }, nca: { source: index === 2 ? 'missing' : 'nca-report', scope: 'account', basis: 'report-original-amount', filename: 'synthetic-nca.xlsx', importedAt: '2026-10-28T01:00:00Z' } },
       components: { productCost: index === 1 ? 40000 : null, commission: index === 1 ? 13000 : null, fulfillment: index === 1 ? 15000 : null, estimatedProfitBeforeAds: index === 1 ? 82000 : null }, differences: { profitBeforeAds: index === 1 ? 0 : null } };
   });
   const dailyReportSummary = { ...Object.fromEntries(moneyKeys.map(key => [key, null])), available: Object.fromEntries(moneyKeys.map(key => [key, daily.slice(0, 2).reduce((total, day) => total + day.dailyReport[key], 0)])),
-    knownDays: Object.fromEntries(moneyKeys.map(key => [key, 2])), partial: Object.fromEntries(moneyKeys.map(key => [key, true])), estimated: Object.fromEntries(moneyKeys.map(key => [key, false])) };
+    knownDays: Object.fromEntries(moneyKeys.map(key => [key, 2])), partial: Object.fromEntries(moneyKeys.map(key => [key, true])), estimated: Object.fromEntries(moneyKeys.map(key => [key, ['profitBeforeAds','sourceNetProfit','netProfit'].includes(key)])) };
   const summary = { sales: null, available: { sales: 250000 }, profitBeforeAds: null, advertising: null, sourceNetProfit: null };
   browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Seoul' });
@@ -43,7 +44,7 @@ async function main() {
   });
   const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
   await page.goto(base + '/coupang-dashboard.html?since=2026-10-25&until=2026-10-27&channel=all');
-  await page.waitForFunction(() => document.querySelectorAll('#ca-daily-head th').length === 6);
+  await page.waitForFunction(() => document.querySelectorAll('#ca-daily-head th').length === 8);
   assert.equal(await page.locator('html').getAttribute('data-workspace'), 'sellha');
   assert.equal(await page.locator('#app-drawer').count(), 0);
   assert.equal(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'), '/coupang-dashboard.html');
@@ -54,23 +55,33 @@ async function main() {
     fs.mkdirSync(process.env.ROAS_GROWTH_SCREENSHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(process.env.ROAS_GROWTH_SCREENSHOT_DIR, 'growth-dashboard.png'), fullPage: false });
   }
-  assert.deepEqual(await page.locator('#ca-daily-head th').allTextContents(), ['일자 ↓', '매출', '이익금', '광고비', '기타비용', '순이익금']);
-  assert.deepEqual(await page.locator('#ca-daily-body tr').first().locator('td').allTextContents(), ['합계', '250,000원수집분', '136,000원수집분', '30,000원수집분', '48,000원수집분', '106,000원수집분']);
+  assert.deepEqual(await page.locator('#ca-daily-head th').allTextContents(), ['일자 ↓', '매출', '이익금', '매출성장 광고비', '기타비용', '매출성장 차감 순이익', '신규구매 광고비', '전체 광고비 반영 순이익']);
+  assert.deepEqual(await page.locator('#ca-daily-body tr').first().locator('td').allTextContents(), ['합계', '250,000원수집분', '136,000원예상수집분', '30,000원수집분', '48,000원수집분', '106,000원예상수집분', '3,000원수집분', '103,000원예상수집분']);
   const unknown = await page.locator('#ca-daily-body tr').nth(1).locator('td').allTextContents();
-  assert.deepEqual(unknown, ['2026-10-27', '—', '—', '자료 없음', '—', '—']);
+  assert.deepEqual(unknown, ['2026-10-27', '—', '—', '자료 없음', '—', '—', '자료 없음', '—']);
   assert.match(await page.locator('#ca-daily-note').textContent(), /전체 확인 2일 · 부분 확인 0일 \/ 조회 3일/);
   for (const width of [1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
-    assert.equal(await page.locator('.ca-daily-panel .ca-scroll').evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'six main columns must fit at ' + width);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Eight columns scroll inside the report without widening the page at ' + width);
+    const scroll = page.locator('.ca-daily-panel .ca-scroll');
+    assert.equal(await scroll.evaluate(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).overflowX === 'auto'), true, 'Full data remains reachable through the report scroll at ' + width);
+    assert.equal(await page.locator('#ca-daily-body tr').first().locator('td').last().evaluate(node => getComputedStyle(node).position === 'sticky'), true, 'Final profit stays visible while report columns scroll');
   }
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Mobile tables scroll inside their containers');
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('#ca-daily-details').click(); assert.ok(await page.locator('#ca-daily-head th').count() > 6);
-  await page.locator('#ca-daily-details').click(); assert.equal(await page.locator('#ca-daily-head th').count(), 6);
+  await page.locator('#ca-daily-details').click(); assert.ok(await page.locator('#ca-daily-head th').count() > 8);
+  await page.locator('#ca-daily-details').click(); assert.equal(await page.locator('#ca-daily-head th').count(), 8);
   await page.locator('#ca-calculation summary').click();
   assert.equal(await page.locator('#ca-calculation-date').inputValue(), '2026-10-26');
   assert.match(await page.locator('#ca-calculation-body').innerText(), /40,000원/);
+  assert.match(await page.locator('#ca-calculation-body').innerText(), /신규구매 보고서 · 계정 전체 · 원본 금액/);
+  assert.match(await page.locator('#ca-calculation-body').innerText(), /synthetic-nca.xlsx/);
+  assert.match(await page.locator('#ca-daily-note').innerText(), /계정 전체로 표시한 광고비/);
+  await page.locator('.growth-supplemental > summary').click();
+  assert.match(await page.locator('.ca-card-netProfit').innerText(), /103,000원/);
+  await page.locator('.growth-supplemental > summary').click();
+  assert.match(await page.locator('#ca-legend').innerText(), /전체 광고비 반영 순이익/);
   await page.locator('#ca-calculation-date').selectOption('2026-10-25');
   assert.match(await page.locator('#ca-calculation-body').innerText(), /역산하거나 배분하지 않습니다/);
   await page.locator('#ca-calculation-date').selectOption('2026-10-27');
@@ -79,7 +90,7 @@ async function main() {
   const download = await downloadPromise, stream = await download.createReadStream();
   let csv = ''; for await (const chunk of stream) csv += chunk;
   assert.match(csv, /합계/);
-  assert.match(csv, /106000/); assert.match(csv, /2026-10-27/);
+  assert.match(csv, /106000/); assert.match(csv, /103000/); assert.match(csv, /신규구매 광고비/); assert.match(csv, /전체 광고비 반영 순이익/); assert.match(csv, /2026-10-27/);
   const settings = { schema: 'roas-coupang-sales-v1', reports: [], dailyTotals: daily.slice(0, 2).map(({ date, sales, profitBeforeAds, advertising, otherCosts }) => ({ date, sales, profitBeforeAds, advertising, otherCosts })), catalog: { products: [{ itemId: '123', name: '예시 상품', unitCost: 3000, commissionRate: 10, inboundFee: 100, deliveryFee: 200 }] } };
   await page.locator('#ca-reference-import').click();
   assert.equal(await page.locator('#ca-import').evaluate(node => node.open), true);
@@ -92,6 +103,6 @@ async function main() {
   assert.equal(posts[0].body.products.length, 1); assert.equal(posts[0].body.products[0].unitCost, 3000);
   assert.equal(posts[0].body.dailyTotals.length, 2); assert.equal(posts[0].body.reports.length, 0);
   assert.deepEqual(errors, []);
-  console.log('PASS canonical daily report, calculation evidence, missing ads, desktop fit, six columns, known subtotals, details, CSV and combined settings import');
+  console.log('PASS canonical daily report, calculation evidence, missing ads, side-by-side layout, contained desktop/mobile scrolling, eight columns, NCA deduction and sources, known subtotals, details, CSV and combined settings import');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await browser?.close(); await new Promise(resolve => server.close(resolve)); });

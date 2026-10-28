@@ -113,7 +113,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function status() {
     if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
     const c = config(), s = scope(c);
-    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive || refreshActive, products: s.products, scopeKey: s.key, apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: automaticStatus(c), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
+    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive || refreshActive, products: s.products, scopeKey: s.key, advertisingRevision: advertisingRevision(c), apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: automaticStatus(c), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
   }
   function saveCredentials(v) {
     if (busy || historyActive || refreshActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
@@ -836,8 +836,13 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const addAvailable = (a, b) => Number.isFinite(a) ? a + (Number.isFinite(b) ? b : 0) : Number.isFinite(b) ? b : null;
     const available = rows => Object.fromEntries(availableFields.map(key => [key, rows.reduce((total, row) => addAvailable(total, row.available ? row.available[key] : row[key]), null)]));
     const items = [], itemTotals = new Map(), productTotals = new Map(), daily = [], seenImports = [], imports = new Map(), observedChannels = new Map();
+    const advertisingCosts = new Map(days.map(date => [date, { pa: savedAdvertisingCost(c, date, 'pa'), nca: savedAdvertisingCost(c, date, 'nca') }]));
     const itemFields = ['quantity', 'adQuantity', 'organicQuantity', 'sales', 'profitBeforeAds', 'advertising', 'adSales', 'adProfitBeforeAds', 'sourceNetProfit', 'netProfit', 'adNetProfit', 'nonAdvertisingCosts', 'sourceOtherCosts', ...estimateFields()];
     function addItem(row) {
+      // A campaign report covers the connected seller account. It does not
+      // establish an option's share of that expense, even when an older sales
+      // import had explicitly confirmed a different acquisition amount.
+      if (channel === 'all' && advertisingCosts.get(row.date)?.nca?.amount > 0) row.netProfit = null;
       const display = chosen.get(row.itemId);
       if (display && String(row.productId) === String(display.productId)) {
         if (display.displayName) row.displayName = display.displayName;
@@ -996,7 +1001,14 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           seenImports.push({ date, importedAt: totals.importedAt });
         }
       }
-      day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); day.dailyReport = buildDailyReport(day); daily.push(day);
+      applyAdvertisingCosts(day, advertisingCosts.get(date), channel, imported);
+      day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); day.dailyReport = buildDailyReport(day);
+      day.acquisitionAdvertising = day.dailyReport.acquisitionAdvertising;
+      day.netProfit = day.dailyReport.netProfit;
+      if (day.ncaInclusionUnconfirmed) day.complete = false;
+      else if (Number.isFinite(day.netProfit) && Number.isFinite(day.sales) && Number.isFinite(day.profitBeforeAds) && Number.isFinite(day.advertising)) day.complete = true;
+      delete day.advertisingSources; delete day.advertisingReasons; delete day.ncaInclusionUnconfirmed;
+      daily.push(day);
     }
     const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), ...aggregateEstimates(daily), available: available(daily), complete: daily.every(d => d.complete) };
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
@@ -1008,12 +1020,52 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     const savedParts = daily.flatMap(day => day.channels.filter(part => part.fetchedAt).map(part => ({ date: day.date, fetchedAt: part.fetchedAt })));
     const storage = { latestOrderDate: savedParts.map(part => part.date).sort().at(-1) || null, lastSavedAt: savedParts.map(part => part.fetchedAt).sort().at(-1) || null, storedDays: savedParts.length, expectedDays: days.length * selectedChannels.length };
-    return { since: v.since, until: v.until, channel, storage, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary, dailyReportSummary: summarizeDailyReports(daily),
+    return { since: v.since, until: v.until, channel, storage, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, advertisingRevision: advertisingRevision(c), daily, items, summary, dailyReportSummary: summarizeDailyReports(daily),
       ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
       coverage: { fileScopeDays: daily.filter(d => d.sourceScope.mode === 'file').length, sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
       importedDates: [...new Set(seenImports.map(d => d.date))], lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
   }
-  function dailyReportFields() { return ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit']; }
+  function savedAdvertisingCost(c, date, type) {
+    const file = read(path.join(dir(c), 'ad-reports', type, date + '.json'), null);
+    if (!file) return null;
+    if (file.vendorId !== c.vendorId || file.type !== type || file.date !== date || !Array.isArray(file.rows) || !file.rows.length
+      || file.rows.some(row => row.date !== date || !Number.isFinite(row.spend) || row.spend < 0)) throw fail(500, '저장된 광고 보고서의 판매자·날짜·광고비를 확인하세요.');
+    return { source: type + '-report', scope: 'account', basis: 'report-original-amount',
+      amount: file.rows.reduce((total, row) => total + row.spend, 0), filename: file.filename || null, importedAt: file.importedAt || null };
+  }
+  function advertisingRevision(c) {
+    const saved = read(path.join(dir(c), 'ad-reports', 'revision.json'), null);
+    if (!saved) return null;
+    if (saved.vendorId !== c.vendorId || !saved.files || typeof saved.files !== 'object' || Array.isArray(saved.files)) throw fail(500, '저장된 광고 보고서 변경 이력을 확인하세요.');
+    return hash(Object.entries(saved.files).sort(([a], [b]) => a.localeCompare(b)));
+  }
+  function applyAdvertisingCosts(day, reports, channel, imported) {
+    const source = amount => Number.isFinite(amount) ? { source: day.source === 'ledger' ? 'confirmed-ledger' : 'saved-sales',
+      scope: 'selected', basis: 'saved-source', amount, importedAt: day.dailyTotals?.importedAt || imported?.importedAt || null }
+      : { source: 'missing', scope: 'selected', amount: null };
+    day.advertisingSources = { pa: source(day.advertising), nca: source(day.acquisitionAdvertising) };
+    day.advertisingReasons = [];
+    if (channel !== 'all') {
+      if (reports.nca) day.advertisingReasons.push('저장된 신규구매 광고비는 계정 전체 금액입니다. 배송 방식별로 배분하지 않아 이 조회에는 적용하지 않았습니다.');
+      return;
+    }
+    if (!Number.isFinite(day.advertising) && reports.pa) {
+      day.advertising = reports.pa.amount; day.advertisingSources.pa = reports.pa;
+      day.advertisingReasons.push('매출성장 광고비는 계정 전체 보고서 원본 금액을 적용했습니다. 선택한 상품별 이익과 범위가 다를 수 있으며 부가세를 추정해 가산하지 않았습니다.');
+    }
+    const ledgerIncluded = day.source !== 'reconciled' && day.channels.some(part => part.source === 'ledger');
+    if (reports.nca) {
+      day.acquisitionAdvertising = reports.nca.amount; day.advertisingSources.nca = reports.nca;
+      if (ledgerIncluded) {
+        day.ncaInclusionUnconfirmed = true; day.advertisingSources.nca = { ...reports.nca, deducted: false };
+        day.advertisingReasons.push('확인 원장의 쿠팡 광고비에 신규구매 비용이 이미 포함됐는지 확인되지 않아 추가 차감 후 순이익은 계산 대기입니다. 신규구매 보고서는 계정 전체 원본 금액이며 부가세를 추정해 가산하지 않았습니다.');
+      } else day.advertisingReasons.push('신규구매 광고비는 계정 전체 보고서 원본 금액을 현재 선택 상품의 순이익에서 차감합니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.');
+    } else if (day.source === 'ledger' && Number.isFinite(day.netProfit)) {
+      day.advertisingSources.nca = { ...day.advertisingSources.nca, source: 'confirmed-ledger', included: true };
+      day.advertisingReasons.push('확인 원장의 쿠팡 광고비 합계가 이미 반영된 순이익입니다. 신규구매 비용을 별도로 다시 차감하지 않았습니다.');
+    }
+  }
+  function dailyReportFields() { return ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit']; }
   function buildDailyReport(day) {
     const finite = Number.isFinite;
     const sales = finite(day.sales) ? day.sales : finite(day.available?.sales) ? day.available.sales : null;
@@ -1039,9 +1091,13 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     // period. Do not reconstruct this column from an already-rounded profit.
     if (finite(otherCostsRaw)) otherCosts = Math.round(otherCostsRaw);
     const sourceNetProfit = finite(profitBeforeAds) && finite(advertising) ? profitBeforeAds - advertising : null;
+    const acquisitionAdvertising = finite(day.acquisitionAdvertising) ? day.acquisitionAdvertising : null;
+    const netProfit = day.ncaInclusionUnconfirmed ? null : finite(sourceNetProfit) && finite(acquisitionAdvertising) ? sourceNetProfit - acquisitionAdvertising
+      : day.source === 'ledger' && finite(day.netProfit) ? day.netProfit : null;
     const estimated = { sales: false, profitBeforeAds: !hasSourceProfit && finite(profitBeforeAds), advertising: false,
-      otherCosts: otherEstimated && finite(otherCosts), sourceNetProfit: !hasSourceProfit && finite(sourceNetProfit) };
-    const values = { sales, profitBeforeAds, advertising, otherCosts, sourceNetProfit };
+      otherCosts: otherEstimated && finite(otherCosts), sourceNetProfit: !hasSourceProfit && finite(sourceNetProfit),
+      acquisitionAdvertising: false, netProfit: !hasSourceProfit && finite(netProfit) };
+    const values = { sales, profitBeforeAds, advertising, otherCosts, sourceNetProfit, acquisitionAdvertising, netProfit };
     const missing = dailyReportFields().filter(key => !finite(values[key]));
     const apiUnconfirmed = day.source === 'api' || day.source === 'mixed' && (day.channels || []).some(part => part.source === 'api');
     let basis = day.source === 'reconciled' ? 'saved-daily-report' : day.source === 'ledger' ? 'confirmed-ledger'
@@ -1050,11 +1106,14 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const reasons = [];
     if (!finite(sales) || partial.sales) reasons.push('조회 범위의 매출 자료가 모두 확인되지 않았습니다. 수집된 매출만 표시합니다.');
     if (!finite(advertising)) reasons.push('쿠팡 광고비가 확인되지 않아 광고비와 순이익을 확정하지 않습니다.');
+    if (!finite(acquisitionAdvertising) && !finite(netProfit)) reasons.push('신규구매 광고비 미확인 · 전체 광고비 반영 순이익 계산 대기');
+    reasons.push(...(day.advertisingReasons || []));
     if (!finite(profitBeforeAds) || !finite(otherCosts)) reasons.push(...(day.missingInputReasons || []));
     if (apiUnconfirmed) reasons.push('주문 API 매출은 취소·반품·할인 반영이 미확정입니다.');
     if (day.dailyTotalsStatus?.state !== 'current' && day.dailyTotalsStatus?.reason) reasons.push(day.dailyTotalsStatus.reason);
     if (otherEstimated || estimated.profitBeforeAds) reasons.push(...(day.costWarnings || []));
     return { ...values, estimated, partial, source: day.source, basis, missing, reasons: [...new Set(reasons)], apiUnconfirmed,
+      advertisingSources: day.advertisingSources,
       costMissingInputs: [...(day.missingInputs || [])],
       components: { productCost: finite(day.estimatedProductCost) ? day.estimatedProductCost : null,
         commission: finite(day.estimatedCommission) ? day.estimatedCommission : null,
@@ -1172,9 +1231,14 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const selected=rows.filter(r=>r.date===date),file=path.join(dir(c),'ad-reports',v.type,date+'.json');
       return {file,content:JSON.stringify({schema:v.schema,vendorId:c.vendorId,type:v.type,date,filename:v.filename,importedAt,basis:'report-original-amount',fingerprint:hash(selected),rows:selected})};
     });
+    const revisionFile=path.join(dir(c),'ad-reports','revision.json'),previousRevision=read(revisionFile,null);
+    if(previousRevision&&(previousRevision.vendorId!==c.vendorId||!previousRevision.files||typeof previousRevision.files!=='object'||Array.isArray(previousRevision.files)))throw fail(500,'저장된 광고 보고서 변경 이력을 확인하세요.');
+    const revisionFiles={...(previousRevision?.files||{})};
+    for(const write of writes){const report=JSON.parse(write.content);revisionFiles[v.type+':'+report.date]=hash({fingerprint:report.fingerprint,basis:report.basis});}
+    writes.push({file:revisionFile,content:JSON.stringify({vendorId:c.vendorId,files:revisionFiles})});
     const originals=writes.map(w=>fs.existsSync(w.file)?fs.readFileSync(w.file):null);let completed=0;
     try{for(const w of writes){atomic(w.file,w.content);completed++;}}catch(e){for(let i=completed-1;i>=0;i--){if(originals[i]===null)fs.unlinkSync(writes[i].file);else atomic(writes[i].file,originals[i]);}throw e;}
-    return {saved:true,type:v.type,days:dates.length,dates,rows:rows.length,importedAt,basis:'report-original-amount'};
+    return {saved:true,type:v.type,days:dates.length,dates,rows:rows.length,importedAt,basis:'report-original-amount',advertisingRevision:advertisingRevision(c)};
   }
   function advertisingReports(v) {
     const c=config(),dates=range(v.since,v.until,now()),result={since:v.since,until:v.until,vendorId:c.vendorId,basis:'report-original-amount',types:{}};

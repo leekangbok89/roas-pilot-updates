@@ -6,6 +6,6 @@
 <a class="primary" href="/coupang-collector-extension.zip" download>연결용 확장프로그램 다운로드</a>
 <ol><li>압축을 풀고 Chrome의 확장프로그램 관리에서 개발자 모드를 켭니다.</li><li>압축해제된 확장프로그램 로드로 해당 폴더를 선택합니다.</li><li>확장프로그램에서 기간과 연결을 설정한 뒤 광고센터에 직접 로그인합니다.</li></ol>
 <p id="cc-connection" role="status">연결된 확장프로그램을 기다립니다.</p><p id="cc-result" role="status"></p></section>
-<section class="panel"><h2>받은 보고서 확인·저장</h2><p>쿠팡 원본 PA·NCA 보고서를 읽습니다. 여러 날짜는 반드시 일별 보고서여야 합니다. 원본 광고비를 보관하며 부가세를 임의로 가산하지 않습니다. 기존 손익 파일의 금액을 덮어쓰지 않습니다.</p><input id="cc-files" type="file" accept=".xlsx" multiple><button id="cc-import" type="button">보고서 저장</button></section>
+<section class="panel"><h2>받은 보고서 확인·저장</h2><p>쿠팡 원본 PA·NCA 보고서를 읽습니다. 여러 날짜는 반드시 일별 보고서여야 합니다. 원본 광고비를 보관하며 부가세를 임의로 가산하지 않습니다. 기존 손익 파일의 금액은 보존합니다. 저장한 신규구매 광고비는 쿠팡 수익 분석의 전체 배송 보고서에 자동 반영되어 기존 순이익에서 차감됩니다.</p><input id="cc-files" type="file" accept=".xlsx" multiple><button id="cc-import" type="button">보고서 저장</button></section>
 <section class="panel"><h2>유형별 저장 자료</h2><form id="cc-query" class="ca-toolbar"><label>시작일<input id="cc-since" type="date" required></label><label>종료일<input id="cc-until" type="date" required></label><button type="submit">저장 자료 조회</button></form><div id="cc-statistics"></div><p>고객 수는 캠페인별 집계의 합계입니다. PA 전환매출과 NCA 첫구매 매출은 별도로 비교합니다. 보고서 원본 금액과 기존 손익의 광고비는 비용 기준이 다를 수 있습니다.</p></section>
 </main></body></html>

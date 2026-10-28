@@ -59,7 +59,7 @@ test('estimates aggregate separately from exact source profit and preserve missi
 test('status polling reloads saved analytics only after a refresh finishes, including first completion', async () => {
   const context = helpers();
   vm.runInContext(`
-    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,loading=false,importSaving=false;
+    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,loading=false,importSaving=false;
     const calls=[],states=[],loads=[],nodes={};
     const $=id=>nodes[id]||(nodes[id]={});
     async function request(route){calls.push(route);return states.shift();}
@@ -98,4 +98,46 @@ test('manual refresh sends one collection request while in flight and keeps save
   assert.equal(manual.nodes['ca-refresh-orders'].disabled, true);
   manual.complete(); await first;
   assert.deepEqual(Array.from(manual.calls), ['refresh', 'status']);
+});
+test('saved advertising revisions trigger analytics reload and wait for active imports', async () => {
+  const context = helpers();
+  vm.runInContext(`
+    let pipelinePending=false,pipelineStopped=false,pipelineNeedsReload=false,pipelineStatus=null,lastRefreshFinishedAt=undefined,lastAdvertisingRevision=undefined,loading=false,importSaving=false;
+    const calls=[],states=[],loads=[],nodes={};
+    const $=id=>nodes[id]||(nodes[id]={});
+    async function request(route){calls.push(route);return states.shift();}
+    function renderPipeline(value){pipelineStatus=value;return pipelineState(value);}
+    function schedulePipeline(){}
+    async function load(){loads.push('saved analytics');}
+    ${declaration('loadPipelineStatus')}
+    globalThis.flow={states,loads,loadPipelineStatus,setSaving:value=>{importSaving=value;}};
+  `, context);
+  const { flow } = context, status = advertisingRevision => ({ configured: true, advertisingRevision, automatic: { running: false } });
+  flow.states.push(status(null)); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 0);
+  flow.states.push(status(null)); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 0);
+  flow.states.push(status('a')); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 1, 'First saved report must reload even without a same-origin storage event');
+  flow.states.push(status('a')); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 1);
+  flow.states.push(status('b')); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 2);
+  flow.setSaving(true); flow.states.push(status('c')); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 2);
+  flow.setSaving(false); flow.states.push(status('c')); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 3);
+  flow.states.push({ configured: true, automatic: {} }); await flow.loadPipelineStatus(); assert.equal(flow.loads.length, 3);
+});
+test('advertising storage events reload only overlapping dates and defer during saved imports', () => {
+  const context = helpers();
+  vm.runInContext(`
+    let pipelineNeedsReload=false,loading=false,importSaving=false;
+    const loads=[],scheduled=[];
+    function queryValues(){return{since:'2026-10-22',until:'2026-10-26'};}
+    function load(){loads.push('saved analytics');}
+    function schedulePipeline(value){scheduled.push(value);}
+    ${declaration('handleAdvertisingStorage')}
+    globalThis.events={loads,scheduled,handleAdvertisingStorage,setSaving:value=>{importSaving=value;},pending:()=>pipelineNeedsReload};
+  `, context);
+  const { events } = context, change = dates => ({ key: 'roas-coupang-ad-reports-change', newValue: JSON.stringify({ type: 'nca', dates }) });
+  events.handleAdvertisingStorage({ key: 'other', newValue: '{}' });
+  events.handleAdvertisingStorage({ key: 'roas-coupang-ad-reports-change', newValue: 'broken' });
+  events.handleAdvertisingStorage(change(['2026-10-21'])); assert.equal(events.loads.length, 0);
+  events.handleAdvertisingStorage(change(['2026-10-22'])); assert.equal(events.loads.length, 1);
+  events.setSaving(true); events.handleAdvertisingStorage(change(['2026-10-23'])); assert.equal(events.loads.length, 1);
+  assert.equal(events.pending(), true); assert.deepEqual(Array.from(events.scheduled), [true]);
 });

@@ -8,7 +8,7 @@ function declaration(name) {
 }
 function context() {
   const context = vm.createContext({});
-  const names = ['displayedValue','dailyValue','dailyEstimated','dailyTotal','costWarningText','estimateMissingText','dailyCalculationEvidence','openReferenceImport'];
+  const names = ['displayedValue','dailyValue','dailyEstimated','dailyTotal','costWarningText','estimateMissingText','advertisingSourceText','dailyCalculationEvidence','openReferenceImport'];
   const constants = ['sourceNames','isNumber','dailyColumns'].map(name => source.split('\n').find(line => line.trim().startsWith('const ' + name + ' ='))).join('\n');
   vm.runInContext(constants + '\n' + names.map(declaration).join('\n') + '\nglobalThis.h={' + names.join(',') + '};', context);
   return context;
@@ -64,4 +64,17 @@ test('reference shortcut opens and focuses existing import without a file dialog
   const c = context();
   vm.runInContext("const events=[];const panel={open:false,scrollIntoView(){events.push('scroll')}};const file={focus(){events.push('focus')},click(){throw Error('must not open file dialog')}};const $=id=>id==='ca-import'?panel:file;globalThis.ui={panel,events};",c);
   c.h.openReferenceImport(); assert.equal(c.ui.panel.open,true); assert.deepEqual(Array.from(c.ui.events),['scroll','focus']);
+});
+test('NCA report evidence identifies account-wide original cost and one further deduction', () => {
+  const { h } = context(), row = { source: 'sellha', profitBeforeAds: 54000, advertising: 12000, sourceNetProfit: 42000,
+    dailyReport: { sourceNetProfit: 42000, acquisitionAdvertising: 3000, netProfit: 39000,
+      advertisingSources: { nca: { source: 'nca-report', scope: 'account', basis: 'report-original-amount', filename: 'example-nca.xlsx', importedAt: '2026-10-28T01:00:00Z' } },
+      reasons: ['계정 전체 비용'], components: {} } };
+  const evidence = h.dailyCalculationEvidence(row);
+  assert.match(evidence.acquisitionNote, /신규구매 광고비를 한 번 차감/);
+  assert.match(evidence.advertisingSources[0], /신규구매 보고서 · 계정 전체 · 원본 금액 · example-nca.xlsx/);
+  assert.match(evidence.accountCostNote, /현재 선택 상품의 이익에서 전액 차감/);
+  assert.deepEqual(Array.from(evidence.reasons), ['계정 전체 비용']);
+  const unknown = h.dailyCalculationEvidence({ ...row, dailyReport: { ...row.dailyReport, acquisitionAdvertising: null, netProfit: null } });
+  assert.match(unknown.acquisitionNote, /신규구매 광고비 자료 없음/);
 });

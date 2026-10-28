@@ -45,3 +45,14 @@ test('confirmed daily import rejects duplicates, invalid dates and money without
   assert.throws(() => h.normalizeDailyTotals([{ ...first, advertising: -1 }]), /금액/);
   assert.throws(() => h.normalizeDailyTotals([{ ...first, otherCosts: '20000' }]), /금액/);
 });
+test('NCA costs subtract once from PA-only net and preserve missing and confirmed zero values', () => {
+  const h = helpers(), row = { profitBeforeAds: 54000, advertising: 12000, sourceNetProfit: 42000 };
+  assert.equal(h.dailyValue(row, 'netProfit'), undefined, 'Uncollected NCA must not become zero');
+  assert.equal(h.dailyValue({ ...row, acquisitionAdvertising: 3000 }, 'netProfit'), 39000);
+  assert.equal(h.dailyValue({ ...row, acquisitionAdvertising: 0 }, 'netProfit'), 42000);
+  assert.equal(h.dailyValue({ ...row, acquisitionAdvertising: 3000, netProfit: 38000 }, 'netProfit'), 38000, 'A canonical saved value is not deducted twice');
+  const estimated = { estimatedProfitBeforeAds: 54000, advertising: 12000, acquisitionAdvertising: 3000 };
+  assert.equal(h.dailyValue(estimated, 'netProfit'), 39000); assert.equal(h.dailyEstimated(estimated, 'netProfit'), true);
+  const total = h.dailyTotal([{ ...row, acquisitionAdvertising: 3000 }, { ...row, acquisitionAdvertising: null }]);
+  assert.equal(total.netProfit, 39000); assert.equal(total.knownDays.netProfit, 1); assert.equal(total.partial.netProfit, true);
+});

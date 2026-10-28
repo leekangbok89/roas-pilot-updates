@@ -10,7 +10,9 @@
     { key: 'sales', label: '매출', color: '#508fd1' },
     { key: 'profitBeforeAds', label: '이익금 · 광고비 차감 전', color: '#d75c78' },
     { key: 'advertising', label: '매출성장 광고비', color: '#c29b28' },
-    { key: 'sourceNetProfit', label: '셀하 순이익 · 신규광고 제외', color: '#25966c' },
+    { key: 'sourceNetProfit', label: '매출성장 차감 순이익', color: '#25966c' },
+    { key: 'acquisitionAdvertising', label: '신규구매 광고비', color: '#dd874c' },
+    { key: 'netProfit', label: '전체 광고비 반영 순이익', color: '#166974' },
     { key: 'estimatedProfitBeforeAds', label: '예상 이익 · 광고비 차감 전', color: '#8a70c8' }
   ];
   const columns = [
@@ -32,7 +34,7 @@
   const defaultColumns = columns.filter(c => !['salePrice'].includes(c.key)).map(c => c.key);
   let report = null, groups = [], pendingImport = null, loading = false, loadSequence = 0, parseSequence = 0, importSaving = false;
   let savedGroups = [];
-  let pipelinePending = false, pipelineRefreshing = false, pipelineNeedsReload = false, pipelineTimer = null, pipelineStopped = false, pipelineStatus = null, lastRefreshFinishedAt = undefined;
+  let pipelinePending = false, pipelineRefreshing = false, pipelineNeedsReload = false, pipelineTimer = null, pipelineStopped = false, pipelineStatus = null, lastRefreshFinishedAt = undefined, lastAdvertisingRevision = undefined;
   let productDailyPage = 0, productDailyCache = null;
   const productDailyPageSize = 100;
   let expanded = new Set(), favoriteIds = new Set(readSetting('favorites', [])), visibleColumns = new Set(readSetting('columns', defaultColumns));
@@ -108,7 +110,7 @@
     host.textContent = storage ? '선택 기간 저장 ' + (storage.storedDays || 0) + '/' + (storage.expectedDays || 0) + '일·배송방식 · 최근 저장 주문일 ' + (storage.latestOrderDate || '아직 없음') + ' · 마지막 저장 ' + localTimestamp(storage.lastSavedAt) : '선택 기간의 저장 범위를 확인합니다.';
     const note = $('ca-estimate-status'); if (!note) return;
     const summary = report?.summary || {};
-    note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(summary.advertising) ? ' 광고비가 연결되지 않아 광고비와 최종 순이익은 —로 표시합니다.' : ' 광고비와 확인한 순이익은 별도 항목으로 표시합니다.');
+    note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(report?.dailyReportSummary?.advertising ?? summary.advertising) ? ' 매출성장 광고비가 연결되지 않아 순이익 계산을 기다립니다.' : ' 매출성장 차감 순이익과 신규구매 광고비까지 반영한 순이익을 구분해 표시합니다.');
     const costWarning = costWarningText(summary); if (costWarning) note.textContent += ' ' + costWarning;
   }
   function renderPipeline(status) {
@@ -131,12 +133,24 @@
       const wasRunning = pipelineState(pipelineStatus).running, state = renderPipeline(await request('status'));
       const changed = lastRefreshFinishedAt !== undefined && (state.finishedAt && state.finishedAt !== lastRefreshFinishedAt || wasRunning && !state.running && state.finishedAt);
       lastRefreshFinishedAt = state.finishedAt;
-      if (changed) pipelineNeedsReload = true;
+      const revision = pipelineStatus?.advertisingRevision;
+      const hasRevision = revision === null || typeof revision === 'string';
+      const advertisingChanged = hasRevision && lastAdvertisingRevision !== undefined && revision !== lastAdvertisingRevision;
+      if (hasRevision) lastAdvertisingRevision = revision;
+      if (changed || advertisingChanged) pipelineNeedsReload = true;
       if (pipelineNeedsReload && !loading && !importSaving) { pipelineNeedsReload = false; await load(); }
       schedulePipeline(state.running || pipelineNeedsReload);
     } catch (error) {
       $('ca-auto-state').textContent = '자동 저장 상태 확인 필요'; $('ca-auto-error').textContent = error.message; $('ca-auto-error').hidden = false; $('ca-refresh-orders').disabled = true; schedulePipeline(false);
     } finally { pipelinePending = false; }
+  }
+  function handleAdvertisingStorage(event) {
+    if (event.key !== 'roas-coupang-ad-reports-change' || !event.newValue) return;
+    let change; try { change = JSON.parse(event.newValue); } catch (_) { return; }
+    const { since, until } = queryValues();
+    if (!Array.isArray(change?.dates) || !change.dates.some(date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= since && date <= until)) return;
+    pipelineNeedsReload = true;
+    if (!loading && !importSaving) { pipelineNeedsReload = false; load(); } else schedulePipeline(true);
   }
   async function refreshOrders() {
     if (pipelineRefreshing || pipelineState(pipelineStatus).disabled) return;
@@ -211,16 +225,20 @@
       ['sales', '매출', '저장된 주문 / 확인한 손익 자료'],
       ['estimatedProfitBeforeAds', 'API 예상 이익 · 광고비 차감 전', '등록 원가·수수료·물류비 반영 · 광고·반품·추가 비용 미확정'],
       ['profitBeforeAds', '이익금', '매출성장 광고비 차감 전'],
-      ['advertising', '매출성장 광고비', '셀하 파일의 광고 집행비'],
-      ['sourceNetProfit', '셀하 순이익', '신규고객확보 광고비 제외'],
-      ['acquisitionAdvertising', '신규고객확보 광고비', '일별 추가 광고비 확인분'],
-      ['netProfit', '전체 광고비 반영 순이익', '추가 광고비 확인한 날짜만 계산']
+      ['advertising', '매출성장 광고비', '저장된 손익 자료 또는 매출성장 보고서'],
+      ['sourceNetProfit', '매출성장 차감 순이익', '이익금 − 매출성장 광고비'],
+      ['acquisitionAdvertising', '신규구매 광고비', '자동 수집 보고서 또는 일별 확인 비용'],
+      ['netProfit', '전체 광고비 반영 순이익', '매출성장 차감 순이익 − 신규구매 광고비']
     ]) {
-      const partial = isPartialValue(summary, key), amount = displayedValue(summary, key);
+      const canonical = report.dailyReportSummary, canonicalKey = canonical && Object.hasOwn(canonical, key);
+      const partial = canonicalKey ? canonical.partial?.[key] === true : isPartialValue(summary, key), amount = canonicalKey ? isNumber(canonical[key]) ? canonical[key] : isNumber(canonical.available?.[key]) ? canonical.available[key] : null : displayedValue(summary, key);
       const displayTitle = key === 'estimatedProfitBeforeAds' && summary.estimateSource === 'sellha' ? '등록 비용 기준 예상 이익 · 광고비 차감 전' : title;
-      const card = element('div', undefined, 'ca-card ca-card-' + key), label = element('small', displayTitle + (partial ? ' · 수집분' : '')), value = element('strong', won(amount));
+      const estimated = canonicalKey && canonical.estimated?.[key] === true;
+      const card = element('div', undefined, 'ca-card ca-card-' + key), label = element('small', displayTitle + (estimated ? ' · 예상' : '') + (partial ? ' · 수집분' : '')), value = element('strong', won(amount));
       if (isNumber(amount) && amount < 0) value.className = 'ca-negative';
-      card.append(label, value, element('small', partial ? '일부 미수집 · 확인된 매출만 합산 / 전체 기간 미확정' : key === 'estimatedProfitBeforeAds' && !isNumber(amount) ? estimateMissingText(summary) : note)); host.append(card);
+      card.append(label, value, element('small', partial ? '일부 미수집 · 확인된 날짜 금액 합산 / 전체 기간 미확정' : key === 'estimatedProfitBeforeAds' && !isNumber(amount) ? estimateMissingText(summary) : note)); host.append(card);
+      const costTypes = key === 'advertising' ? ['pa'] : key === 'acquisitionAdvertising' ? ['nca'] : key === 'netProfit' ? ['pa', 'nca'] : [];
+      if (costTypes.some(type => report.daily.some(day => day.dailyReport?.advertisingSources?.[type]?.scope === 'account'))) card.append(element('small', '계정 전체 보고서 비용 · 원본 금액 적용'));
       if (key === 'estimatedProfitBeforeAds' && costWarningText(summary)) card.append(element('small', costWarningText(summary), 'ca-cost-warning'));
     }
     const coverage = report.coverage || {}, imported = Array.isArray(report.importedDates) ? report.importedDates : [];
@@ -255,12 +273,12 @@
   function svgNode(tag, attributes = {}, text) {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value); if (text !== undefined) node.textContent = text; return node;
   }
-  function chartDescription(row) { return row.date + ' · ' + series.filter(s => activeSeries.has(s.key)).map(s => s.label + ' ' + won(displayedValue(row, s.key)) + (isPartialValue(row, s.key) ? ' (수집분 · 일부 미수집)' : '')).join(' · '); }
+  function chartDescription(row) { return row.date + ' · ' + series.filter(s => activeSeries.has(s.key)).map(s => s.label + ' ' + won(dailyValue(row, s.key)) + (dailyEstimated(row, s.key) ? ' (예상)' : '') + (isPartialValue(row, s.key) ? ' (수집분 · 일부 미수집)' : '')).join(' · '); }
   function renderChart() {
     const host = $('ca-chart'); host.replaceChildren(); $('ca-chart-tooltip').hidden = true;
     const rows = report.daily || [], chosenSeries = series.filter(s => activeSeries.has(s.key));
     const salesLegend = document.querySelector('[data-ca-series-label="sales"]'); if (salesLegend) salesLegend.textContent = '매출' + (rows.some(row => isPartialValue(row, 'sales')) ? ' · 수집분' : '');
-    const values = rows.flatMap(row => chosenSeries.map(s => displayedValue(row, s.key))).filter(isNumber);
+    const values = rows.flatMap(row => chosenSeries.map(s => dailyValue(row, s.key))).filter(isNumber);
     if (!rows.length || !values.length) {
       if (chosenSeries.length && !isNumber(displayedValue(report.summary, 'sales'))) host.append(noSalesContent());
       else host.append(element('p', chosenSeries.length ? '선택한 지표에 확인된 값이 없습니다. 매출 지표를 선택하거나 손익 파일을 가져와 주세요.' : '표시할 지표를 선택해 주세요.', 'ca-empty'));
@@ -282,17 +300,17 @@
     for (const s of chosenSeries) {
       let path = '', running = false;
       rows.forEach((row, index) => {
-        const value = displayedValue(row, s.key); if (!isNumber(value)) { running = false; return; }
+        const value = dailyValue(row, s.key); if (!isNumber(value)) { running = false; return; }
         path += (running ? ' L ' : ' M ') + x(index) + ',' + y(value); running = true;
       });
       svg.append(svgNode('path', { d: path, stroke: s.color, fill: 'none', 'stroke-width': 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-      rows.forEach((row, index) => { const value = displayedValue(row, s.key); if (isNumber(value)) svg.append(svgNode('circle', { cx: x(index), cy: y(value), r: rows.length < 45 ? 3.5 : 1.6, fill: s.color })); });
+      rows.forEach((row, index) => { const value = dailyValue(row, s.key); if (isNumber(value)) svg.append(svgNode('circle', { cx: x(index), cy: y(value), r: rows.length < 45 ? 3.5 : 1.6, fill: s.color })); });
     }
     const cursor = svgNode('line', { x1: 0, x2: 0, y1: top, y2: height - bottom, stroke: 'var(--app-link)', 'stroke-dasharray': '4 4', visibility: 'hidden' }); svg.append(cursor);
     function show(index) {
       const row = rows[index], tooltip = $('ca-chart-tooltip'); cursor.setAttribute('x1', x(index)); cursor.setAttribute('x2', x(index)); cursor.setAttribute('visibility', 'visible');
       tooltip.replaceChildren(element('strong', row.date));
-      for (const s of chosenSeries) { const p = element('div', s.label + '  ' + won(displayedValue(row, s.key)) + (isPartialValue(row, s.key) ? ' (수집분 · 일부 미수집)' : '')); p.style.borderLeft = '3px solid ' + s.color; p.style.paddingLeft = '8px'; tooltip.append(p); }
+      for (const s of chosenSeries) { const p = element('div', s.label + '  ' + won(dailyValue(row, s.key)) + (dailyEstimated(row, s.key) ? ' (예상)' : '') + (isPartialValue(row, s.key) ? ' (수집분 · 일부 미수집)' : '')); p.style.borderLeft = '3px solid ' + s.color; p.style.paddingLeft = '8px'; tooltip.append(p); }
       tooltip.hidden = false; $('ca-chart-detail').textContent = chartDescription(row);
     }
     rows.forEach((row, index) => {
@@ -310,9 +328,9 @@
     host.append(svg); $('ca-chart-detail').textContent = '그래프에 마우스를 올리거나 Tab과 방향키로 날짜별 값을 확인할 수 있습니다. 자료가 없는 날짜의 선은 연결하지 않습니다. 일부 미수집일은 수집된 매출만 표시합니다.';
   }
   const dailyDetailColumns = [
-    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['estimatedProductCost', '예상 상품원가'], ['estimatedCommission', '예상 수수료'], ['estimatedFulfillment', '예상 입출고·배송비'], ['estimatedProfitBeforeAds', '예상 이익 · 광고비 차감 전'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '셀하 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규고객확보 광고비'], ['netProfit', '전체 광고비 반영 순이익']
+    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['estimatedProductCost', '예상 상품원가'], ['estimatedCommission', '예상 수수료'], ['estimatedFulfillment', '예상 입출고·배송비'], ['estimatedProfitBeforeAds', '예상 이익 · 광고비 차감 전'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '매출성장 차감 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '전체 광고비 반영 순이익']
   ];
-  const dailyColumns = [['sales', '매출'], ['profitBeforeAds', '이익금'], ['advertising', '광고비'], ['otherCosts', '기타비용'], ['sourceNetProfit', '순이익금']];
+  const dailyColumns = [['sales', '매출'], ['profitBeforeAds', '이익금'], ['advertising', '매출성장 광고비'], ['otherCosts', '기타비용'], ['sourceNetProfit', '매출성장 차감 순이익'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '전체 광고비 반영 순이익']];
   let dailyDetails = false;
   let dailySort = { key: 'date', ascending: false };
   function dailyValue(row, key) {
@@ -323,12 +341,13 @@
     if (key === 'profitBeforeAds') return row?.estimatedProfitBeforeAds;
     if (key === 'otherCosts') return row?.source === 'ledger' && isNumber(row?.sourceOtherCosts) ? row.sourceOtherCosts : isNumber(row?.estimatedOtherCosts) ? Math.round(row.estimatedOtherCosts) : row?.sourceOtherCosts;
     if (key === 'sourceNetProfit' && isNumber(row?.estimatedProfitBeforeAds) && isNumber(row?.advertising)) return row.estimatedProfitBeforeAds - row.advertising;
+    if (key === 'netProfit' && isNumber(row?.acquisitionAdvertising)) { const beforeAcquisition = dailyValue(row, 'sourceNetProfit'); return isNumber(beforeAcquisition) ? beforeAcquisition - row.acquisitionAdvertising : value; }
     return value;
   }
   function dailyEstimated(row, key) {
     if (row?.dailyReport?.estimated && Object.hasOwn(row.dailyReport.estimated, key)) return row.dailyReport.estimated[key] === true;
     if (key === 'otherCosts') return row?.source !== 'ledger' && !isNumber(row?.otherCosts) && isNumber(row?.estimatedOtherCosts);
-    return ['profitBeforeAds', 'sourceNetProfit'].includes(key) && !isNumber(row?.[key]) && isNumber(dailyValue(row, key));
+    return ['profitBeforeAds', 'sourceNetProfit', 'netProfit'].includes(key) && !isNumber(row?.profitBeforeAds) && isNumber(dailyValue(row, key));
   }
   function dailyTotal(rows, canonical) {
     if (canonical?.knownDays && canonical?.partial && canonical?.estimated) return { ...canonical, ...Object.fromEntries(dailyColumns.map(([key]) => [key, isNumber(canonical[key]) ? canonical[key] : isNumber(canonical.available?.[key]) ? canonical.available[key] : null])) };
@@ -346,13 +365,18 @@
   function dailyShownColumns() { return dailyDetails ? [...dailyColumns, ...dailyDetailColumns.filter(([key]) => !dailyColumns.some(([main]) => main === key))] : dailyColumns; }
   function appendDailyCell(tr, row, key, total = false) {
     const value = total ? row[key] : dailyValue(row, key);
-    const td = addCell(tr, isNumber(value) ? won(value) : key === 'advertising' ? '자료 없음' : '—', 'ca-number');
+    const td = addCell(tr, isNumber(value) ? won(value) : ['advertising', 'acquisitionAdvertising'].includes(key) ? '자료 없음' : '—', 'ca-number');
     const estimated = total ? row.estimated[key] : dailyEstimated(row, key);
     if (estimated) td.append(element('small', '예상', 'ca-daily-estimate'));
     const partial = total ? row.partial?.[key] === true : row?.dailyReport?.partial?.[key] === true || key === 'sales' && !isNumber(row?.sales) && isNumber(row?.available?.sales);
     if (partial && isNumber(value)) {
       td.append(element('small', '수집분', 'ca-partial-note'));
       td.title = total ? '전체 확인 ' + (row.knownDays?.[key] || 0) + '일 · 부분 확인 ' + (row.partialDays?.[key] || 0) + '일' + (row.totalDays ? ' / 조회 ' + row.totalDays + '일' : '') + '의 수집분 합계' : '일부 배송 방식·상품 자료가 미수집입니다. 확인된 금액만 표시합니다.';
+    }
+    if (!total && ['advertising', 'acquisitionAdvertising'].includes(key)) {
+      const source = row?.dailyReport?.advertisingSources?.[key === 'advertising' ? 'pa' : 'nca'];
+      if (source?.scope === 'account' && isNumber(value)) td.append(element('small', '계정 전체', 'ca-ad-scope'));
+      if (source) td.title = advertisingSourceText(row, key === 'advertising' ? 'pa' : 'nca');
     }
     return td;
   }
@@ -388,9 +412,15 @@
         group.titles.push(title); groups.set(counts, group);
       }
       const partial = [...groups.values()].map(group => group.titles.join('·') + ' 전체 확인 ' + group.known + '일 · 부분 확인 ' + group.partial + '일 / 조회 ' + report.daily.length + '일');
-      note.textContent = '순이익금 = 이익금 − 광고비. 기타비용은 이익금에 이미 반영되어 있습니다. 신규고객확보 광고비는 별도입니다.' + (partial.length ? ' 합계는 확인분 기준 (' + partial.join(' · ') + ').' : '') + (dailyColumns.some(([key]) => totals.estimated[key]) ? ' 예상 표시는 등록 원가·요금으로 계산한 값입니다.' : '');
+      note.textContent = '매출성장 차감 순이익 = 이익금 − 매출성장 광고비. 전체 광고비 반영 순이익 = 매출성장 차감 순이익 − 신규구매 광고비. 기타비용은 이익금에 이미 반영되어 있습니다. 신규구매 광고비가 미수집인 날은 최종 순이익을 계산하지 않습니다.' + (report.daily.some(row => ['pa', 'nca'].some(type => row.dailyReport?.advertisingSources?.[type]?.scope === 'account')) ? ' 계정 전체로 표시한 광고비는 보고서 원본 금액 전액을 현재 선택 상품의 이익에서 차감합니다. 상품별·배송 방식별로 배분하지 않으며 임의 부가세 보정을 하지 않습니다.' : '') + (partial.length ? ' 합계는 확인분 기준 (' + partial.join(' · ') + ').' : '') + (dailyColumns.some(([key]) => totals.estimated[key]) ? ' 예상 표시는 등록 원가·요금으로 계산한 값입니다.' : '');
     }
     renderDailyCalculation();
+  }
+  function advertisingSourceText(row, type) {
+    const source = row?.dailyReport?.advertisingSources?.[type];
+    if (!source) return '';
+    const name = { 'pa-report': '매출성장 보고서', 'nca-report': '신규구매 보고서', 'saved-sales': '저장한 손익 자료', 'confirmed-ledger': '확인한 매출·비용', missing: '자료 없음' }[source.source] || '저장 자료';
+    return name + (source.scope === 'account' ? ' · 계정 전체' : '') + (source.basis === 'report-original-amount' ? ' · 원본 금액' : '') + (source.filename ? ' · ' + source.filename : '') + (source.importedAt ? ' · 저장 ' + source.importedAt : '');
   }
   function dailyCalculationEvidence(row) {
     const source = row?.dailyReport?.source || row?.source || 'missing', basis = row?.dailyReport?.basis;
@@ -401,9 +431,13 @@
     const difference = isNumber(row?.dailyReport?.differences?.profitBeforeAds) ? row.dailyReport.differences.profitBeforeAds : isNumber(calculatedProfit) && isNumber(sourceProfit) ? calculatedProfit - sourceProfit : null;
     const hasApi = row?.dailyReport?.apiUnconfirmed === true || source === 'api' || row?.underlyingSource === 'api' || source === 'mixed' || row?.underlyingSource === 'mixed';
     const sourceNote = source === 'reconciled' ? '이 날짜에 저장한 전체 배송·선택 상품의 확인 합계입니다. 상품별 비용을 이 합계에서 역산하거나 배분하지 않습니다.' : source === 'sellha' ? '표의 이익금은 원본 손익 자료를 사용합니다. 등록 비용으로 다시 계산한 값은 아래에서 따로 비교합니다.' : hasApi ? '주문금액은 반품·할인·정산이 확정되기 전의 참고 매출입니다. 등록된 비용으로 예상 이익을 계산합니다.' : source === 'ledger' ? '직접 확인해 저장한 매출과 비용을 사용합니다.' : '날짜별 저장 자료와 적용 비용을 확인해 주세요.';
-    const advertising = dailyValue(row, 'advertising'), net = dailyValue(row, 'sourceNetProfit');
+    const advertising = dailyValue(row, 'advertising'), net = dailyValue(row, 'sourceNetProfit'), acquisition = dailyValue(row, 'acquisitionAdvertising'), finalNet = dailyValue(row, 'netProfit');
     return { sourceLabel, sourceNote, components, sourceProfit, calculatedProfit, difference, hasApi,
-      advertisingNote: !isNumber(advertising) ? '광고비 자료 없음 · 순이익 계산 대기' : !isNumber(net) ? '이익금 미확인 · 순이익 계산 대기' : '순이익금은 이익금에서 확인한 광고비를 한 번 차감한 값입니다.',
+      advertisingNote: !isNumber(advertising) ? '광고비 자료 없음 · 순이익 계산 대기' : !isNumber(net) ? '이익금 미확인 · 순이익 계산 대기' : '매출성장 차감 순이익은 이익금에서 매출성장 광고비를 한 번 차감한 값입니다.',
+      acquisitionNote: !isNumber(acquisition) ? '신규구매 광고비 자료 없음 · 전체 광고비 반영 순이익 계산 대기' : !isNumber(finalNet) ? '매출성장 차감 순이익 미확인 · 전체 광고비 반영 순이익 계산 대기' : '전체 광고비 반영 순이익은 매출성장 차감 순이익에서 신규구매 광고비를 한 번 차감한 값입니다.',
+      advertisingSources: ['pa', 'nca'].map(type => advertisingSourceText(row, type)).filter(Boolean),
+      reasons: Array.isArray(row?.dailyReport?.reasons) ? row.dailyReport.reasons.filter(value => typeof value === 'string') : [],
+      accountCostNote: ['pa', 'nca'].some(type => row?.dailyReport?.advertisingSources?.[type]?.scope === 'account') ? '계정 전체 광고 보고서의 원본 금액을 현재 선택 상품의 이익에서 전액 차감합니다. 상품별·배송 방식별 배분이나 임의 부가세 보정은 하지 않습니다.' : '',
       referenceNote: row?.dailyTotalsStatus?.reason || '', costWarning: costWarningText(row), missingCost: !isNumber(calculatedProfit) ? estimateMissingText(row) : '' };
   }
   function renderDailyCalculation() {
@@ -419,11 +453,15 @@
     if (evidence.referenceNote) host.append(element('p', evidence.referenceNote, 'helper ca-cost-warning'));
     if (evidence.hasApi && row.source === 'reconciled') host.append(element('p', '아래 등록 비용 계산은 현재 저장 주문 기준 참고값입니다. 위 확인 합계와 자료 기준이 다를 수 있습니다.', 'helper'));
     const list = element('dl', undefined, 'ca-calculation-values');
-    for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['광고비', dailyValue(row, 'advertising')], ['표 순이익금', dailyValue(row, 'sourceNetProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
+    for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['매출성장 광고비', dailyValue(row, 'advertising')], ['매출성장 차감 순이익', dailyValue(row, 'sourceNetProfit')], ['신규구매 광고비', dailyValue(row, 'acquisitionAdvertising')], ['전체 광고비 반영 순이익', dailyValue(row, 'netProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
     host.append(list);
     if (isNumber(evidence.components.otherCostsRaw)) host.append(element('p', '등록 비용의 기타비용 합계 · 반올림 전 ' + evidence.components.otherCostsRaw.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원', 'helper'));
     if (isNumber(evidence.difference)) host.append(element('p', '등록 비용 계산 − 저장 자료 이익금: ' + (evidence.difference > 0 ? '+' : '') + won(evidence.difference) + '. 차이를 자동 보정률로 적용하지 않습니다.', 'helper'));
     host.append(element('p', evidence.advertisingNote, 'helper' + (!isNumber(dailyValue(row, 'advertising')) ? ' ca-cost-warning' : '')));
+    host.append(element('p', evidence.acquisitionNote, 'helper' + (!isNumber(dailyValue(row, 'acquisitionAdvertising')) ? ' ca-cost-warning' : '')));
+    for (const source of evidence.advertisingSources) host.append(element('p', source, 'helper'));
+    if (evidence.accountCostNote) host.append(element('p', evidence.accountCostNote, 'helper'));
+    for (const reason of evidence.reasons) if (reason !== evidence.referenceNote) host.append(element('p', reason, 'helper'));
     if (evidence.missingCost) host.append(element('p', evidence.missingCost, 'helper'));
     if (evidence.costWarning) host.append(element('p', evidence.costWarning, 'helper ca-cost-warning'));
   }
@@ -779,6 +817,7 @@
     $('ca-expand-all').addEventListener('click', () => { if (!report) return; const shown = currentGroups(), collapse = shown.every(group => expanded.has(group.id)); for (const group of shown) { if (collapse) expanded.delete(group.id); else expanded.add(group.id); } renderSales(); });
     $('ca-sales-export').addEventListener('click', () => { const fields = columns.filter(column => visibleColumns.has(column.key)); downloadCsv('쿠팡_상품별손익', [['행 구분', '상품 ID', '옵션 ID', '배송 방식', '상품명', '옵션명', '원래 상품명', ...fields.map(c => c.label), '매출 집계 상태', '자료 기준'], ...currentGroups().flatMap(group => [['상품 합계', group.id, '', group.channel, group.name, '', group.fullName || group.name, ...fields.map(c => displayedValue(group, c.key)), salesStatus(group), sourceNames[group.source] || '혼합 자료'], ...group.options.map(option => ['옵션', group.id, option.id, channels[option.channel], option.name, option.optionName, option.fullName || option.name, ...fields.map(c => displayedValue(option, c.key)), salesStatus(option), sourceNames[option.source] || '혼합 자료'])])]); });
   }
+  window.addEventListener('storage', handleAdvertisingStorage);
   window.addEventListener('coupang-product-metadata', event => { if (report && event.detail?.vendorKey === report.vendorKey && event.detail?.scopeKey === report.scopeKey) load(); });
   $('ca-reference-import')?.addEventListener('click', openReferenceImport);
   $('ca-calculation-date')?.addEventListener('change', renderDailyCalculation);

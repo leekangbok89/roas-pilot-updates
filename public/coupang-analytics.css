@@ -64,7 +64,9 @@ body[data-coupang-view] .app-main .ca-table :is(th,td){font-size:15px!important;
 .ca-empty a{display:inline-block;margin-top:7px}
 .ca-table .ca-totals-row td{background:var(--app-surface-soft);font-weight:800;border-bottom:2px solid var(--app-border)}
 .ca-table .ca-totals-row td:first-child{white-space:normal!important}
-.ca-daily-table{min-width:620px;table-layout:fixed}
+.ca-daily-table{min-width:900px;table-layout:fixed}
+.ca-daily-table:not(.ca-daily-expanded) th button{white-space:normal!important;word-break:keep-all;min-height:40px!important}
+.ca-daily-table .ca-ad-scope{color:var(--app-muted)}
 .ca-daily-table.ca-daily-expanded{min-width:2400px;table-layout:auto}
 .ca-daily-table:not(.ca-daily-expanded) :is(th,td):first-child{width:115px}
 .ca-daily-table .ca-daily-estimate{font-size:11px!important;color:var(--app-muted)}

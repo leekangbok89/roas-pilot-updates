@@ -48,7 +48,7 @@ test('canonical five-day report keeps exact original profit and signed refunds w
     assert.equal(actual.differences.otherCosts, null, 'a residual sourceOtherCosts figure is not an explicit actual other-cost input');
     assert.equal(actual.estimated.profitBeforeAds, false); assert.equal(actual.estimated.otherCosts, true); assert.equal(actual.estimated.sourceNetProfit, false);
     assert.equal(actual.estimated.sales, false); assert.equal(actual.estimated.advertising, false);
-    assert.deepEqual(actual.missing, []); assert.ok(actual.source); assert.ok(actual.basis); assert.ok(Array.isArray(actual.reasons));
+    assert.deepEqual(actual.missing, ['acquisitionAdvertising', 'netProfit']); assert.ok(actual.source); assert.ok(actual.basis); assert.ok(Array.isArray(actual.reasons));
     for (const key of keys) expected[key] += actual[key];
   });
   const summary = r.dailyReportSummary;
