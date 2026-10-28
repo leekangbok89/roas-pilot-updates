@@ -165,6 +165,7 @@
     if (view === 'dashboard') {
       $('ca-chart').replaceChildren(element('p', '조회한 자료가 여기에 표시됩니다.', 'ca-empty'));
       $('ca-daily-body').replaceChildren(); $('ca-product-daily-body').replaceChildren(); $('ca-chart-tooltip').hidden = true;
+      if ($('ca-calculation-date')) { $('ca-calculation-date').replaceChildren(); $('ca-calculation-date').disabled = true; $('ca-calculation-body').replaceChildren(element('p', '저장 자료를 조회하면 날짜별 계산 근거를 확인할 수 있습니다.', 'helper')); }
       if ($('ca-product-pagination')) $('ca-product-pagination').replaceChildren();
     } else { $('ca-sales-body').replaceChildren(); $('ca-sales-count').textContent = ''; }
   }
@@ -315,6 +316,7 @@
   let dailyDetails = false;
   let dailySort = { key: 'date', ascending: false };
   function dailyValue(row, key) {
+    if (row?.dailyReport && Object.hasOwn(row.dailyReport, key)) return row.dailyReport[key];
     if (key === 'otherCosts' && row?.source === 'ledger' && isNumber(row?.sourceOtherCosts)) return row.sourceOtherCosts;
     const value = displayedValue(row, key);
     if (isNumber(value)) return value;
@@ -324,15 +326,19 @@
     return value;
   }
   function dailyEstimated(row, key) {
+    if (row?.dailyReport?.estimated && Object.hasOwn(row.dailyReport.estimated, key)) return row.dailyReport.estimated[key] === true;
     if (key === 'otherCosts') return row?.source !== 'ledger' && !isNumber(row?.otherCosts) && isNumber(row?.estimatedOtherCosts);
     return ['profitBeforeAds', 'sourceNetProfit'].includes(key) && !isNumber(row?.[key]) && isNumber(dailyValue(row, key));
   }
-  function dailyTotal(rows) {
-    const total = { knownDays: {}, estimated: {}, partial: {} };
+  function dailyTotal(rows, canonical) {
+    if (canonical?.knownDays && canonical?.partial && canonical?.estimated) return { ...canonical, ...Object.fromEntries(dailyColumns.map(([key]) => [key, isNumber(canonical[key]) ? canonical[key] : isNumber(canonical.available?.[key]) ? canonical.available[key] : null])) };
+    const total = { knownDays: {}, availableDays: {}, partialDays: {}, estimated: {}, partial: {}, totalDays: rows.length };
     for (const [key] of dailyColumns) {
       const known = rows.filter(row => isNumber(dailyValue(row, key)));
+      const partialDays = known.filter(row => row?.dailyReport?.partial?.[key] === true || key === 'sales' && !isNumber(row?.sales) && isNumber(row?.available?.sales)).length;
       total[key] = known.length ? known.reduce((value, row) => value + dailyValue(row, key), 0) : null;
-      total.knownDays[key] = known.length; total.partial[key] = known.length < rows.length;
+      total.availableDays[key] = known.length; total.partialDays[key] = partialDays;
+      total.knownDays[key] = known.length - partialDays; total.partial[key] = partialDays > 0 || known.length < rows.length;
       total.estimated[key] = known.some(row => dailyEstimated(row, key));
     }
     return total;
@@ -343,7 +349,11 @@
     const td = addCell(tr, isNumber(value) ? won(value) : key === 'advertising' ? '자료 없음' : '—', 'ca-number');
     const estimated = total ? row.estimated[key] : dailyEstimated(row, key);
     if (estimated) td.append(element('small', '예상', 'ca-daily-estimate'));
-    if (total && row.partial[key] && row.knownDays[key]) td.title = row.knownDays[key] + '/' + report.daily.length + '일 확인분 합계';
+    const partial = total ? row.partial?.[key] === true : row?.dailyReport?.partial?.[key] === true || key === 'sales' && !isNumber(row?.sales) && isNumber(row?.available?.sales);
+    if (partial && isNumber(value)) {
+      td.append(element('small', '수집분', 'ca-partial-note'));
+      td.title = total ? '전체 확인 ' + (row.knownDays?.[key] || 0) + '일 · 부분 확인 ' + (row.partialDays?.[key] || 0) + '일' + (row.totalDays ? ' / 조회 ' + row.totalDays + '일' : '') + '의 수집분 합계' : '일부 배송 방식·상품 자료가 미수집입니다. 확인된 금액만 표시합니다.';
+    }
     return td;
   }
   function compareValues(a, b, key, ascending) {
@@ -360,7 +370,7 @@
     if (dailyDetails) header.append(element('th', '자료 기준')); $('ca-daily-head').replaceChildren(header);
     const host = $('ca-daily-body'); host.replaceChildren();
     host.closest('table').classList.toggle('ca-daily-expanded', dailyDetails);
-    const totals = dailyTotal(report.daily), total = element('tr', undefined, 'ca-totals-row');
+    const totals = dailyTotal(report.daily, report.dailyReportSummary), total = element('tr', undefined, 'ca-totals-row');
     addCell(total, '합계');
     shown.forEach(([key]) => dailyColumns.some(([main]) => main === key) ? appendDailyCell(total, totals, key, true) : appendValueCell(total, report.summary, key));
     if (dailyDetails) addCell(total, '확인된 날짜 합계'); host.append(total);
@@ -372,9 +382,54 @@
     }
     const note = $('ca-daily-note');
     if (note) {
-      const partial = dailyColumns.filter(([key]) => totals.partial[key] && totals.knownDays[key]).map(([key, title]) => title + ' ' + totals.knownDays[key] + '/' + report.daily.length + '일');
+      const groups = new Map();
+      for (const [key, title] of dailyColumns) if (totals.partial[key] && (totals.availableDays?.[key] ?? totals.knownDays[key])) {
+        const counts = (totals.knownDays[key] || 0) + ':' + (totals.partialDays?.[key] || 0), group = groups.get(counts) || { titles: [], known: totals.knownDays[key] || 0, partial: totals.partialDays?.[key] || 0 };
+        group.titles.push(title); groups.set(counts, group);
+      }
+      const partial = [...groups.values()].map(group => group.titles.join('·') + ' 전체 확인 ' + group.known + '일 · 부분 확인 ' + group.partial + '일 / 조회 ' + report.daily.length + '일');
       note.textContent = '순이익금 = 이익금 − 광고비. 기타비용은 이익금에 이미 반영되어 있습니다. 신규고객확보 광고비는 별도입니다.' + (partial.length ? ' 합계는 확인분 기준 (' + partial.join(' · ') + ').' : '') + (dailyColumns.some(([key]) => totals.estimated[key]) ? ' 예상 표시는 등록 원가·요금으로 계산한 값입니다.' : '');
     }
+    renderDailyCalculation();
+  }
+  function dailyCalculationEvidence(row) {
+    const source = row?.dailyReport?.source || row?.source || 'missing', basis = row?.dailyReport?.basis;
+    const sourceLabel = { 'api-orders-gross': '저장 주문 · 반품·정산 미확정', 'saved-source': '가져온 손익 파일', 'confirmed-ledger': '확인한 매출·비용', 'saved-daily-report': '확인한 일별 합계', 'legacy-manual-reference': '기존에 입력한 일별 기준값', mixed: '주문·확인 자료 혼합', missing: '자료 없음' }[basis] || sourceNames[source] || '자료 기준 확인';
+    const components = row?.dailyReport?.components || { productCost: row?.estimatedProductCost, commission: row?.estimatedCommission, fulfillment: row?.estimatedFulfillment, otherCostsRaw: row?.estimatedOtherCosts, estimatedProfitBeforeAds: row?.estimatedProfitBeforeAds };
+    const sourceProfit = isNumber(row?.profitBeforeAds) ? row.profitBeforeAds : null;
+    const calculatedProfit = components.estimatedProfitBeforeAds;
+    const difference = isNumber(row?.dailyReport?.differences?.profitBeforeAds) ? row.dailyReport.differences.profitBeforeAds : isNumber(calculatedProfit) && isNumber(sourceProfit) ? calculatedProfit - sourceProfit : null;
+    const hasApi = row?.dailyReport?.apiUnconfirmed === true || source === 'api' || row?.underlyingSource === 'api' || source === 'mixed' || row?.underlyingSource === 'mixed';
+    const sourceNote = source === 'reconciled' ? '이 날짜에 저장한 전체 배송·선택 상품의 확인 합계입니다. 상품별 비용을 이 합계에서 역산하거나 배분하지 않습니다.' : source === 'sellha' ? '표의 이익금은 원본 손익 자료를 사용합니다. 등록 비용으로 다시 계산한 값은 아래에서 따로 비교합니다.' : hasApi ? '주문금액은 반품·할인·정산이 확정되기 전의 참고 매출입니다. 등록된 비용으로 예상 이익을 계산합니다.' : source === 'ledger' ? '직접 확인해 저장한 매출과 비용을 사용합니다.' : '날짜별 저장 자료와 적용 비용을 확인해 주세요.';
+    const advertising = dailyValue(row, 'advertising'), net = dailyValue(row, 'sourceNetProfit');
+    return { sourceLabel, sourceNote, components, sourceProfit, calculatedProfit, difference, hasApi,
+      advertisingNote: !isNumber(advertising) ? '광고비 자료 없음 · 순이익 계산 대기' : !isNumber(net) ? '이익금 미확인 · 순이익 계산 대기' : '순이익금은 이익금에서 확인한 광고비를 한 번 차감한 값입니다.',
+      referenceNote: row?.dailyTotalsStatus?.reason || '', costWarning: costWarningText(row), missingCost: !isNumber(calculatedProfit) ? estimateMissingText(row) : '' };
+  }
+  function renderDailyCalculation() {
+    const select = $('ca-calculation-date'), host = $('ca-calculation-body'); if (!select || !host) return;
+    const selected = select.value, rows = [...(report?.daily || [])].sort((a, b) => b.date.localeCompare(a.date));
+    select.replaceChildren();
+    if (!rows.length) { select.disabled = true; host.replaceChildren(element('p', '조회 기간에 저장된 자료가 없습니다.', 'helper')); return; }
+    for (const row of rows) { const option = element('option', row.date); option.value = row.date; select.append(option); }
+    const known = rows.find(row => dailyColumns.some(([key]) => isNumber(dailyValue(row, key))));
+    select.value = rows.some(row => row.date === selected) ? selected : (known || rows[0]).date; select.disabled = false;
+    const row = rows.find(row => row.date === select.value), evidence = dailyCalculationEvidence(row); host.replaceChildren();
+    host.append(element('strong', evidence.sourceLabel), element('p', evidence.sourceNote, 'helper'));
+    if (evidence.referenceNote) host.append(element('p', evidence.referenceNote, 'helper ca-cost-warning'));
+    if (evidence.hasApi && row.source === 'reconciled') host.append(element('p', '아래 등록 비용 계산은 현재 저장 주문 기준 참고값입니다. 위 확인 합계와 자료 기준이 다를 수 있습니다.', 'helper'));
+    const list = element('dl', undefined, 'ca-calculation-values');
+    for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['광고비', dailyValue(row, 'advertising')], ['표 순이익금', dailyValue(row, 'sourceNetProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
+    host.append(list);
+    if (isNumber(evidence.components.otherCostsRaw)) host.append(element('p', '등록 비용의 기타비용 합계 · 반올림 전 ' + evidence.components.otherCostsRaw.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원', 'helper'));
+    if (isNumber(evidence.difference)) host.append(element('p', '등록 비용 계산 − 저장 자료 이익금: ' + (evidence.difference > 0 ? '+' : '') + won(evidence.difference) + '. 차이를 자동 보정률로 적용하지 않습니다.', 'helper'));
+    host.append(element('p', evidence.advertisingNote, 'helper' + (!isNumber(dailyValue(row, 'advertising')) ? ' ca-cost-warning' : '')));
+    if (evidence.missingCost) host.append(element('p', evidence.missingCost, 'helper'));
+    if (evidence.costWarning) host.append(element('p', evidence.costWarning, 'helper ca-cost-warning'));
+  }
+  function openReferenceImport() {
+    const panel = $('ca-import'); if (!panel) return;
+    panel.open = true; panel.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); $('ca-file')?.focus({ preventScroll: true });
   }
   function changeText(current, previous) {
     if (!isNumber(current) || !isNumber(previous)) return '—'; const difference = current - previous;
@@ -705,7 +760,7 @@
     });
     $('ca-daily-export').addEventListener('click', () => {
       if (!report) return;
-      const totals = dailyTotal(report.daily);
+      const totals = dailyTotal(report.daily, report.dailyReportSummary);
       downloadCsv('쿠팡_일일손익', [['일자', ...dailyColumns.map(c => c[1]), '자료 기준'], ['합계', ...dailyColumns.map(([key]) => totals[key]), '확인된 날짜 합계'], ...report.daily.map(row => [row.date, ...dailyColumns.map(([key]) => dailyValue(row, key)), (sourceNames[row.source] || '혼합 자료') + (dailyColumns.some(([key]) => dailyEstimated(row, key)) ? ' · 예상 포함' : '')])]);
     });
     $('ca-product-export').addEventListener('click', () => downloadCsv('쿠팡_상품별일일', [['일자', '배송 방식', '상품 ID', '상품명', '판매수량', '매출', '매출 집계 상태', '자료 기준'], ...(report ? productDailyRows() : []).map(row => [row.date, channels[row.channel], row.productId, row.name, displayedValue(row, 'quantity'), displayedValue(row, 'sales'), salesStatus(row), sourceNames[row.source] || '혼합 자료'])]));
@@ -725,6 +780,8 @@
     $('ca-sales-export').addEventListener('click', () => { const fields = columns.filter(column => visibleColumns.has(column.key)); downloadCsv('쿠팡_상품별손익', [['행 구분', '상품 ID', '옵션 ID', '배송 방식', '상품명', '옵션명', '원래 상품명', ...fields.map(c => c.label), '매출 집계 상태', '자료 기준'], ...currentGroups().flatMap(group => [['상품 합계', group.id, '', group.channel, group.name, '', group.fullName || group.name, ...fields.map(c => displayedValue(group, c.key)), salesStatus(group), sourceNames[group.source] || '혼합 자료'], ...group.options.map(option => ['옵션', group.id, option.id, channels[option.channel], option.name, option.optionName, option.fullName || option.name, ...fields.map(c => displayedValue(option, c.key)), salesStatus(option), sourceNames[option.source] || '혼합 자료'])])]); });
   }
   window.addEventListener('coupang-product-metadata', event => { if (report && event.detail?.vendorKey === report.vendorKey && event.detail?.scopeKey === report.scopeKey) load(); });
+  $('ca-reference-import')?.addEventListener('click', openReferenceImport);
+  $('ca-calculation-date')?.addEventListener('change', renderDailyCalculation);
   const initial = new URLSearchParams(location.search); $('ca-since').value = initial.get('since') || dateShift(today, -7); $('ca-until').value = initial.get('until') || dateShift(today, -1);
   const matchingPreset = [...document.querySelectorAll('[data-ca-preset]')].map(button => Number(button.dataset.caPreset)).find(days => {
     const until = days === 0 ? today : dateShift(today, -1), since = days < 2 ? until : dateShift(until, -days + 1);

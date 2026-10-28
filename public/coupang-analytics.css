@@ -149,3 +149,12 @@ body[data-coupang-view].ca-roomy .app-main .ca-table :is(th,td){padding:8px 10px
 
 .ca-cost-warning{display:block;color:var(--app-warning)!important;font-size:12px!important;line-height:1.5;white-space:normal!important}
 .ca-catalog-preview{padding:10px 12px;min-width:250px;max-width:1100px;white-space:normal}
+
+.ca-calculation{border-top:1px solid var(--app-border);margin-top:10px;padding-top:10px}
+.ca-calculation>summary{font-weight:700;cursor:pointer}
+.ca-calculation-content{padding-top:10px;overflow-wrap:anywhere}
+.ca-calculation-picker{display:grid;gap:5px;max-width:240px;font-weight:700;margin-bottom:12px}
+.ca-calculation-values{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,auto);gap:7px 16px;font-size:14px;margin:10px 0}
+.ca-calculation-values dt,.ca-calculation-values dd{margin:0;min-width:0}
+.ca-calculation-values dd{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.ca-calculation-formula{border-top:1px solid var(--app-border);padding-top:8px}

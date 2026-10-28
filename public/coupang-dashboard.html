@@ -59,9 +59,18 @@
         <p id="ca-chart-detail" class="helper">그래프의 날짜 위에 마우스를 올리거나 키보드로 선택하면 값을 확인할 수 있습니다.</p>
       </section>
       <section class="panel ca-daily-panel" aria-labelledby="ca-daily-title">
-        <div class="ca-panel-head"><h2 id="ca-daily-title">일일 매출 보고서</h2><div class="ca-toolbar"><button id="ca-daily-details" type="button" aria-pressed="false">세부 항목</button><button id="ca-daily-export" type="button">CSV 다운로드</button></div></div>
+        <div class="ca-panel-head"><h2 id="ca-daily-title">일일 매출 보고서</h2><div class="ca-toolbar"><button id="ca-daily-details" type="button" aria-pressed="false">세부 항목</button><button id="ca-reference-import" type="button">기준자료 반영</button><button id="ca-daily-export" type="button">CSV 다운로드</button></div></div>
         <div class="ca-scroll" tabindex="0" aria-label="일일 매출 보고서 가로 스크롤"><table class="ca-table ca-daily-table"><thead id="ca-daily-head"></thead><tbody id="ca-daily-body"><tr><td class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>
         <p id="ca-daily-note" class="helper">순이익금 = 이익금 − 광고비. 기타비용은 이익금에 이미 반영되어 있습니다.</p>
+        <details id="ca-calculation" class="ca-calculation">
+          <summary>계산 근거</summary>
+          <div class="ca-calculation-content">
+            <label class="ca-calculation-picker">확인 날짜<select id="ca-calculation-date" aria-label="계산 근거 확인 날짜" disabled></select></label>
+            <div id="ca-calculation-body"><p class="helper">저장 자료를 조회하면 날짜별 계산 근거를 확인할 수 있습니다.</p></div>
+            <p class="helper ca-calculation-formula">등록 비용 기준 이익금은 옵션별 매출에서 상품원가·수수료·입출고·배송비를 차감해 계산합니다. 옵션별 이익금을 1원 단위로 반올림한 뒤 하루 합산합니다. 순이익금 = 이익금 − 광고비. 기타비용은 이익금에서 다시 차감하지 않습니다.</p>
+            <p id="ca-calculation-rounding" class="helper">원가·수수료·물류비 구성값은 중간에 반올림하지 않습니다. 기타비용은 날짜별 구성값 합계를 1원 단위로 반올림하며, 기간 합계는 각 날짜의 표시값을 더합니다. 원본 이익금은 별도로 보존합니다.</p>
+          </div>
+        </details>
       </section>
     </div>
     <section class="panel" aria-labelledby="ca-product-daily-title">

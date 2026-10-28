@@ -188,7 +188,9 @@ test('compact one-year reports keep 398 options below response-size limits while
   const since = '2025-10-27', input = { since, until: date, channel: 'growth' };
   let r = s.analytics({ ...input, view: 'sales' });
   assert.equal(r.items.length, 398); assert.equal(r.summary.netProfit, null); assert.ok(r.items.every(p => p.sales === null));
-  assert.ok(Buffer.byteLength(JSON.stringify(r)) < 1000000);
+  // Include the canonical daily calculation and its provenance without
+  // expanding 398 option records into one row per option/day.
+  assert.ok(Buffer.byteLength(JSON.stringify(r)) < 1500000);
   const orders = path.join(baseDir, '.roas-data/coupang/A00012345/orders'); fs.mkdirSync(orders, { recursive: true });
   for (let time = Date.parse(since); time <= Date.parse(date); time += 86400000) {
     const day = new Date(time).toISOString().slice(0, 10);

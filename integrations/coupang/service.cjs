@@ -732,6 +732,17 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       .sort((a, b) => (a.channel + ':' + a.itemId).localeCompare(b.channel + ':' + b.itemId));
     return hash({ date: report.date, rows, scopeMode: report.scopeMode || 'selected', reportItemIds: Array.isArray(report.reportItemIds) ? [...report.reportItemIds].sort((a, b) => a.localeCompare(b)) : null });
   }
+  function orderFinancialBasis(c, date, selected) {
+    const itemIds = new Set(selected.products.map(product => product.itemId));
+    return hash(CHANNELS.map(channel => {
+      const snap = snapshot(c, date, channel);
+      const rows = (snap?.rows || []).filter(row => itemIds.has(row.itemId)).map(row => ({ key: row.key, orderId: row.orderId, itemId: row.itemId, quantity: row.quantity, gross: row.gross }))
+        .sort((a, b) => String(a.key).localeCompare(String(b.key)));
+      // Fetch timestamps and display names cannot alter the financial basis.
+      // A previously missing delivery channel becoming collected can alter it.
+      return { channel, collected: !!snap, rows };
+    }));
+  }
   function importSales(v) {
     const c = config(), s = requireScope(c), report = validateSales(v);
     const write = salesWrite(c, s, report, new Date(now()).toISOString());
@@ -789,7 +800,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     for (const total of dailyTotals) {
       const file = path.join(dir(c), 'daily-totals', total.date + '.json');
       const source = stagedReports.get(total.date) || read(path.join(dir(c), 'sales', total.date + '.json'), null);
-      writes.push({ file, content: JSON.stringify({ ...total, vendorId: c.vendorId, scopeKey: s.key, itemIds, channel: 'all', salesBasis: salesBasis(source), importedAt }) });
+      writes.push({ file, content: JSON.stringify({ ...total, vendorId: c.vendorId, scopeKey: s.key, itemIds, channel: 'all', salesBasis: salesBasis(source), basisType: source ? 'sales' : 'orders', ordersBasis: source ? null : orderFinancialBasis(c, total.date, s), importedAt }) });
     }
     if (v.includeProducts === true) writes.push({ file: path.join(dir(c), 'scope.json'), content: JSON.stringify(s) });
     // Keep originals until all replacements finish so a local disk failure can
@@ -963,16 +974,29 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       for (const part of parts) { part.fetchedAt = ledgerRows.get(date + ':' + part.channel)?.fetchedAt || null; if (!part.available) part.available = available([part]); part.roas = roas(part); part.adReturnOnSpend = adReturnOnSpend(part); }
       const day = { date, source, sourceScope, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), ...aggregateEstimates(parts), available: available(parts), complete: parts.every(p => p.complete), channels: parts };
       const totals = channel === 'all' ? read(path.join(dir(c), 'daily-totals', date + '.json'), null) : null;
-      if (totals && totals.vendorId === c.vendorId && totals.channel === 'all' && totals.scopeKey === s.key && totals.salesBasis === salesBasis(imported) && Array.isArray(totals.itemIds) && hash([...totals.itemIds].sort((a, b) => a.localeCompare(b))) === hash([...chosen.keys()].sort((a, b) => a.localeCompare(b)))) {
-        // Reconciled whole-day values are a separate source. They never alter
-        // option rows, delivery breakdowns, API snapshots or acquisition costs.
-        Object.assign(day, { underlyingSource: day.source, source: 'reconciled', sales: totals.sales, profitBeforeAds: totals.profitBeforeAds, advertising: totals.advertising,
-          otherCosts: totals.otherCosts, sourceOtherCosts: totals.otherCosts, sourceNetProfit: totals.profitBeforeAds - totals.advertising,
-          nonAdvertisingCosts: totals.sales - totals.profitBeforeAds, available: { ...day.available, sales: totals.sales },
-          dailyTotalsApplied: true, dailyTotals: { importedAt: totals.importedAt, scopeKey: totals.scopeKey, channel: 'all', basis: 'saved-daily-report' } });
-        seenImports.push({ date, importedAt: totals.importedAt });
+      if (totals) {
+        let state = 'current', reason = '저장한 일일 합계와 현재 계산 원본이 일치합니다.';
+        const sameScope = totals.vendorId === c.vendorId && totals.channel === 'all' && totals.scopeKey === s.key && Array.isArray(totals.itemIds)
+          && hash([...totals.itemIds].sort((a, b) => a.localeCompare(b))) === hash([...chosen.keys()].sort((a, b) => a.localeCompare(b)));
+        if (!sameScope) { state = 'stale-scope'; reason = '집계 상품 또는 판매자 계정이 달라 저장한 일일 합계를 적용하지 않았습니다.'; }
+        else if (totals.salesBasis !== salesBasis(imported)) { state = 'stale-source'; reason = '손익 원본 자료가 변경되어 저장한 일일 합계를 적용하지 않았습니다.'; }
+        else if (totals.basisType === 'orders' && totals.ordersBasis !== orderFinancialBasis(c, date, s)) { state = 'stale-orders'; reason = '저장된 주문 수량·금액 또는 수집 범위가 변경되어 이전 일일 합계를 적용하지 않았습니다.'; }
+        else if (totals.salesBasis === null && !totals.ordersBasis) { state = 'legacy-unbound'; reason = '이전 버전에서 저장한 수동 일일 합계입니다. 당시 주문 기준을 확인할 수 없어 참고값으로 유지하며, 다시 저장하면 현재 주문 자료와 연결됩니다.'; }
+        else reason = '저장한 일일 합계와 현재 계산 원본이 일치합니다.';
+        const applied = ['current', 'legacy-unbound'].includes(state);
+        day.dailyTotalsStatus = { state, applied, reason };
+        if (applied) {
+          // Reconciled whole-day values are a separate source. They never alter
+          // option rows, delivery breakdowns, API snapshots or acquisition costs.
+          Object.assign(day, { underlyingSource: day.source, source: 'reconciled', sales: totals.sales, profitBeforeAds: totals.profitBeforeAds, advertising: totals.advertising,
+            otherCosts: totals.otherCosts, sourceOtherCosts: totals.otherCosts, sourceNetProfit: totals.profitBeforeAds - totals.advertising,
+            netProfit: Number.isFinite(day.acquisitionAdvertising) ? totals.profitBeforeAds - totals.advertising - day.acquisitionAdvertising : null, complete: Number.isFinite(day.acquisitionAdvertising),
+            nonAdvertisingCosts: totals.sales - totals.profitBeforeAds, available: { ...day.available, sales: totals.sales },
+            dailyTotalsApplied: true, dailyTotals: { importedAt: totals.importedAt, scopeKey: totals.scopeKey, channel: 'all', basis: 'saved-daily-report', basisType: totals.basisType || 'legacy', verified: state === 'current' } });
+          seenImports.push({ date, importedAt: totals.importedAt });
+        }
       }
-      day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); daily.push(day);
+      day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); day.dailyReport = buildDailyReport(day); daily.push(day);
     }
     const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), ...aggregateEstimates(daily), available: available(daily), complete: daily.every(d => d.complete) };
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
@@ -984,10 +1008,73 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     const savedParts = daily.flatMap(day => day.channels.filter(part => part.fetchedAt).map(part => ({ date: day.date, fetchedAt: part.fetchedAt })));
     const storage = { latestOrderDate: savedParts.map(part => part.date).sort().at(-1) || null, lastSavedAt: savedParts.map(part => part.fetchedAt).sort().at(-1) || null, storedDays: savedParts.length, expectedDays: days.length * selectedChannels.length };
-    return { since: v.since, until: v.until, channel, storage, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary,
+    return { since: v.since, until: v.until, channel, storage, ...(view ? { view } : {}), scopeKey: s.key, vendorKey: hash(c.vendorId), workspaceRevision: workspaceState(c).revision, daily, items, summary, dailyReportSummary: summarizeDailyReports(daily),
       ...(view === 'dashboard' ? { productDaily: [...productTotals.values()].filter(p => p.hasData).map(({ hasData, ...p }) => p) } : {}),
       coverage: { fileScopeDays: daily.filter(d => d.sourceScope.mode === 'file').length, sellhaDays: daily.filter(d => d.channels.some(p => p.source === 'sellha')).length, apiDays: daily.filter(d => d.channels.some(p => p.source === 'api')).length, totalDays: days.length },
       importedDates: [...new Set(seenImports.map(d => d.date))], lastImportedAt: seenImports.map(d => d.importedAt).filter(Boolean).sort().at(-1) || null };
+  }
+  function dailyReportFields() { return ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit']; }
+  function buildDailyReport(day) {
+    const finite = Number.isFinite;
+    const sales = finite(day.sales) ? day.sales : finite(day.available?.sales) ? day.available.sales : null;
+    const partial = Object.fromEntries(dailyReportFields().map(key => [key, key === 'sales' && !finite(day.sales) && finite(sales)]));
+    const hasSourceProfit = finite(day.profitBeforeAds);
+    const profitBeforeAds = hasSourceProfit ? day.profitBeforeAds : finite(day.estimatedProfitBeforeAds) ? day.estimatedProfitBeforeAds : null;
+    const advertising = finite(day.advertising) ? day.advertising : null;
+    let otherCosts = null, otherEstimated = false, otherCostsRaw = null, explicitOtherCosts = null;
+    if (day.source === 'reconciled' && finite(day.otherCosts)) {
+      otherCostsRaw = day.otherCosts; explicitOtherCosts = day.otherCosts;
+    } else if (day.source === 'ledger' && finite(day.sourceOtherCosts)) {
+      otherCostsRaw = day.sourceOtherCosts; explicitOtherCosts = day.sourceOtherCosts;
+    } else if (Array.isArray(day.channels) && day.channels.length) {
+      const parts = day.channels.map(part => part.source === 'ledger' && finite(part.sourceOtherCosts)
+        ? { amount: part.sourceOtherCosts, estimated: false }
+        : { amount: finite(part.estimatedOtherCosts) ? part.estimatedOtherCosts : null, estimated: true });
+      if (parts.every(part => finite(part.amount))) {
+        otherCostsRaw = parts.reduce((total, part) => total + part.amount, 0);
+        otherEstimated = parts.some(part => part.estimated);
+      }
+    } else if (finite(day.estimatedOtherCosts)) { otherCostsRaw = day.estimatedOtherCosts; otherEstimated = true; }
+    // Round other costs once per day, then sum those daily integers for a
+    // period. Do not reconstruct this column from an already-rounded profit.
+    if (finite(otherCostsRaw)) otherCosts = Math.round(otherCostsRaw);
+    const sourceNetProfit = finite(profitBeforeAds) && finite(advertising) ? profitBeforeAds - advertising : null;
+    const estimated = { sales: false, profitBeforeAds: !hasSourceProfit && finite(profitBeforeAds), advertising: false,
+      otherCosts: otherEstimated && finite(otherCosts), sourceNetProfit: !hasSourceProfit && finite(sourceNetProfit) };
+    const values = { sales, profitBeforeAds, advertising, otherCosts, sourceNetProfit };
+    const missing = dailyReportFields().filter(key => !finite(values[key]));
+    const apiUnconfirmed = day.source === 'api' || day.source === 'mixed' && (day.channels || []).some(part => part.source === 'api');
+    let basis = day.source === 'reconciled' ? 'saved-daily-report' : day.source === 'ledger' ? 'confirmed-ledger'
+      : day.source === 'sellha' ? 'saved-source' : day.source === 'api' ? 'api-orders-gross' : day.source === 'missing' ? 'missing' : 'mixed';
+    if (day.dailyTotalsStatus?.state === 'legacy-unbound' && day.dailyTotalsStatus.applied) basis = 'legacy-manual-reference';
+    const reasons = [];
+    if (!finite(sales) || partial.sales) reasons.push('조회 범위의 매출 자료가 모두 확인되지 않았습니다. 수집된 매출만 표시합니다.');
+    if (!finite(advertising)) reasons.push('쿠팡 광고비가 확인되지 않아 광고비와 순이익을 확정하지 않습니다.');
+    if (!finite(profitBeforeAds) || !finite(otherCosts)) reasons.push(...(day.missingInputReasons || []));
+    if (apiUnconfirmed) reasons.push('주문 API 매출은 취소·반품·할인 반영이 미확정입니다.');
+    if (day.dailyTotalsStatus?.state !== 'current' && day.dailyTotalsStatus?.reason) reasons.push(day.dailyTotalsStatus.reason);
+    if (otherEstimated || estimated.profitBeforeAds) reasons.push(...(day.costWarnings || []));
+    return { ...values, estimated, partial, source: day.source, basis, missing, reasons: [...new Set(reasons)], apiUnconfirmed,
+      costMissingInputs: [...(day.missingInputs || [])],
+      components: { productCost: finite(day.estimatedProductCost) ? day.estimatedProductCost : null,
+        commission: finite(day.estimatedCommission) ? day.estimatedCommission : null,
+        fulfillment: finite(day.estimatedFulfillment) ? day.estimatedFulfillment : null,
+        otherCostsRaw: finite(day.estimatedOtherCosts) ? day.estimatedOtherCosts : null,
+        estimatedProfitBeforeAds: finite(day.estimatedProfitBeforeAds) ? day.estimatedProfitBeforeAds : null,
+        source: day.estimateSource || null, apiUnconfirmed: day.estimateSource === 'api' || day.estimateSource === 'mixed' },
+      differences: { profitBeforeAds: hasSourceProfit && finite(day.estimatedProfitBeforeAds) ? day.estimatedProfitBeforeAds - day.profitBeforeAds : null,
+        otherCosts: finite(explicitOtherCosts) && finite(day.estimatedOtherCosts) ? Math.round(day.estimatedOtherCosts) - Math.round(explicitOtherCosts) : null } };
+  }
+  function summarizeDailyReports(days) {
+    const reports = days.map(day => day.dailyReport), keys = dailyReportFields();
+    const availableDays = Object.fromEntries(keys.map(key => [key, reports.filter(report => Number.isFinite(report[key])).length]));
+    const partialDays = Object.fromEntries(keys.map(key => [key, reports.filter(report => Number.isFinite(report[key]) && report.partial[key]).length]));
+    const knownDays = Object.fromEntries(keys.map(key => [key, availableDays[key] - partialDays[key]]));
+    const available = Object.fromEntries(keys.map(key => [key, availableDays[key] ? reports.reduce((total, report) => total + (Number.isFinite(report[key]) ? report[key] : 0), 0) : null]));
+    return { ...Object.fromEntries(keys.map(key => [key, knownDays[key] === reports.length ? available[key] : null])), available, knownDays, availableDays, partialDays,
+      partial: Object.fromEntries(keys.map(key => [key, partialDays[key] > 0 || availableDays[key] > 0 && knownDays[key] < reports.length])),
+      estimated: Object.fromEntries(keys.map(key => [key, reports.some(report => Number.isFinite(report[key]) && report.estimated[key])])),
+      totalDays: reports.length, apiUnconfirmed: reports.some(report => report.apiUnconfirmed), reasons: [...new Set(reports.flatMap(report => report.reasons))] };
   }
   function estimateFields() { return ['estimatedProductCost', 'estimatedCommission', 'estimatedFulfillment', 'estimatedOtherCosts', 'estimatedProfitBeforeAds']; }
   function estimateReason(key) {
