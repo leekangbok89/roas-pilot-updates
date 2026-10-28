@@ -1140,6 +1140,61 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return { since: v.since, until: v.until, scopeKey: s.key, products: s.products, daily, summaries,
       note: '주문 API 금액은 반품·할인·정산 비용이 확정된 매출이 아닙니다. 이익은 선택한 트루버·위마망 상품의 환불 반영 매출과 모든 비용을 확인한 날에만 계산합니다. 부가세 포함 현금 기준 예상 이익이며 인건비·임차료·세금은 기타 비용에 반영한 범위만 포함합니다.' };
   }
-  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
+  function importAdvertising(v) {
+    const c=config();
+    if(v?.schema!=='roas-coupang-ad-report-v1'||v.vendorId!==c.vendorId||!['pa','nca'].includes(v.type))throw fail(400,'보고서 형식·연결된 판매자·광고 유형을 확인하세요.');
+    range(v.since,v.until,now());
+    if(v.since<kstDay(now()-365*DAY)||!Array.isArray(v.rows)||!v.rows.length||v.rows.length>50000)throw fail(400,'최근 1년의 광고 보고서를 50,000행 이하로 나누세요.');
+    if(typeof v.filename!=='string'||v.filename.length>250)throw fail(400,'광고 보고서 원본 파일명을 확인하세요.');
+    const numeric=v.type==='pa'?['spend','impressions','clicks','orders1','quantity1','sales1','orders14','quantity14','sales14']:['spend','impressions','clicks','engagements','newCustomers','firstSales','repeatCustomers','repeatSales','totalSales'];
+    const nullable=new Set(v.type==='pa'?[]:['newCustomers','firstSales','repeatCustomers','repeatSales','totalSales']);
+    const counts=new Set(['impressions','clicks','orders1','quantity1','orders14','quantity14','engagements','newCustomers','repeatCustomers']);
+    const rows=v.rows.map(r=>{
+      if(!validDay(r?.date)||r.date<v.since||r.date>v.until||!id(r.campaignId)||typeof r.campaignName!=='string'||!r.campaignName.trim()||r.campaignName.length>300||typeof r.placement!=='string'||r.placement.length>200)throw fail(400,'광고 보고서의 날짜·캠페인·지면을 확인하세요.');
+      const row={date:r.date,campaignId:String(r.campaignId),campaignName:r.campaignName.trim(),placement:r.placement};
+      for(const key of numeric){const value=r[key];if(value===null&&nullable.has(key)){row[key]=null;continue;}if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1e12||counts.has(key)&&!Number.isInteger(value))throw fail(400,'광고 보고서 지표를 확인하세요: '+key);row[key]=value;}
+      if(v.type==='pa'){
+        for(const key of ['advertisedItemId','convertedItemId']){if(r[key]!==null&&!id(r[key]))throw fail(400,'광고 옵션 ID를 확인하세요.');row[key]=r[key]===null?null:String(r[key]);}
+        if(row.spend>0&&!row.advertisedItemId)throw fail(400,'광고비가 있는 행에 광고집행 옵션 ID가 필요합니다.');
+        row.keyword=typeof r.keyword==='string'?r.keyword.slice(0,300):'';
+      }
+      return row;
+    });
+    if(v.type==='nca'){
+      const groups=new Map();for(const row of rows){const key=row.date+':'+row.campaignId;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+      for(const group of groups.values()){
+        const whole=group.filter(r=>r.placement==='전체'),detail=group.filter(r=>r.placement!=='전체');
+        if(whole.length>1)throw fail(400,'신규구매 캠페인의 전체 행이 중복됩니다.');
+        if(whole.length&&detail.length&&(whole[0].spend!==0||whole[0].impressions!==0||whole[0].clicks!==0||whole[0].engagements!==0||whole[0].firstSales!==null||detail.some(r=>['newCustomers','repeatCustomers','repeatSales','totalSales'].some(k=>r[k]!==null&&r[k]!==0))))throw fail(400,'신규구매 전체 행과 지면별 지표가 중복될 수 있습니다. 보고서 구성을 확인하세요.');
+      }
+    }
+    const importedAt=new Date(now()).toISOString(),dates=[...new Set(rows.map(r=>r.date))].sort(),writes=dates.map(date=>{
+      const selected=rows.filter(r=>r.date===date),file=path.join(dir(c),'ad-reports',v.type,date+'.json');
+      return {file,content:JSON.stringify({schema:v.schema,vendorId:c.vendorId,type:v.type,date,filename:v.filename,importedAt,basis:'report-original-amount',fingerprint:hash(selected),rows:selected})};
+    });
+    const originals=writes.map(w=>fs.existsSync(w.file)?fs.readFileSync(w.file):null);let completed=0;
+    try{for(const w of writes){atomic(w.file,w.content);completed++;}}catch(e){for(let i=completed-1;i>=0;i--){if(originals[i]===null)fs.unlinkSync(writes[i].file);else atomic(writes[i].file,originals[i]);}throw e;}
+    return {saved:true,type:v.type,days:dates.length,dates,rows:rows.length,importedAt,basis:'report-original-amount'};
+  }
+  function advertisingReports(v) {
+    const c=config(),dates=range(v.since,v.until,now()),result={since:v.since,until:v.until,vendorId:c.vendorId,basis:'report-original-amount',types:{}};
+    for(const type of ['pa','nca']){
+      const files=dates.map(date=>read(path.join(dir(c),'ad-reports',type,date+'.json'),null));
+      for(const f of files)if(f&&(f.vendorId!==c.vendorId||f.type!==type))throw fail(500,'광고 보고서 판매자 또는 유형이 일치하지 않습니다.');
+      const sum=(rows,key)=>{const values=rows.map(r=>r[key]).filter(Number.isFinite);return values.length?values.reduce((a,b)=>a+b,0):null;};
+      const metrics=type==='pa'?['spend','impressions','clicks','orders1','quantity1','sales1','orders14','quantity14','sales14']:['spend','impressions','clicks','engagements','newCustomers','firstSales','repeatCustomers','repeatSales','totalSales'];
+      function totals(rows){const t=Object.fromEntries(metrics.map(k=>[k,sum(rows,k)]));if(type==='nca'){
+        const groups=new Map();for(const r of rows){const key=r.date+':'+r.campaignId;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
+        for(const key of ['newCustomers','firstSales','repeatCustomers','repeatSales','totalSales'])if([...groups.values()].some(group=>!group.some(r=>Number.isFinite(r[key]))))t[key]=null;
+      }t.roas=t.spend>0&&Number.isFinite(t[type==='pa'?'sales1':'firstSales'])?t[type==='pa'?'sales1':'firstSales']/t.spend*100:null;if(type==='pa')t.roas14=t.spend>0?t.sales14/t.spend*100:null;else t.customerCost=t.newCustomers>0?t.spend/t.newCustomers:null;return t;}
+      const rows=files.flatMap(f=>f?.rows||[]),campaigns=new Map();
+      for(const row of rows){if(!campaigns.has(row.campaignId))campaigns.set(row.campaignId,[]);campaigns.get(row.campaignId).push(row);}
+      result.types[type]={knownDays:files.filter(Boolean).length,totalDays:dates.length,available:totals(rows),complete:files.every(Boolean),
+        daily:dates.map((date,i)=>({date,collected:!!files[i],...(files[i]?totals(files[i].rows):Object.fromEntries(metrics.map(k=>[k,null]))),filename:files[i]?.filename||null,importedAt:files[i]?.importedAt||null})),
+        campaigns:[...campaigns].map(([campaignId,items])=>({campaignId,name:items.at(-1).campaignName,...totals(items)}))};
+    }
+    return result;
+  }
+  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, importAdvertising, advertisingReports, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
 }
 module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };
