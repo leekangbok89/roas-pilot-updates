@@ -141,4 +141,3 @@ test('advertising storage events reload only overlapping dates and defer during 
   events.setSaving(true); events.handleAdvertisingStorage(change(['2026-10-23'])); assert.equal(events.loads.length, 1);
   assert.equal(events.pending(), true); assert.deepEqual(Array.from(events.scheduled), [true]);
 });
-

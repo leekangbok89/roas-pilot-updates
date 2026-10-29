@@ -19,23 +19,24 @@ function report(type, spend, reportDate = date) {
     : { engagements: 1, newCustomers: 1, firstSales: 5000, repeatCustomers: 0, repeatSales: 0, totalSales: 5000 };
   return { schema: 'roas-coupang-ad-report-v1', vendorId, type, since: reportDate, until: reportDate, filename: vendorId + '_' + type + '_total_campaign_' + reportDate.replaceAll('-', '') + '_' + reportDate.replaceAll('-', '') + '.xlsx', rows: [{ ...base, ...fields }] };
 }
-test('saved NCA replaces manual acquisition once, preserves source PA and recalculates after an import and restart', t => {
+test('saved NCA retains an explicit manual acquisition confirmation and reports the account difference after restart', t => {
   const { s, service } = setup(t);
   s.importSales({ date, rows: [row], acquisitionAdvertising: { growth: 500, seller: 0 } });
   s.importSalesBatch({ reports: [], dailyTotals: [{ date, sales: 19999, profitBeforeAds: 12001, advertising: 2001, otherCosts: 2600 }] });
   s.importAdvertising(report('pa', 777)); s.importAdvertising(report('nca', 1500));
   let r = s.analytics(query()), d = r.daily[0], a = d.dailyReport;
   assert.equal(a.sourceNetProfit, 10000); assert.equal(a.advertising, 2001, 'an original PA figure is not overwritten by a differently based report');
-  assert.equal(a.acquisitionAdvertising, 1500); assert.equal(a.netProfit, 8500); assert.equal(d.netProfit, 8500); assert.equal(r.summary.netProfit, 8500); assert.equal(r.dailyReportSummary.netProfit, 8500);
-  assert.equal(a.advertisingSources.nca.scope, 'account'); assert.equal(a.advertisingSources.nca.basis, 'report-original-amount');
-  assert.match(a.advertisingSources.nca.filename, /_nca_/); assert.ok(a.reasons.some(reason => reason.includes('현재 선택 상품')));
+  assert.equal(a.acquisitionAdvertising, 500); assert.equal(a.netProfit, 9500); assert.equal(d.netProfit, 9500); assert.equal(r.summary.netProfit, 9500); assert.equal(r.dailyReportSummary.netProfit, 9500);
+  assert.equal(a.advertisingSources.nca.scope, 'selected'); assert.equal(a.advertisingSources.nca.basis, 'saved-source');
+  assert.equal(d.acquisitionCoverage.accountSpend, 1500); assert.equal(d.acquisitionCoverage.difference, 1000); assert.equal(d.acquisitionCoverage.applied, false);
+  assert.match(d.acquisitionCoverage.filename, /_nca_/); assert.ok(a.reasons.some(reason => reason.includes('다시 차감하지')));
   assert.equal(r.items[0].netProfit, null, 'an account expense is not allocated to an option');
   assert.equal(d.channels[0].netProfit, 9500, 'saved channel confirmations remain separate from account-wide collection');
   s.importAdvertising(report('nca', 1800)); s.importAdvertising(report('nca', 1800));
-  r = service().analytics(query()); assert.equal(r.daily[0].dailyReport.netProfit, 8200); assert.equal(r.summary.acquisitionAdvertising, 1800);
+  r = service().analytics(query()); assert.equal(r.daily[0].dailyReport.netProfit, 9500); assert.equal(r.summary.acquisitionAdvertising, 500); assert.equal(r.summary.acquisitionCoverage.differenceDays, 1); assert.equal(r.daily[0].acquisitionCoverage.accountSpend, 1800);
 });
 test('missing NCA remains unknown, reported zero is explicit and period totals only include confirmed dates', t => {
-  const { s } = setup(t); s.importSales({ date, rows: [row] }); s.importSales({ date: next, rows: [row] });
+  const { s } = setup(t); s.importSalesBatch({includeProducts:true,reports:[{date,rows:[row]},{date:next,rows:[row]}]});
   let r = s.analytics(query()); assert.equal(r.daily[0].dailyReport.acquisitionAdvertising, null); assert.equal(r.daily[0].dailyReport.netProfit, null);
   assert.ok(r.daily[0].dailyReport.missing.includes('acquisitionAdvertising'));
   s.importAdvertising(report('nca', 0)); r = s.analytics(query({ until: next }));
@@ -58,6 +59,7 @@ test('saved PA and NCA reports automatically complete API-based profit estimates
   assert.equal(d.sales, 20000); assert.equal(d.profitBeforeAds, 11400); assert.equal(d.sourceNetProfit, 9400); assert.equal(d.netProfit, 7900);
   assert.equal(d.estimated.netProfit, true); assert.equal(d.apiUnconfirmed, true); assert.equal(d.advertisingSources.pa.scope, 'account');
   assert.equal(r.daily[0].netProfit, 7900); assert.equal(r.summary.netProfit, 7900); assert.equal(r.items[0].netProfit, null);
+  assert.equal(r.daily[0].acquisitionCoverage.accountScopeVerified, false); assert.equal(r.daily[0].acquisitionCoverage.profitScope, 'api-scope-minus-account-nca'); assert.equal(r.daily[0].complete, false);
   const filtered = s.analytics(query({ channel: 'growth' })).daily[0].dailyReport; assert.equal(filtered.advertising, null); assert.equal(filtered.netProfit, null);
 });
 test('a reviewed ledger final is preserved and an ambiguous already-included acquisition cost is never deducted twice', async t => {
@@ -66,9 +68,10 @@ test('a reviewed ledger final is preserved and an ambiguous already-included acq
   for (const ledger of ledgers) s.saveLedger({ date, channel: ledger.channel, scopeKey: s.status().scopeKey, basis: ledger.basis, reviewed: true, ...Object.fromEntries(COSTS.map(key => [key, 0])), ...(ledger.channel === 'growth' ? { netSales: 20000, productCost: 6000, commission: 2000, advertising: 3500, delivery: 600 } : {}) });
   let r = s.analytics(query()); assert.equal(r.summary.netProfit, 7900); assert.equal(r.daily[0].dailyReport.netProfit, 7900);
   s.importAdvertising(report('nca', 1500)); r = s.analytics(query());
-  assert.equal(r.daily[0].dailyReport.acquisitionAdvertising, 1500); assert.equal(r.daily[0].dailyReport.netProfit, null);
-  assert.equal(r.daily[0].dailyReport.advertisingSources.nca.deducted, false); assert.equal(r.summary.complete, false);
-  assert.ok(r.daily[0].dailyReport.reasons.some(reason => reason.includes('이미 포함됐는지')));
+  assert.equal(r.daily[0].dailyReport.acquisitionAdvertising, null); assert.equal(r.daily[0].dailyReport.netProfit, 7900);
+  assert.equal(r.daily[0].dailyReport.advertisingSources.nca.deducted, false); assert.equal(r.daily[0].dailyReport.advertisingSources.nca.reportedAmount, 1500);
+  assert.equal(r.daily[0].acquisitionCoverage.source, 'confirmed-ledger'); assert.equal(r.daily[0].acquisitionCoverage.applied, false);
+  assert.ok(r.daily[0].dailyReport.reasons.some(reason => reason.includes('추가로 차감하지')));
 });
 test('report revision changes with saved financial content and rolls back with a failed revision write', t => {
   const { s, root } = setup(t); assert.equal(s.status().advertisingRevision, null);

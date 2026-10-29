@@ -5,15 +5,34 @@
   var root = document.documentElement;
   // A URL selects the workspace. No shared "last mode" setting can redirect
   // legacy links or mix the saved Naver theme into the growth workspace.
-  var growthPages = ['/coupang-dashboard.html', '/coupang-products.html', '/coupang-sales.html', '/coupang-ads.html', '/coupang.html', '/daily-monitoring.html'];
+  var growthPages = ['/coupang-dashboard.html', '/coupang-products.html', '/coupang-sales.html', '/coupang-ads.html', '/coupang.html', '/coupang-collector.html', '/daily-monitoring.html', '/monitoring-collector.html'];
   var sellhaMode = growthPages.indexOf(location.pathname) !== -1;
-  var dailyMonitoring = location.pathname === '/daily-monitoring.html';
+  var dailyMonitoring = ['/daily-monitoring.html','/monitoring-collector.html'].indexOf(location.pathname) !== -1;
   root.dataset.workspace = sellhaMode ? 'sellha' : 'naver';
   var savedTheme = 'dark';
   try { savedTheme = localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'; } catch (_) {}
   if (sellhaMode) savedTheme = 'light';
   root.dataset.theme = savedTheme;
   root.style.colorScheme = savedTheme;
+
+  var navigationQuery = new URLSearchParams(location.search);
+  function growthContextHref(href, values) {
+    var url = new URL(href, location.origin);
+    if (url.origin !== location.origin || growthPages.indexOf(url.pathname) === -1 || ['/daily-monitoring.html','/monitoring-collector.html'].indexOf(url.pathname) !== -1) return href;
+    ['since','until','channel','group'].forEach(function (key) {
+      var value = values instanceof URLSearchParams ? values.get(key) : values && values[key];
+      var valid = key === 'channel' ? ['all','growth','seller'].indexOf(value) !== -1 : key === 'group' ? typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
+      if (valid) url.searchParams.set(key,value); else url.searchParams.delete(key);
+    });
+    return url.pathname + url.search + url.hash;
+  }
+  function syncGrowthNavigation(values) {
+    navigationQuery = values instanceof URLSearchParams ? new URLSearchParams(values) : new URLSearchParams(values || {});
+    document.querySelectorAll('.growth-navigation a, .growth-brand').forEach(function (link) {
+      link.setAttribute('href', growthContextHref(link.getAttribute('href'),navigationQuery));
+    });
+  }
+  window.ROASCoupangNavigation = Object.freeze({ update: syncGrowthNavigation, href: growthContextHref });
 
   function initializeGrowthShell(body) {
     body.dataset.workspace = 'sellha';
@@ -39,6 +58,7 @@
       ['/daily-monitoring.html', '모니터링'],
       ['/coupang-sales.html', '매출 분석'],
       ['/coupang-ads.html', '광고 분석'],
+      ['/coupang-collector.html', '광고 수집 연결'],
       ['/coupang.html', '자료·연결 관리']
     ];
     items.forEach(function (item) {
@@ -47,15 +67,17 @@
       navigation.appendChild(link);
     });
     function markGrowthPage() {
-      var active = location.pathname + (location.pathname === '/coupang-products.html' && location.hash === '#cpm-groups-title' ? location.hash : '');
+      var active = (location.pathname === '/monitoring-collector.html' ? '/daily-monitoring.html' : location.pathname) + (location.pathname === '/coupang-products.html' && location.hash === '#cpm-groups-title' ? location.hash : '');
       Array.from(navigation.children).forEach(function (link) {
-        if (link.getAttribute('href') === active) link.setAttribute('aria-current', 'page');
+        var target = new URL(link.href, location.origin);
+        if (target.pathname + (target.pathname === '/coupang-products.html' && target.hash === '#cpm-groups-title' ? target.hash : '') === active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
     }
     markGrowthPage();
     window.addEventListener('hashchange', markGrowthPage);
     body.prepend(header);
+    syncGrowthNavigation(navigationQuery);
     var main = document.getElementById('app-main');
     var subnav = main && main.querySelector('.ca-subnav');
     if (subnav) subnav.remove();

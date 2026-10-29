@@ -47,13 +47,14 @@
     $('cpm-summary').replaceChildren(...counts.map(([label, value, help]) => { const card = node('div', undefined, 'ca-card'); card.append(node('small', label), node('strong', value.toLocaleString('ko-KR') + '개'), node('p', help)); return card; }));
   }
   function renderGroupSelects() {
-    const filter = $('cpm-group').value, assign = $('cpm-assign').value;
+    const filter = $('cpm-group').value || new URLSearchParams(location.search).get('group') || '', assign = $('cpm-assign').value;
     $('cpm-group').replaceChildren(); $('cpm-assign').replaceChildren();
     for (const [value, label] of [['', '전체 그룹'], ['__ungrouped', '그룹 미지정']]) { const o = node('option', label); o.value = value; $('cpm-group').append(o); }
     const empty = node('option', '그룹 선택'); empty.value = ''; $('cpm-assign').append(empty);
     for (const group of workspace?.groups || []) for (const id of ['cpm-group', 'cpm-assign']) { const option = node('option', group.name + ' (' + group.itemIds.length + ')'); option.value = group.id; $(id).append(option); }
     $('cpm-group').value = [...$('cpm-group').options].some(o => o.value === filter) ? filter : '';
     $('cpm-assign').value = [...$('cpm-assign').options].some(o => o.value === assign) ? assign : '';
+    syncAnalysisLinks();
   }
   function renderTable() {
     const groups = groupedProducts(), rows = [], shown = groups.flatMap(g => g.options);
@@ -137,9 +138,11 @@
     const query = new URLSearchParams();
     for (const key of ['since', 'until']) if (/^\d{4}-\d{2}-\d{2}$/.test(initialQuery.get(key) || '')) query.set(key, initialQuery.get(key));
     query.set('channel', ['growth', 'seller'].includes($('cpm-channel').value) ? $('cpm-channel').value : 'all');
+    if ($('cpm-group').value && $('cpm-group').value !== '__ungrouped') query.set('group',$('cpm-group').value);
     document.querySelectorAll('.ca-subnav a').forEach(link => { const url = new URL(link.href); url.search = query.toString(); link.href = url.pathname + url.search; });
+    window.ROASCoupangNavigation?.update(query);
   }
-  $('cpm-channel').addEventListener('change', syncAnalysisLinks); syncAnalysisLinks();
+  $('cpm-channel').addEventListener('change', syncAnalysisLinks); $('cpm-group').addEventListener('change',()=>{syncAnalysisLinks();const url=new URL(location.href);if($('cpm-group').value)url.searchParams.set('group',$('cpm-group').value);else url.searchParams.delete('group');history.replaceState(null,'',url.pathname+url.search+url.hash);}); syncAnalysisLinks();
 
   const dateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   $('cpm-cost-since').max = ['year', 'month', 'day'].map(key => dateParts.find(p => p.type === key).value).join('-');

@@ -55,7 +55,7 @@ async function main() {
   await page.goto(base + '/coupang.html'); await page.waitForFunction(() => document.getElementById('cp-identity').textContent === '미연결');
   await page.mouse.move(1200, 500); await page.keyboard.press('Escape');
   assert.equal(await page.locator('#cp-channel').inputValue(), 'growth'); assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
-  assert.equal(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'), '/coupang.html');
+  assert.equal(new URL(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'),base).pathname, '/coupang.html');
   assert.equal(await page.locator('#app-drawer').count(), 0, 'Growth has separate navigation');
   await page.fill('#cp-vendor', 'A00012345'); await page.fill('#cp-access', 'SYNTHETIC-ACCESS'); await page.fill('#cp-secret', 'SYNTHETIC-SECRET'); await page.locator('#cp-connect button').click();
   await page.waitForFunction(() => !document.getElementById('cp-connection').open);

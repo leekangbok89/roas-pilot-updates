@@ -2,6 +2,27 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const { parse, parseCSV, parseGrids, parseRank } = require('../public/monitoring-import.js');
 const selected = { id: 'internal-1', platform: 'naver', productId: '123456789' };
+test('review export columns roundtrip actual content and source flags without creating sales or counts', t => {
+  const headers=['리뷰ID','상품ID','마켓','일자','별점','제목','리뷰내용','옵션','작성자표시','사진URL','동영상URL','한달사용리뷰','원본순서','원문URL'];
+  const row=['review-1',selected.productId,'naver','2026-10-29',4,'후기','사용 후기\n둘째 줄','화이트','이*','https://images.example.com/a.jpg','https://images.example.com/a.mp4','예',0,'https://smartstore.naver.com/example/products/123456789'];
+  const parsed=parseGrids([[headers,row]],selected);
+  assert.deepEqual(parsed.snapshots,[]);
+  assert.equal(parsed.reviews.length,1);assert.equal(parsed.reviews[0].rating,4);assert.equal(parsed.reviews[0].sourceOrder,0);assert.equal(parsed.reviews[0].monthUse,true);assert.equal(parsed.reviews[0].text,row[6]);
+  assert.deepEqual(parsed.reviews[0].imageUrls,[row[9]]);assert.deepEqual(parsed.reviews[0].videoUrls,[row[10]]);
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{createService}=require('../integrations/monitoring/service.cjs');
+  const baseDir=fs.mkdtempSync(path.join(os.tmpdir(),'monitor-review-import-'));t.after(()=>fs.rmSync(baseDir,{recursive:true,force:true}));
+  const store=createService({baseDir,today:()=> '2026-10-29'});store.saveProduct({revision:0,product:{...selected,name:'검증 상품'}});
+  const saved=store.importData({revision:1,...parsed});assert.equal(saved.reviews[0].id,'review-1');assert.equal(saved.snapshots.length,0);
+  const invalid=[...row];invalid[11]='알 수 없음';assert.throws(()=>parseGrids([[headers,invalid]],selected),/한달사용리뷰/);
+  const duplicate=[...row];duplicate[6]='서로 다른 내용';assert.throws(()=>parseGrids([[headers,row,duplicate]],selected),/같은 리뷰/);
+});
+test('review and alert JSON backups retain collections and rolling-seven-day/Wow metrics stay separate',async()=>{
+  const value={reviews:[{id:'r',productId:selected.id,date:'2026-10-29',rating:5,text:'내용'}],alerts:[],settings:{orientation:'vertical'}};
+  const bytes=Buffer.from(JSON.stringify(value));
+  assert.deepEqual(await parse({name:'reviews.json',size:bytes.length,arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)}),value);
+  const {snapshots}=parseGrids([[['일자','가격','와우할인가','7일구매건수','판매량'],['2026-10-29','0','27550','28','']]],selected);
+  assert.equal(snapshots[0].price,0);assert.equal(snapshots[0].wowPrice,27550);assert.equal(snapshots[0].rollingSales7d,28);assert.equal('sales' in snapshots[0],false);
+});
 test('CSV parses quoted comma, multiline rank cells, escaped quotes and trailing blank rows', () => {
   const rows = parseCSV('\uFEFF날짜,키워드,순위,검색량\r\n2026-10-29,"아기, 분유","10위 - 1페이지 10위\n▼1\n브랜드묶음내 1위","2,800"\r\n\r\n');
   assert.equal(rows.length, 2); assert.equal(rows[1][1], '아기, 분유');

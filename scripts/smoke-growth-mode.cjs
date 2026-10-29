@@ -39,7 +39,7 @@ async function main() {
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
     assert.equal(await page.locator('body').getAttribute('data-workspace'), 'sellha');
     assert.equal(await page.locator('#app-drawer, #app-nav-rail, .ca-subnav').count(), 0);
-    assert.equal(await page.locator('.growth-navigation a[aria-current]').getAttribute('href'), route);
+    assert.equal(new URL(await page.locator('.growth-navigation a[aria-current]').getAttribute('href'),base).pathname, route);
     assert.equal(await page.evaluate(() => localStorage.getItem('roas-pilot-theme')), 'dark');
     assert.equal(await page.evaluate(() => localStorage.getItem('roas-growth-mode-test')), 'preserved');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
@@ -48,6 +48,16 @@ async function main() {
       fs.mkdirSync(process.env.ROAS_GROWTH_SCREENSHOT_DIR, { recursive: true });
       await page.screenshot({ path: path.join(process.env.ROAS_GROWTH_SCREENSHOT_DIR, path.basename(route, '.html') + '.png') });
     }
+  }
+  await page.goto(base + '/coupang-dashboard.html?since=2026-10-22&until=2026-10-28&channel=all&group=sample');
+  await page.waitForSelector('.growth-header');
+  for(const link of await page.locator('.growth-navigation a').all()){
+    const target=new URL(await link.getAttribute('href'),base);
+    if(target.pathname==='/daily-monitoring.html'){assert.equal(target.search,'');continue;}
+    assert.equal(target.searchParams.get('since'),'2026-10-22');
+    assert.equal(target.searchParams.get('until'),'2026-10-28');
+    assert.equal(target.searchParams.get('channel'),'all');
+    assert.equal(target.searchParams.get('group'),'sample');
   }
   await page.goto(base + '/coupang-products.html#cpm-groups-title');
   assert.equal(await page.locator('.growth-navigation a[aria-current]').textContent(), '그룹 관리');

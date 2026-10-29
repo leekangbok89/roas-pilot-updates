@@ -1053,11 +1053,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           seenImports.push({ date, importedAt: totals.importedAt });
         }
       }
-      applyAdvertisingCosts(day, advertisingCosts.get(date), channel, imported);
+      applyAdvertisingCosts(day, advertisingCosts.get(date), channel, imported, { group: v.group, fileScoped, fileSelectionChanged, fullFile: fileScoped && effectiveFileIds.length === reportItemIds.size });
       day.roas = roas(day); day.adReturnOnSpend = adReturnOnSpend(day); day.dailyReport = buildDailyReport(day);
       day.acquisitionAdvertising = day.dailyReport.acquisitionAdvertising;
       day.netProfit = day.dailyReport.netProfit;
-      if (day.ncaInclusionUnconfirmed) day.complete = false;
+      if (day.ncaInclusionUnconfirmed || day.acquisitionCoverage?.applied) day.complete = false;
       else if (Number.isFinite(day.netProfit) && Number.isFinite(day.sales) && Number.isFinite(day.profitBeforeAds) && Number.isFinite(day.advertising)) day.complete = true;
       delete day.advertisingSources; delete day.advertisingReasons; delete day.ncaInclusionUnconfirmed;
       daily.push(day);
@@ -1065,6 +1065,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     const summary = { ...Object.fromEntries(fields.map(k => [k, sum(daily, k)])), ...aggregateEstimates(daily), available: available(daily), complete: daily.every(d => d.complete) };
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
     summary.adReturnOnSpend = Number.isFinite(summary.adNetProfit) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adNetProfit / summary.advertising * 100 : null;
+    const acquisitionDays = daily.map(day => day.acquisitionCoverage);
+    summary.acquisitionCoverage = { accountScopeVerified: false, totalDays: days.length,
+      collectedDays: acquisitionDays.filter(day => day.collected).length,
+      appliedDays: acquisitionDays.filter(day => day.applied).length,
+      explicitDays: acquisitionDays.filter(day => day.source === 'sales-import').length,
+      ledgerDays: acquisitionDays.filter(day => day.source === 'confirmed-ledger').length,
+      differenceDays: acquisitionDays.filter(day => Number.isFinite(day.difference) && day.difference !== 0).length,
+      availableAccountSpend: acquisitionDays.some(day => Number.isFinite(day.accountSpend)) ? acquisitionDays.reduce((total, day) => total + (Number.isFinite(day.accountSpend) ? day.accountSpend : 0), 0) : null,
+      profitScope: acquisitionDays.some(day => day.applied) ? 'file-sales-minus-account-nca' : 'selected-scope',
+      reasons: [...new Set(acquisitionDays.map(day => day.reason).filter(Boolean))] };
     if (view) for (const item of itemTotals.values()) {
       item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
       item.adReturnOnSpend = Number.isFinite(item.adNetProfit) && Number.isFinite(item.advertising) && item.advertising > 0 ? item.adNetProfit / item.advertising * 100 : null;
@@ -1091,31 +1101,53 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (saved.vendorId !== c.vendorId || !saved.files || typeof saved.files !== 'object' || Array.isArray(saved.files)) throw fail(500, '저장된 광고 보고서 변경 이력을 확인하세요.');
     return hash(Object.entries(saved.files).sort(([a], [b]) => a.localeCompare(b)));
   }
-  function applyAdvertisingCosts(day, reports, channel, imported) {
+  function applyAdvertisingCosts(day, reports, channel, imported, scope) {
     const source = amount => Number.isFinite(amount) ? { source: day.source === 'ledger' ? 'confirmed-ledger' : 'saved-sales',
       scope: 'selected', basis: 'saved-source', amount, importedAt: day.dailyTotals?.importedAt || imported?.importedAt || null }
       : { source: 'missing', scope: 'selected', amount: null };
     day.advertisingSources = { pa: source(day.advertising), nca: source(day.acquisitionAdvertising) };
     day.advertisingReasons = [];
+    const accountSpend = reports.nca?.amount ?? null;
+    const coverage = { collected: !!reports.nca, accountScopeVerified: false, applied: false,
+      source: Number.isFinite(day.acquisitionAdvertising) ? 'sales-import' : 'missing',
+      ...(reports.nca ? { accountSpend, profitScope: 'selected-scope', filename: reports.nca.filename || null, importedAt: reports.nca.importedAt || null } : {}) };
+    day.acquisitionCoverage = coverage;
+    const ledgerIncluded = day.source !== 'reconciled' && day.channels.some(part => part.source === 'ledger');
+    const apiScope = !scope.group && day.channels.every(part => part.source === 'api');
+    const eligibleScope = channel === 'all' && !scope.group && (scope.fileScoped && scope.fullFile && !scope.fileSelectionChanged || apiScope);
     if (channel !== 'all') {
-      if (reports.nca) day.advertisingReasons.push('저장된 신규구매 광고비는 계정 전체 금액입니다. 배송 방식별로 배분하지 않아 이 조회에는 적용하지 않았습니다.');
+      if (reports.nca) {
+        coverage.reason = '저장된 신규구매 광고비는 계정 전체 금액입니다. 배송 방식별로 배분하지 않아 이 조회에는 적용하지 않았습니다.';
+        day.advertisingReasons.push(coverage.reason);
+      }
       return;
     }
-    if (!Number.isFinite(day.advertising) && reports.pa) {
+    if (!Number.isFinite(day.advertising) && reports.pa && eligibleScope && !ledgerIncluded) {
       day.advertising = reports.pa.amount; day.advertisingSources.pa = reports.pa;
       day.advertisingReasons.push('매출성장 광고비는 계정 전체 보고서 원본 금액을 적용했습니다. 선택한 상품별 이익과 범위가 다를 수 있으며 부가세를 추정해 가산하지 않았습니다.');
     }
-    const ledgerIncluded = day.source !== 'reconciled' && day.channels.some(part => part.source === 'ledger');
-    if (reports.nca) {
-      day.acquisitionAdvertising = reports.nca.amount; day.advertisingSources.nca = reports.nca;
-      if (ledgerIncluded) {
-        day.ncaInclusionUnconfirmed = true; day.advertisingSources.nca = { ...reports.nca, deducted: false };
-        day.advertisingReasons.push('확인 원장의 쿠팡 광고비에 신규구매 비용이 이미 포함됐는지 확인되지 않아 추가 차감 후 순이익은 계산 대기입니다. 신규구매 보고서는 계정 전체 원본 금액이며 부가세를 추정해 가산하지 않았습니다.');
-      } else day.advertisingReasons.push('신규구매 광고비는 계정 전체 보고서 원본 금액을 현재 선택 상품의 순이익에서 차감합니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.');
-    } else if (day.source === 'ledger' && Number.isFinite(day.netProfit)) {
-      day.advertisingSources.nca = { ...day.advertisingSources.nca, source: 'confirmed-ledger', included: true };
-      day.advertisingReasons.push('확인 원장의 쿠팡 광고비 합계가 이미 반영된 순이익입니다. 신규구매 비용을 별도로 다시 차감하지 않았습니다.');
+    if (Number.isFinite(day.acquisitionAdvertising)) {
+      coverage.reason = '기존에 확인한 신규고객확보 광고비를 사용합니다. 수집 보고서 광고비를 다시 차감하지 않습니다.';
+      coverage.difference = Number.isFinite(accountSpend) ? accountSpend - day.acquisitionAdvertising : null;
+    } else if (ledgerIncluded) {
+      coverage.source = 'confirmed-ledger';
+      coverage.reason = '확인한 비용 장부의 광고비가 반영된 이익을 유지합니다. 신규구매 광고비가 이미 포함되었을 수 있어 계정 보고서 비용을 추가로 차감하지 않았습니다.';
+      day.advertisingSources.nca = { ...day.advertisingSources.nca, source: 'confirmed-ledger', included: true,
+        ...(reports.nca ? { reportedAmount: accountSpend, deducted: false } : {}) };
+    } else if (!eligibleScope) {
+      coverage.source = 'scope-unallocated';
+      coverage.reason = '계정 전체 신규구매 광고비는 배송 방식·상품·그룹 일부에 배분할 수 없습니다. 전체 파일의 모든 옵션 또는 전체 API 조회 범위에서만 비교합니다.';
+    } else if (!reports.nca) {
+      coverage.reason = '이 날짜의 신규구매 광고 보고서가 없습니다. 미수집 광고비를 0원으로 계산하지 않습니다.';
+    } else if (!Number.isFinite(day.profitBeforeAds) && !Number.isFinite(day.estimatedProfitBeforeAds) || !Number.isFinite(day.advertising)) {
+      coverage.reason = '매출성장 광고 차감 전 이익 또는 광고비가 확인되지 않아 신규구매 광고비 반영 이익을 계산하지 않습니다.';
+    } else {
+      day.acquisitionAdvertising = accountSpend; day.advertisingSources.nca = reports.nca;
+      coverage.applied = true; coverage.source = 'nca-report';
+      coverage.profitScope = apiScope ? 'api-scope-minus-account-nca' : 'file-sales-minus-account-nca';
+      coverage.reason = (apiScope ? '현재 선택 상품의 API 매출 추정 이익' : '가져온 전체 파일 매출의 이익') + '에서 계정 전체 신규구매 광고비를 한 번 차감했습니다. 이 매출이 계정 전체 범위인지는 확인되지 않았습니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.';
     }
+    day.advertisingReasons.push(coverage.reason);
   }
   function dailyReportFields() { return ['sales', 'profitBeforeAds', 'advertising', 'otherCosts', 'sourceNetProfit', 'acquisitionAdvertising', 'netProfit']; }
   function buildDailyReport(day) {
@@ -1314,4 +1346,3 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, importAdvertising, advertisingReports, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
 }
 module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };
-

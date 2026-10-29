@@ -7,7 +7,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawnSync } = require('node:child_process');
 const project = path.resolve(__dirname, '..');
-const assets = ['daily-monitoring.html', 'daily-monitoring.js', 'daily-monitoring.css', 'monitoring-import.js'];
+const assets = ['daily-monitoring.html', 'daily-monitoring.js', 'daily-monitoring.css', 'monitoring-import.js', 'monitoring-export.js', 'monitoring-extract.js', 'monitoring-collector.html', 'monitoring-collector.js'];
 
 function temporary(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roas-monitoring-http-'));
@@ -30,7 +30,7 @@ async function fixture(t) {
       const chunks = []; response.on('data', chunk => chunks.push(chunk)); response.on('error', reject);
       response.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
-        try { resolve({ status: response.statusCode, headers: response.headers, text, body: raw ? text : JSON.parse(text) }); } catch (error) { reject(error); }
+        try { resolve({ status: response.statusCode, headers: response.headers, text, bytes:Buffer.concat(chunks), body: raw ? text : JSON.parse(text) }); } catch (error) { reject(error); }
       });
     });
     req.on('error', reject); req.end(body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body));
@@ -67,6 +67,31 @@ test('monitoring HTTP persists folders, products, keywords, settings, observatio
   assert.equal(saved.revision, 9); assert.equal(saved.settings.orientation, 'vertical'); assert.equal(saved.products[0].favorite, true); assert.equal(saved.snapshots.length, 1);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.roas-data', 'daily-monitoring', 'state.json'), 'utf8')), saved);
   assert.deepEqual(fs.readdirSync(path.join(dir, '.roas-data')), ['daily-monitoring'], 'monitoring must stay isolated from sales and ad ledgers');
+});
+
+test('monitoring collector HTTP protects its local bridge, persists acknowledgements and serves a bounded extension', async t=>{
+  const {request,post,headers}=await fixture(t);
+  const status=await request('collector/status');assert.equal(status.status,200);assert.equal(status.body.running,false);assert.equal('token' in status.body,false);
+  assert.equal((await request('collector/connect')).status,405);
+  assert.equal((await post('collector/connect',{}, {requestHeaders:{...headers,origin:'https://sellha.kr'}})).status,403);
+  assert.equal((await post('collector/__proto__',{})).status,404);
+  const start=await post('collector/start',{mode:'full',platform:'naver'});assert.equal(start.status,200);assert.equal(start.body.total,1);
+  const connection=await post('collector/connect',{});assert.equal(connection.status,200);assert.match(connection.body.token,/^[a-f0-9]{64}$/);
+  const token=connection.body.token,job=(await post('collector/job',{token})).body.job;
+  assert.equal(job.type,'list');assert.equal(job.url,'https://sellha.kr/monitoring/day/naver');
+  const detailUrl='https://sellha.kr/monitoring/day/naver?productId=123&classificationType=product&isTeamProduct=false';
+  const payload={products:[{platform:'naver',productId:'123',name:'검증 상품',sourceUrl:detailUrl}],snapshots:[]};
+  const result=await post('collector/result',{token,runId:job.runId,jobId:job.id,sourceUrl:job.url,payload});
+  assert.equal(result.status,200);assert.equal(result.body.products,1);assert.equal(result.body.status.completed,1);assert.equal(result.body.status.total,2);
+  assert.equal((await request('state')).body.products[0].name,'검증 상품');
+  assert.equal((await post('collector/result',{token,runId:job.runId,jobId:job.id,sourceUrl:job.url,payload})).body.alreadySaved,true);
+  assert.equal((await post('collector/pause',{})).status,200);assert.equal((await post('collector/job',{token})).status,401);
+  const state=(await request('state')).body;assert.equal((await post('alerts-ack',{revision:state.revision,ids:[]})).status,200);
+  const download=await request('',{pathname:'/monitoring-collector-extension.zip',raw:true});assert.equal(download.status,200);assert.equal(download.headers['content-type'],'application/zip');
+  const files=new Map();let offset=0;while(download.bytes.readUInt32LE(offset)===0x04034b50){const size=download.bytes.readUInt32LE(offset+18),nameLength=download.bytes.readUInt16LE(offset+26),extraLength=download.bytes.readUInt16LE(offset+28),start=offset+30+nameLength+extraLength;const name=download.bytes.subarray(offset+30,offset+30+nameLength).toString();files.set(name,download.bytes.subarray(start,start+size).toString());offset=start+size;}
+  assert.equal(files.get('extract.js'),fs.readFileSync(path.join(project,'public/monitoring-extract.js'),'utf8'));
+  const manifest=JSON.parse(files.get('manifest.json'));assert.equal(manifest.manifest_version,3);assert.ok(!manifest.permissions.includes('cookies'));assert.ok(!manifest.permissions.includes('debugger'));
+  assert.deepEqual(manifest.host_permissions,['https://sellha.kr/*','http://127.0.0.1:3000/*','http://localhost:3000/*']);
 });
 
 test('monitoring HTTP write protection and method guards reject unauthorized or malformed requests without mutation', async t => {
@@ -115,6 +140,8 @@ test('monitoring bundle check detects stale backend and assets without mutation 
   fs.mkdirSync(path.join(dir, 'integrations', 'monitoring'), { recursive: true });
   fs.copyFileSync(path.join(project, 'scripts', 'bundle-monitoring.cjs'), path.join(dir, 'scripts', 'bundle-monitoring.cjs'));
   fs.copyFileSync(path.join(project, 'integrations', 'monitoring', 'service.cjs'), path.join(dir, 'integrations', 'monitoring', 'service.cjs'));
+  fs.copyFileSync(path.join(project, 'integrations', 'monitoring', 'collector.cjs'), path.join(dir, 'integrations', 'monitoring', 'collector.cjs'));
+  fs.cpSync(path.join(project, 'browser-extensions', 'monitoring-collector'), path.join(dir, 'browser-extensions', 'monitoring-collector'), {recursive:true});
   for (const name of assets) fs.copyFileSync(path.join(project, 'public', name), path.join(dir, 'public', name));
   const generate = (...args) => spawnSync(process.execPath, [path.join(dir, 'scripts', 'bundle-monitoring.cjs'), ...args], { cwd: dir, encoding: 'utf8', timeout: 10000 });
   const serverFile = path.join(dir, 'server.js'), source = fs.readFileSync(serverFile, 'utf8');

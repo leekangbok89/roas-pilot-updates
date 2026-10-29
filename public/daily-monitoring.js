@@ -1,328 +1,136 @@
 (function () {
   'use strict';
-  const $ = id => document.getElementById(id);
-  const num = value => typeof value === 'number' && Number.isFinite(value);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const count = value => num(value) ? value.toLocaleString('ko-KR') : '—';
-  const money = value => num(value) ? count(value) + '원' : '—';
-  const safeUrl = value => { try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : ''; } catch (_) { return ''; } };
-  const bellIcon = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4M12 2V1"/></svg>';
-  let state = {revision:0,products:[],folders:[],snapshots:[],settings:{}}, platform = 'naver', selectedId = null, detailTab = 'keywords', query = '', folderId = '', editingId = null, busy = false, loaded = false, order = [], importProductId = null;
-  let historyIndex = new Map(), snapshotIndex = new Map(), keywordIndex = new Map(), latestKeywordIndex = new Map(), metricIndex = new Map();
-  let view = {expanded:false,orientation:'horizontal',keywordSort:'saved',rankOptions:{normal:true,group:true,ads:true,adCount:false}};
+  const $ = id => document.getElementById(id), num = value => typeof value === 'number' && Number.isFinite(value);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const count = value => num(value) ? value.toLocaleString('ko-KR') : '—', money = value => num(value) ? count(value)+'원' : '—';
+  const own = (object,key) => Object.prototype.hasOwnProperty.call(object,key);
+  const today = () => new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
+  const safeUrl = value => {try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch(_){return '';}};
+  const bell = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4M12 2V1"/></svg>';
+  let state={revision:0,products:[],folders:[],snapshots:[],reviews:[],alerts:[],settings:{}}, platform='naver', selectedId=null, detailTab='keywords', query='',folderId='',favoritesOnly=false,editingId=null,busy=false,loaded=false,order=[],importProductId=null,productFormBaseline={};
+  let historyIndex=new Map(),snapshotIndex=new Map(),keywordIndex=new Map(),latestKeywordIndex=new Map(),metricIndex=new Map(),reviewsIndex=new Map();
+  const drafts=new Map(),rankOrders=new Map(),alertDrafts=new Map();
+  let draggedKeyword=null,collectorState=null,collectorLoading=false,pendingFolderRemoval=null;
+  let reviewView={query:'',stars:'',media:'all',sort:'latest',scope:'latest',page:1};
+  const view={expanded:false,orientation:'horizontal',keywordSort:'saved',rankOptions:{normal:true,group:true,ads:true,adCount:false}};
 
-  function applyViewSettings(settings) {
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return;
-    if (typeof settings.expanded === 'boolean') view.expanded = settings.expanded;
-    if (['horizontal','vertical'].includes(settings.orientation)) view.orientation = settings.orientation;
-    if (['saved','volume','rank'].includes(settings.keywordSort)) view.keywordSort = settings.keywordSort;
-    if (settings.rankOptions && typeof settings.rankOptions === 'object' && !Array.isArray(settings.rankOptions)) {
-      for (const key of ['normal','group','ads','adCount']) if (typeof settings.rankOptions[key] === 'boolean') view.rankOptions[key] = settings.rankOptions[key];
-    }
+  function notify(message,error){$('dm-status').hidden=!message;$('dm-status').textContent=message||'';$('dm-status').dataset.error=String(!!error);}
+  function setBusy(value){busy=value;document.body.dataset.monitoringBusy=String(value);document.querySelectorAll('[data-write],#dm-product-form button,#dm-folder-form button,#dm-keyword-form button,#dm-alert-form button,#dm-order-save,#dm-save-sort,#dm-orientation,#dm-zoom,#dm-detail-zoom,[data-rank-option]').forEach(el=>{el.disabled=value;});}
+  function applyViewSettings(settings){if(!settings||typeof settings!=='object'||Array.isArray(settings))return;if(typeof settings.expanded==='boolean')view.expanded=settings.expanded;if(['horizontal','vertical'].includes(settings.orientation))view.orientation=settings.orientation;if(['saved','volume','rank'].includes(settings.keywordSort))view.keywordSort=settings.keywordSort;for(const key of ['normal','group','ads','adCount'])if(typeof settings.rankOptions?.[key]==='boolean')view.rankOptions[key]=settings.rankOptions[key];}
+  function hydrate(result){
+    if(!result||!Array.isArray(result.products)||!Array.isArray(result.snapshots)||!Array.isArray(result.folders)||!Number.isInteger(result.revision))throw Error('모니터링 자료 형식이 올바르지 않습니다.');
+    state={...result,reviews:Array.isArray(result.reviews)?result.reviews:[],alerts:Array.isArray(result.alerts)?result.alerts:[]};applyViewSettings(state.settings);
+    historyIndex=new Map();snapshotIndex=new Map();keywordIndex=new Map();latestKeywordIndex=new Map();metricIndex=new Map();reviewsIndex=new Map();
+    for(const s of state.snapshots){if(!historyIndex.has(s.productId))historyIndex.set(s.productId,[]);historyIndex.get(s.productId).push(s);if(!snapshotIndex.has(s.productId))snapshotIndex.set(s.productId,new Map());snapshotIndex.get(s.productId).set(s.date,s);keywordIndex.set(s,new Map((s.keywords||[]).map(k=>[k.keyword,k])));}
+    for(const [id,snapshots] of historyIndex){snapshots.sort((a,b)=>b.date.localeCompare(a.date));const latest=new Map(),metrics=new Map();for(const s of snapshots){for(const k of s.keywords||[])if(!latest.has(k.keyword))latest.set(k.keyword,{keyword:k,date:s.date});for(const key of ['price','wowPrice','shipping','reviews','rating','rollingSales7d'])if(!metrics.has(key)&&own(s,key))metrics.set(key,s[key]);}latestKeywordIndex.set(id,latest);metricIndex.set(id,metrics);}
+    for(const r of state.reviews){if(!reviewsIndex.has(r.productId))reviewsIndex.set(r.productId,[]);reviewsIndex.get(r.productId).push(r);}
+    for(const list of reviewsIndex.values())list.sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id)));
+    loaded=true;
   }
+  async function load(quiet){try{const response=await fetch('/api/monitoring/state',{cache:'no-store'}),result=await response.json();if(!response.ok)throw Error(result.error||'저장 자료를 불러오지 못했습니다.');hydrate(result);if(!quiet)notify('');render();}catch(error){if(!quiet)notify(error.message,true);if(!loaded)$('dm-cards').innerHTML='<div class="dm-empty">저장 자료를 불러오지 못했습니다.<br><button id="dm-retry" type="button">다시 불러오기</button></div>';}}
+  async function save(route,data,message){if(busy||!loaded)return false;setBusy(true);try{const response=await fetch('/api/monitoring/'+route,{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({revision:state.revision,...data})}),result=await response.json();if(!response.ok){if(response.status===409){await load(true);throw Error('다른 화면에서 자료가 변경되었습니다. 최신 자료를 불러왔으니 다시 저장하세요.');}throw Error(result.error||'자료를 저장하지 못했습니다.');}hydrate(result);render();notify(message||'저장했습니다.');return true;}catch(error){notify(error.message,true);return false;}finally{setBusy(false);}}
+  function activeProducts(){return state.products.filter(p=>!p.archived);}
+  function product(){return state.products.find(p=>p.id===selectedId&&!p.archived);}
+  function histories(id){return historyIndex.get(id)||[];}
+  function currentMetric(p,key){const metrics=metricIndex.get(p.id);return metrics?.has(key)?metrics.get(key):p[key];}
+  function latestKeyword(p,name){return latestKeywordIndex.get(p.id)?.get(name)||null;}
+  function keywordsFor(p){return(p.keywords||[]).map(k=>{const latest=latestKeyword(p,k.keyword)?.keyword;return{...k,searchVolume:latest&&own(latest,'searchVolume')?latest.searchVolume:k.searchVolume};});}
+  function keywordAt(id,date,name){const s=snapshotIndex.get(id)?.get(date);return keywordIndex.get(s)?.get(name);}
+  function previousDate(date){return new Date(Date.parse(date+'T00:00:00Z')-86400000).toISOString().slice(0,10);}
+  function movement(p,date,name,field){const a=keywordAt(p.id,date,name),b=keywordAt(p.id,previousDate(date),name),key=field||'rank';if(!num(a?.[key])||!num(b?.[key]))return'';const delta=b[key]-a[key];return delta?'<span class="'+(delta>0?'dm-up':'dm-down')+'">'+(delta>0?'▲':'▼')+Math.abs(delta)+'</span>':'<span class="dm-flat">-</span>';}
+  function rankText(k){if(!k||k.status==='missing')return'—';if(k.status==='pending')return'업데이트 중';if(k.status==='outside')return num(k.outsideLimit)?count(k.outsideLimit)+'위 밖':'순위 밖';return num(k.rank)?count(k.rank)+'위':'—';}
+  function image(p,className){const url=safeUrl(p.imageUrl);return url?'<img class="'+className+'" src="'+esc(url)+'" alt="'+esc(p.name)+'" loading="lazy" referrerpolicy="no-referrer">':'<span class="'+className+' dm-image-placeholder" aria-label="썸네일 없음">▧</span>';}
+  function card(p){const keys=keywordsFor(p),fresh=histories(p.id)[0]?.date;return'<article class="dm-card"><div class="dm-card-head"><a class="dm-card-product" href="?product='+encodeURIComponent(p.id)+'">'+image(p,'dm-product-image')+'<span class="dm-card-name">'+(p.brand?esc(p.brand)+' <span class="dm-divider">|</span> ':'')+esc(p.name)+'</span></a><div class="dm-card-actions"><button type="button" data-write data-favorite="'+esc(p.id)+'" aria-label="'+esc(p.name)+' 관심 상품" aria-pressed="'+!!p.favorite+'">'+(p.favorite?'★':'☆')+'</button><button type="button" data-alert="'+esc(p.id)+'" aria-label="'+esc(p.name)+' 순위 알림">'+bell+'</button></div></div><div class="dm-card-metrics"><div><span>'+(p.platform==='coupang'?'쿠팡 판매가':'가격')+'</span><strong>'+money(currentMetric(p,'price'))+'</strong></div><div><span>'+(p.platform==='coupang'?'와우할인가':'배송비')+'</span><strong>'+money(currentMetric(p,p.platform==='coupang'?'wowPrice':'shipping'))+'</strong></div><div><span>리뷰</span><strong>'+count(currentMetric(p,'reviews'))+(num(currentMetric(p,'reviews'))?'개':'')+'</strong></div><div><span>평점</span><strong>'+(num(currentMetric(p,'rating'))?currentMetric(p,'rating').toFixed(1)+'점':'—')+'</strong></div></div><div class="dm-keywords">'+keys.slice(0,3).map(k=>{const latest=latestKeyword(p,k.keyword);return'<span class="dm-keyword-pill">'+esc(k.keyword)+' <span>'+esc(rankText(latest?.keyword))+'</span> '+(latest?movement(p,latest.date,k.keyword):'')+'</span>';}).join('')+(keys.length>3?'<a class="dm-card-more" href="?product='+encodeURIComponent(p.id)+'">더보기</a>':'')+(!keys.length?'<a class="dm-card-more" href="?product='+encodeURIComponent(p.id)+'">키워드를 추가하세요</a>':'')+'</div><div class="dm-card-freshness'+(fresh&&fresh<today()?' dm-stale':'')+'">'+(fresh?'기록 기준 '+esc(fresh):'수집 기록 없음')+'</div></article>';}
+  function addCard(){return'<button type="button" class="dm-add-card" id="dm-add" data-write><span class="dm-add-plus">＋</span><span>모니터링하고 싶은<br><strong>'+(platform==='naver'?'네이버쇼핑':'쿠팡')+'</strong> 아이템을 추가하세요.</span><span class="dm-add-note">Chrome 수집 또는 직접 등록</span></button>';}
+  function renderList(){
+    const products=activeProducts().filter(p=>p.platform===platform),all=state.products,quotaKeywords=all.reduce((n,p)=>n+(p.keywords||[]).length,0),archived=all.filter(p=>p.archived).length;
+    $('dm-counts').innerHTML='<span><i>🔸</i> 등록 상품 수 <strong>'+products.length+'개</strong></span><span><i>🔸</i> 등록 키워드 수 <strong>'+count(products.reduce((n,p)=>n+(p.keywords||[]).length,0))+'개</strong></span><small>전체 사용량 '+all.length+'/600개 · 키워드 '+quotaKeywords+'/3000개'+(archived?' · 보관 상품 '+archived+'개 포함':'')+'</small>';
+    const info=state.lastImport,latestDate=products.reduce((latest,p)=>histories(p.id)[0]?.date>latest?histories(p.id)[0].date:latest,'');$('dm-last-import').hidden=!info&&!latestDate;$('dm-last-import').textContent=(latestDate?'최근 기록 '+latestDate:'')+(info?' · 자료 출처 '+info.source+(info.at&&Number.isFinite(Date.parse(info.at))?' · 가져온 시각 '+new Date(info.at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):''):'');
+    $('dm-folder-filter').innerHTML='<option value="">전체 상품</option><option value="__none">미분류</option>'+state.folders.map(f=>'<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>').join('')+'<option value="__archived">보관 상품</option>';
+    if(folderId&&!['__none','__archived'].includes(folderId)&&!state.folders.some(f=>f.id===folderId))folderId='';$('dm-folder-filter').value=folderId;$('dm-favorites-only').checked=favoritesOnly;
+    const candidates=folderId==='__archived'?all.filter(p=>p.archived&&p.platform===platform):products;
+    const filtered=candidates.filter(p=>(!favoritesOnly||p.favorite)&&(!folderId||folderId==='__archived'||(folderId==='__none'?!p.folderId:p.folderId===folderId))&&(!query||[p.name,p.brand,state.folders.find(f=>f.id===p.folderId)?.name,...keywordsFor(p).map(k=>k.keyword)].join(' ').toLowerCase().includes(query)));
+    if(folderId||query||favoritesOnly||!state.folders.length)$('dm-cards').innerHTML='<div class="dm-grid">'+addCard()+filtered.map(card).join('')+'</div>'+(!filtered.length&&(query||folderId||favoritesOnly)?'<p class="dm-empty">검색 조건에 맞는 상품이 없습니다.</p>':'');
+    else{$('dm-cards').innerHTML='<div class="dm-grid">'+addCard()+filtered.filter(p=>!p.folderId).map(card).join('')+'</div>'+state.folders.map(f=>({folder:f,products:filtered.filter(p=>p.folderId===f.id)})).filter(g=>g.products.length).map(g=>'<section class="dm-folder-section"><h2 class="dm-folder-head">▱ '+esc(g.folder.name)+'<small>'+g.products.length+'개</small></h2><div class="dm-grid">'+g.products.map(card).join('')+'</div></section>').join('');}
+    document.querySelectorAll('[data-platform]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.platform===platform)));
+  }
+  function draft(p){let item=drafts.get(p.id);if(!item||!item.dirty){item={items:keywordsFor(p),dirty:false,find:item?.find||''};drafts.set(p.id,item);}return item;}
+  function markDraft(p){const d=draft(p);d.dirty=true;return d;}
+  function renderKeywordEditor(p){const d=draft(p),find=d.find.toLowerCase();$('dm-keyword-draft-count').textContent=d.items.length+'개';$('dm-keyword-find').value=d.find;$('dm-keyword-dirty').textContent=d.dirty?'저장하지 않은 변경사항이 있습니다.':'';
+    $('dm-keyword-chips').innerHTML=d.items.map((k,i)=>({k,i})).filter(x=>!find||x.k.keyword.toLowerCase().includes(find)).map(({k,i})=>'<div class="dm-draft-keyword" draggable="true" data-draft-keyword="'+i+'"><span class="dm-drag-grip" aria-hidden="true">☰</span><span>'+esc(k.keyword)+'</span>'+(num(k.searchVolume)?'<small>'+count(k.searchVolume)+'</small>':'')+'<button type="button" data-draft-move="'+i+'" data-direction="-1" aria-label="'+esc(k.keyword)+' 위로" '+(!i?'disabled':'')+'>↑</button><button type="button" data-draft-move="'+i+'" data-direction="1" aria-label="'+esc(k.keyword)+' 아래로" '+(i===d.items.length-1?'disabled':'')+'>↓</button><button type="button" data-keyword-remove="'+esc(k.keyword)+'" aria-label="'+esc(k.keyword)+' 삭제">×</button></div>').join('')||'<p class="dm-muted">담은 키워드가 없습니다.</p>';
+    const pool=new Map();for(const key of p.tags||[])if(String(key).trim())pool.set(String(key).trim(),null);const leaf=String(p.category||'').split('>').pop().trim();if(leaf)pool.set(leaf,null);for(const k of keywordsFor(p))pool.set(k.keyword,k.searchVolume);for(const s of histories(p.id))for(const k of s.keywords||[])if(!pool.has(k.keyword))pool.set(k.keyword,k.searchVolume);const picked=new Set(d.items.map(k=>k.keyword));
+    $('dm-keyword-suggestions').innerHTML=[...pool].filter(([k])=>!picked.has(k)).slice(0,40).map(([key,volume])=>'<button type="button" data-keyword-suggest="'+esc(key)+'"'+(num(volume)?' data-volume="'+volume+'"':'')+'>'+esc(key)+' <span>＋</span></button>').join('')||'<p class="dm-muted">추가할 저장 키워드가 없습니다.</p>';
+  }
+  function addKeywordInputs(){const p=product();if(!p)return;const incoming=$('dm-keyword-add').value.split(/[,\n\r]+/).map(s=>s.trim()).filter(Boolean);if(incoming.some(k=>k.length>100)){notify('키워드는 100자 이하로 입력하세요.',true);return;}const current=draft(p),existing=new Set(current.items.map(k=>k.keyword)),extra=[...new Set(incoming)].filter(k=>!existing.has(k));const remaining=state.products.reduce((n,row)=>n+(row.id===p.id?0:(row.keywords||[]).length),0);if(remaining+current.items.length+extra.length>3000){notify('보관 상품을 포함해 전체 키워드는 3,000개까지 등록할 수 있습니다.',true);return;}const d=markDraft(p);for(const value of extra)d.items.push({keyword:value,searchVolume:latestKeyword(p,value)?.keyword?.searchVolume??null});$('dm-keyword-add').value='';renderKeywordEditor(p);}
+  function sortedKeywords(p){const keys=keywordsFor(p),custom=rankOrders.get(p.id);if(view.keywordSort==='volume')keys.sort((a,b)=>(num(b.searchVolume)?b.searchVolume:-1)-(num(a.searchVolume)?a.searchVolume:-1));else if(view.keywordSort==='rank')keys.sort((a,b)=>(latestKeyword(p,a.keyword)?.keyword?.rank??Infinity)-(latestKeyword(p,b.keyword)?.keyword?.rank??Infinity));else if(custom){const positions=new Map(custom.map((k,i)=>[k,i]));keys.sort((a,b)=>(positions.get(a.keyword)??Infinity)-(positions.get(b.keyword)??Infinity));}return keys;}
+  function rankCell(p,date,key){const k=keywordAt(p.id,date,key.keyword),options=view.rankOptions,highlight=p.alert?.enabled&&(!p.alert.mode||p.alert.mode==='threshold')&&(!p.alert.keywords?.length||p.alert.keywords.includes(key.keyword))&&num(k?.rank)&&k.rank>(p.alert.threshold||10);let result='';if(options.normal)result+='<div class="dm-rank'+(highlight?' dm-rank-alert':'')+'"><strong>'+esc(rankText(k))+'</strong>'+(num(k?.page)&&num(k?.position)?'<small> - '+count(k.page)+'페이지 '+count(k.position)+'위</small>':'')+' '+movement(p,date,key.keyword)+'</div>';if(options.group&&num(k?.groupRank))result+='<div class="dm-rank-sub">브랜드묶음 <strong>내 '+count(k.groupRank)+'위</strong> '+movement(p,date,key.keyword,'groupRank')+'</div>';if(options.ads&&num(k?.adRank))result+='<div class="dm-rank-sub">광고 <strong>'+count(k.adRank)+'위</strong> '+movement(p,date,key.keyword,'adRank')+'</div>';if(options.adCount&&num(k?.adCount))result+='<div class="dm-rank-sub">광고 개수 '+count(k.adCount)+'개</div>';return result||'<span class="dm-muted">—</span>';}
+  function renderRank(p){const keys=sortedKeywords(p),dates=histories(p.id).map(s=>s.date);$('dm-rank-note').textContent=dates.length?'저장된 자료 기준 · 최근 '+dates[0]+' · '+dates.length+'일':'수집하거나 가져온 기록이 날짜별로 표시됩니다.';$('dm-rank-dirty').textContent=rankOrders.has(p.id)?'순서를 저장하세요.':'';$('dm-market-basis').textContent=p.platform==='coupang'?'셀하 쿠팡 자료: 모바일 기준 · 개인화와 기기에 따라 순위가 달라질 수 있으며 로켓프레시는 제외됩니다.':'셀하 네이버 자료: PC 쇼핑 기준 · 저장된 관측 날짜의 순위입니다.';
+    if(!keys.length||!dates.length){$('dm-rank-table').innerHTML='<div class="dm-empty">'+(!keys.length?'모니터링할 키워드를 추가하세요.':'저장된 순위 기록이 없습니다.')+'<br><button type="button" data-collect>Chrome에서 기록 수집</button><button type="button" data-import>자료 가져오기</button></div>';return;}
+    if(view.orientation==='vertical')$('dm-rank-table').innerHTML='<table class="dm-table"><thead><tr><th class="dm-sticky-key" scope="col">일자</th>'+keys.map(k=>'<th scope="col">'+esc(k.keyword)+'<small>검색량 '+count(k.searchVolume)+'</small></th>').join('')+'</tr></thead><tbody>'+dates.map(date=>'<tr><th class="dm-sticky-key" scope="row">'+date+'</th>'+keys.map(k=>'<td>'+rankCell(p,date,k)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+    else $('dm-rank-table').innerHTML='<table class="dm-table"><thead><tr><th class="dm-sticky-key" scope="col">키워드</th><th class="dm-sticky-volume" scope="col">검색량</th>'+dates.map(date=>'<th scope="col" title="'+date+'">'+date.slice(5).replace('-','. ')+'</th>').join('')+'</tr></thead><tbody>'+keys.map((k,i)=>'<tr draggable="true" data-rank-keyword="'+esc(k.keyword)+'"><th class="dm-sticky-key" scope="row"><div class="dm-rank-key"><button type="button" class="dm-drag-button" aria-label="'+esc(k.keyword)+' 순서 변경" title="끌어서 순서 변경 또는 Alt+위·아래 키 사용" data-rank-handle="'+esc(k.keyword)+'">☰</button><span>'+esc(k.keyword)+'</span><span class="dm-rank-move"><button type="button" data-rank-move="'+esc(k.keyword)+'" data-direction="-1" '+(!i?'disabled':'')+' aria-label="'+esc(k.keyword)+' 위로">↑</button><button type="button" data-rank-move="'+esc(k.keyword)+'" data-direction="1" '+(i===keys.length-1?'disabled':'')+' aria-label="'+esc(k.keyword)+' 아래로">↓</button></span></div></th><td class="dm-sticky-volume">'+count(k.searchVolume)+'</td>'+dates.map(date=>'<td>'+rankCell(p,date,k)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+  }
+  function moveRank(name,direction,target){const p=product();if(!p)return;const keys=sortedKeywords(p).map(k=>k.keyword),from=keys.indexOf(name),to=target===undefined?from+direction:keys.indexOf(target);if(from<0||to<0||to>=keys.length||from===to)return;keys.splice(to,0,keys.splice(from,1)[0]);rankOrders.set(p.id,keys);view.keywordSort='saved';$('dm-keyword-sort').value='saved';renderRank(p);}
+  function chart(values,key,label){const points=values.filter(s=>num(s[key])).slice().sort((a,b)=>a.date.localeCompare(b.date));if(!points.length)return'';const width=980,height=230,pad=38,max=Math.max(...points.map(s=>s[key]),1),min=Math.min(...points.map(s=>s[key]),0),range=max-min||1,stamp=date=>Date.parse(date+'T00:00:00Z'),first=stamp(points[0].date),span=stamp(points[points.length-1].date)-first,x=i=>span?pad+(stamp(points[i].date)-first)*(width-pad*2)/span:width/2,y=value=>height-pad-(value-min)/range*(height-pad*2);const path=points.map((s,i)=>(i&&previousDate(s.date)===points[i-1].date?'L':'M')+x(i).toFixed(2)+','+y(s[key]).toFixed(2)).join(' ');return'<svg class="dm-review-chart" viewBox="0 0 980 230" role="img" aria-label="'+esc(label)+' 날짜별 추이">'+Array.from({length:4},(_,i)=>{const val=min+range*i/3,yy=y(val);return'<line x1="38" y1="'+yy+'" x2="942" y2="'+yy+'" stroke="#ececec"/><text x="30" y="'+(yy+4)+'" text-anchor="end" fill="#999" font-size="10">'+esc(Math.round(val).toLocaleString('ko-KR'))+'</text>';}).join('')+'<path d="'+path+'" fill="none" stroke="#ffc226" stroke-width="2.5"/>'+points.map((s,i)=>'<circle cx="'+x(i)+'" cy="'+y(s[key])+'" r="3" fill="#ffc226"><title>'+esc(s.date+' '+label+' '+count(s[key]))+'</title></circle>').join('')+'<text x="38" y="222" font-size="11" fill="#888">'+points[0].date+'</text><text x="942" y="222" text-anchor="end" font-size="11" fill="#888">'+points[points.length-1].date+'</text></svg>';}
+  function metricTable(p,key,rolling){const all=histories(p.id).filter(s=>num(s[key])||num(s.salesAmount)),headers=rolling?['관측일','스마트스토어 7일 구매 건수','관측값 변화']:['일자','일별 판매량','전일 대비','매출액','가격'];return'<div class="dm-table-scroll"><table class="dm-table dm-metric-table"><thead><tr>'+headers.map(h=>'<th scope="col">'+h+'</th>').join('')+'</tr></thead><tbody>'+all.map(s=>{const before=snapshotIndex.get(p.id)?.get(previousDate(s.date)),delta=num(s[key])&&num(before?.[key])?s[key]-before[key]:null;return'<tr><td>'+s.date+'</td><td>'+count(s[key])+'</td><td>'+(delta===null?'—':(delta>0?'+':'')+count(delta))+'</td>'+(rolling?'':'<td>'+money(s.salesAmount)+'</td><td>'+money(s.price)+'</td>')+'</tr>';}).join('')+'</tbody></table></div>';}
+  function renderSales(p){const all=histories(p.id),rolling=all.filter(s=>num(s.rollingSales7d)),daily=all.filter(s=>num(s.sales));$('dm-metric-view').innerHTML='<div class="dm-panel-head"><h2>스마트스토어 7일 구매 건수</h2><div class="dm-toolbar"><button type="button" data-metric-xlsx>엑셀 다운로드</button><button type="button" id="dm-metric-export">CSV</button></div></div><p class="dm-muted">관측일 기준으로 공개된 최근 7일 구매 건수입니다. 일별 판매량으로 합산하지 않습니다.</p>'+(rolling.length?chart(rolling,'rollingSales7d','7일 구매 건수')+metricTable(p,'rollingSales7d',true):'<div class="dm-empty">저장된 7일 구매 건수가 없습니다.<button type="button" data-collect>Chrome에서 자료 확인</button></div>')+'<details class="dm-daily-sales"><summary>실제 일별 판매 자료</summary><p class="dm-muted">날짜별 판매량·매출을 포함한 자료를 가져온 경우에만 표시합니다.</p>'+(daily.length?chart(daily,'sales','일별 판매량')+metricTable(p,'sales',false):'<p class="dm-empty">저장된 일별 판매량 자료가 없습니다.<button type="button" data-import>자료 가져오기</button></p>')+'</details>';}
+  function reviewRows(p){let rows=(reviewsIndex.get(p.id)||[]).filter(r=>(!reviewView.stars||r.rating===Number(reviewView.stars))&&(reviewView.media!=='media'||[...(r.imageUrls||[]),...(r.videoUrls||[])].some(safeUrl))&&(reviewView.media!=='month'||r.monthUse===true)&&(!reviewView.query||[r.title,r.text,r.option].join(' ').toLowerCase().includes(reviewView.query.toLowerCase())));rows=rows.slice().sort(reviewView.sort==='rating-high'?(a,b)=>(b.rating??-1)-(a.rating??-1)||b.date.localeCompare(a.date):reviewView.sort==='rating-low'?(a,b)=>(a.rating??Infinity)-(b.rating??Infinity)||b.date.localeCompare(a.date):reviewView.sort==='source'?(a,b)=>(num(a.sourceOrder)?a.sourceOrder:Infinity)-(num(b.sourceOrder)?b.sourceOrder:Infinity)||b.date.localeCompare(a.date):(a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id)));if(reviewView.scope==='latest')rows=rows.slice(0,50);return rows;}
+  function renderReviews(p){const records=reviewsIndex.get(p.id)||[],aggregate=histories(p.id).filter(s=>num(s.reviews)),daily=new Map();for(const r of records)daily.set(r.date,(daily.get(r.date)||0)+1);const dailyPoints=[...daily].map(([date,quantity])=>({date,quantity}));const rated=records.filter(r=>num(r.rating)),average=rated.length?rated.reduce((n,r)=>n+r.rating,0)/rated.length:null,rows=reviewRows(p),pages=Math.max(1,Math.ceil(rows.length/10));reviewView.page=Math.min(reviewView.page,pages);const shown=rows.slice((reviewView.page-1)*10,reviewView.page*10);
+    $('dm-metric-view').innerHTML='<div class="dm-panel-head"><h2>최신 리뷰</h2><div class="dm-toolbar"><button type="button" data-review-xlsx>엑셀 다운로드</button><button type="button" data-review-csv>CSV</button></div></div><div class="dm-review-summary"><span>수집한 리뷰 <strong>'+records.length+'개</strong></span><span>전체 리뷰 <strong>'+count(currentMetric(p,'reviews'))+(num(currentMetric(p,'reviews'))?'개':'')+'</strong></span><span>수집 리뷰 평균 <strong>'+(average===null?'—':average.toFixed(2)+'점')+'</strong></span></div>'+(records.length?'<div class="dm-star-distribution" aria-label="수집된 리뷰의 별점 분포">'+[5,4,3,2,1].map(star=>{const n=records.filter(r=>r.rating===star).length;return'<button type="button" data-review-star="'+star+'" aria-pressed="'+(reviewView.stars===String(star))+'"><span>'+star+'점</span><span class="dm-star-bar"><i style="width:'+(n/records.length*100).toFixed(2)+'%"></i></span><strong>'+n+'</strong></button>';}).join('')+'</div><p class="dm-muted">작성일별 수집 리뷰 수 · 수집되지 않은 날짜는 0건으로 채우지 않습니다.</p>'+chart(dailyPoints,'quantity','수집 리뷰 수'):(aggregate.length?'<p class="dm-muted">개별 리뷰 본문은 아직 수집되지 않았습니다. 아래 차트는 저장된 누적 리뷰 수입니다.</p>'+chart(aggregate,'reviews','누적 리뷰 수'):'<p class="dm-empty">저장된 리뷰 자료가 없습니다.</p>'))+'<div class="dm-review-filters"><button type="button" data-review-scope="latest" aria-pressed="'+(reviewView.scope==='latest')+'">최신 리뷰 50개</button><button type="button" data-review-scope="all" aria-pressed="'+(reviewView.scope==='all')+'">전체보기</button><select id="dm-review-stars" aria-label="리뷰 별점 필터"><option value="">전체 별점</option>'+[5,4,3,2,1].map(star=>'<option value="'+star+'"'+(reviewView.stars===String(star)?' selected':'')+'>'+star+'점</option>').join('')+'</select><select id="dm-review-sort" aria-label="리뷰 정렬"><option value="latest">최신순</option><option value="source"'+(records.some(r=>num(r.sourceOrder))?'':' disabled')+'>네이버 랭킹순'+(records.some(r=>num(r.sourceOrder))?'':' · 원본 순서 자료 필요')+'</option><option value="rating-high">별점 높은순</option><option value="rating-low">별점 낮은순</option></select><select id="dm-review-media" aria-label="리뷰 유형"><option value="all">전체보기</option><option value="media">포토·동영상</option><option value="month">한달사용리뷰</option></select><input id="dm-review-search" value="'+esc(reviewView.query)+'" placeholder="리뷰 내용 또는 옵션 검색" aria-label="리뷰 내용 검색"></div><div class="dm-review-list">'+(shown.length?shown.map(r=>'<article class="dm-review-item"><div><span class="dm-review-stars" aria-label="별점 '+esc(r.rating??'미확인')+'">'+(num(r.rating)?'★'.repeat(Math.min(5,Math.max(0,Math.floor(r.rating))))+' '+r.rating+'점':'별점 없음')+'</span><time>'+esc(r.date)+'</time>'+(r.authorMasked?'<span>'+esc(r.authorMasked)+'</span>':'')+'</div>'+(r.title?'<h3>'+esc(r.title)+'</h3>':'')+(r.option?'<p class="dm-review-option">옵션 '+esc(r.option)+'</p>':'')+'<p class="dm-review-text">'+esc(r.text||'')+'</p>'+((r.imageUrls||[]).some(safeUrl)?'<div class="dm-review-images">'+r.imageUrls.filter(safeUrl).map(url=>'<a href="'+esc(safeUrl(url))+'" target="_blank" rel="noopener noreferrer"><img src="'+esc(safeUrl(url))+'" alt="리뷰 사진" loading="lazy" referrerpolicy="no-referrer"></a>').join('')+'</div>':'')+((r.videoUrls||[]).some(safeUrl)?'<div class="dm-review-video-links">'+r.videoUrls.filter(safeUrl).map((url,i)=>'<a href="'+esc(safeUrl(url))+'" target="_blank" rel="noopener noreferrer">리뷰 동영상 '+(i+1)+' ↗</a>').join('')+'</div>':'')+(safeUrl(r.sourceUrl)?'<a class="dm-review-source" href="'+esc(safeUrl(r.sourceUrl))+'" target="_blank" rel="noopener noreferrer">원문 보기 ↗</a>':'')+'</article>').join(''):'<div class="dm-empty">'+(records.length?'조건에 맞는 리뷰가 없습니다.':'개별 리뷰 본문을 수집하거나 가져오세요.')+'<button type="button" data-collect>Chrome에서 리뷰 확인</button><button type="button" data-import>자료 가져오기</button></div>')+'</div><div class="dm-pagination"><button type="button" data-review-page="-1"'+(reviewView.page<=1?' disabled':'')+'>이전</button><span>'+reviewView.page+' / '+pages+'</span><button type="button" data-review-page="1"'+(reviewView.page>=pages?' disabled':'')+'>다음</button></div>';
+    $('dm-review-sort').value=reviewView.sort;$('dm-review-media').value=reviewView.media;
+  }
+  function alertDraft(p){let d=alertDrafts.get(p.id);if(!d||!d.dirty){d={enabled:!!p.alert?.enabled,mode:['daily','change','threshold'].includes(p.alert?.mode)?p.alert.mode:'daily',threshold:p.alert?.threshold||10,reviewEnabled:!!p.alert?.reviewEnabled,reviewStars:Array.isArray(p.alert?.reviewStars)?p.alert.reviewStars.slice():[1,2,3,4,5],keywords:p.alert?.keywords?.length?p.alert.keywords.filter(k=>keywordsFor(p).some(row=>row.keyword===k)):p.alert?.enabled?keywordsFor(p).map(k=>k.keyword):[],dirty:false};alertDrafts.set(p.id,d);}return d;}
+  function renderAlertSettings(p){const d=alertDraft(p);$('dm-alert-enabled').checked=d.enabled;$('dm-alert-mode').value=d.mode;$('dm-alert-threshold').value=d.threshold;$('dm-threshold-label').hidden=d.mode!=='threshold';$('dm-review-alert-enabled').checked=d.reviewEnabled;$('dm-review-alert-stars').innerHTML=[1,2,3,4,5].map(star=>'<label><input type="checkbox" data-review-alert-star="'+star+'"'+(d.reviewStars.includes(star)?' checked':'')+'>'+star+'점 리뷰</label>').join('');$('dm-alert-keywords').innerHTML=keywordsFor(p).map(k=>'<label class="dm-alert-keyword"><input type="checkbox" data-alert-keyword="'+esc(k.keyword)+'"'+(d.keywords.includes(k.keyword)?' checked':'')+'>'+esc(k.keyword)+'</label>').join('')||'<p class="dm-muted">먼저 키워드를 등록하세요.</p>';}
+  function captureAlertDraft(){const p=product();if(!p)return;const selected=[...document.querySelectorAll('[data-alert-keyword]:checked')].map(el=>el.dataset.alertKeyword);if(!selected.length)$('dm-alert-enabled').checked=false;alertDrafts.set(p.id,{enabled:$('dm-alert-enabled').checked,mode:$('dm-alert-mode').value,threshold:Number($('dm-alert-threshold').value),reviewEnabled:$('dm-review-alert-enabled').checked,reviewStars:[...document.querySelectorAll('[data-review-alert-star]:checked')].map(el=>Number(el.dataset.reviewAlertStar)),keywords:selected,dirty:true});}
+  function renderDetail(){const p=product();if(!p){selectedId=null;updateUrl(null,true);render();return;}platform=p.platform;const salesTab=document.querySelector('[data-detail-tab="sales"]'),showSales=p.platform==='naver'||histories(p.id).some(s=>num(s.sales));salesTab.hidden=!showSales;if(detailTab==='sales'&&!showSales)detailTab='keywords';$('dm-product-summary').innerHTML=image(p,'dm-summary-image')+'<div class="dm-summary-content"><h1>'+(p.brand?esc(p.brand)+' <span class="dm-divider">|</span> ':'')+esc(p.name)+'</h1><div class="dm-summary-metrics"><span>'+(p.platform==='coupang'?'쿠팡 판매가':'가격')+' <strong>'+money(currentMetric(p,'price'))+'</strong></span><span>리뷰 <strong>'+count(currentMetric(p,'reviews'))+(num(currentMetric(p,'reviews'))?'개':'')+'</strong></span><span>'+(p.platform==='coupang'?'와우할인가':'배송비')+' <strong>'+money(currentMetric(p,p.platform==='coupang'?'wowPrice':'shipping'))+'</strong></span>'+(p.platform==='coupang'?'<span>배송비 <strong>'+money(currentMetric(p,'shipping'))+'</strong></span><span>평점 <strong>'+(num(currentMetric(p,'rating'))?currentMetric(p,'rating').toFixed(1)+'점':'—')+'</strong></span>':'')+(safeUrl(p.url)?'<a href="'+esc(safeUrl(p.url))+'" target="_blank" rel="noopener noreferrer">상품 보기 ↗</a>':'')+'</div><p class="dm-summary-category">카테고리　'+esc(p.category||'—')+'</p><div class="dm-tags"><span>태그 키워드</span> '+(p.tags||[]).map(t=>'<span># '+esc(t)+'</span>').join('')+'</div><p class="dm-summary-freshness">'+(histories(p.id)[0]?'최근 기록 '+histories(p.id)[0].date:'수집 기록 없음')+'</p></div>';
+    renderKeywordEditor(p);renderAlertSettings(p);$('dm-keywords-view').hidden=detailTab!=='keywords';$('dm-metric-view').hidden=detailTab==='keywords';document.querySelectorAll('[data-detail-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.detailTab===detailTab)));$('dm-keyword-sort').value=view.keywordSort;$('dm-orientation').value=view.orientation;document.querySelectorAll('[data-rank-option]').forEach(el=>el.checked=!!view.rankOptions[el.dataset.rankOption]);if(detailTab==='keywords')renderRank(p);else if(detailTab==='reviews')renderReviews(p);else renderSales(p);
+  }
+  function unreadAlerts(){return state.alerts.filter(a=>!a.readAt&&!a.read);}
+  function renderAlerts(){const unread=$('dm-alerts-unread').checked,rows=state.alerts.filter(a=>!unread||!a.readAt&&!a.read).slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));$('dm-alert-count').textContent=unreadAlerts().length;$('dm-alerts-list').innerHTML=rows.map(a=>{const p=state.products.find(p=>p.id===a.productId),message=a.message||a.title||(a.kind==='review'?'새 리뷰가 수집되었습니다.':a.keyword?'키워드 '+a.keyword+'의 순위가 갱신되었습니다.':'모니터링 기록이 갱신되었습니다.');return'<article class="dm-alert-item'+(!a.readAt&&!a.read?' dm-alert-unread':'')+'"><div><strong>'+esc(p?.name||'모니터링 상품')+'</strong><small>'+esc(a.date||String(a.createdAt||'').slice(0,10))+'</small></div><p>'+esc(message)+'</p>'+(a.keyword?'<p>'+esc(a.keyword)+' '+esc(rankText({rank:a.rank,status:a.status||'ranked',outsideLimit:a.outsideLimit}))+(a.oldStatus&&a.oldStatus!=='missing'?' (이전 '+esc(rankText({rank:a.oldRank,status:a.oldStatus,outsideLimit:a.oldOutsideLimit}))+')':'')+'</p>':'')+'<div class="dm-toolbar"><button type="button" data-alert-open-product="'+esc(a.productId)+'">상품 보기</button>'+(!a.readAt&&!a.read?'<button type="button" data-alert-read="'+esc(a.id)+'">읽음</button>':'')+'</div></article>';}).join('')||'<p class="dm-empty">'+(unread?'읽지 않은 알림이 없습니다.':'저장된 알림이 없습니다.')+'</p>';}
+  function render(){if(!loaded)return;$('dm-list').hidden=!!selectedId;$('dm-detail').hidden=!selectedId;$('app-main').classList.toggle('dm-expanded',!!view.expanded);$('dm-zoom').setAttribute('aria-pressed',String(!!view.expanded));$('dm-zoom').textContent=view.expanded?'↔　기본보기':'↔　크게보기';$('dm-detail-zoom').textContent=view.expanded?'↔　기본보기':'↔　크게보기';if(selectedId)renderDetail();else renderList();renderAlerts();}
+  function updateUrl(id,replace){const url=new URL(location.href);if(id)url.searchParams.set('product',id);else url.searchParams.delete('product');if(platform==='coupang')url.searchParams.set('platform','coupang');else url.searchParams.delete('platform');history[replace?'replaceState':'pushState']({},'',url.pathname+url.search);}
+  function openProduct(id,alert){const p=state.products.find(p=>p.id===id);if(!p)return;if(p.archived){editProduct(id);return;}selectedId=id;platform=p.platform;detailTab='keywords';reviewView={query:'',stars:'',media:'all',sort:'latest',scope:'latest',page:1};updateUrl(id);render();if(alert)$('dm-alert-form').closest('details').open=true;$('app-main').focus({preventScroll:true});window.scrollTo({top:0});}
+  function parseKeywordLines(text){const map=new Map();for(const line of text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)){const match=line.match(/^(.*?)[,\t]\s*([\d,]+)\s*$/),keyword=(match?match[1]:line).trim(),volume=match?Number(match[2].replace(/,/g,'')):null;if(keyword)map.set(keyword,{keyword,searchVolume:volume});}return[...map.values()];}
+  function showDialog(id){$(id).showModal();}
+  function editProduct(id){editingId=id||null;const p=state.products.find(x=>x.id===id),form=$('dm-product-form');form.reset();form.elements.folderId.innerHTML='<option value="">미분류</option>'+state.folders.map(f=>'<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>').join('');const values=p||{platform,folderId:['__none','__archived'].includes(folderId)?'':folderId};for(const key of ['platform','folderId','url','productId','brand','name','imageUrl','price','wowPrice','shipping','reviews','rating','category'])form.elements[key].value=(p&&['price','wowPrice','shipping','reviews','rating'].includes(key)?currentMetric(p,key):values[key])??'';productFormBaseline={};for(const key of ['price','wowPrice','shipping','reviews','rating'])productFormBaseline[key]=form.elements[key].value;$('dm-wow-price-field').hidden=values.platform!=='coupang';form.elements.platform.disabled=!!p;form.elements.productId.readOnly=!!p;form.elements.tags.value=(p?.tags||[]).join(', ');form.elements.keywords.value=(p?.keywords||[]).map(k=>k.keyword+(num(k.searchVolume)?','+k.searchVolume:'')).join('\n');$('dm-product-dialog-title').textContent=p?.archived?'보관 상품 복원':id?'모니터링 상품 편집':'모니터링 상품 추가';$('dm-archive').hidden=!id||!!p?.archived;$('dm-product-error').hidden=true;form.querySelector('button[type="submit"]').textContent=p?.archived?'복원':'저장';showDialog('dm-product-dialog');}
+  async function submitProduct(event){event.preventDefault();const form=event.currentTarget,p=state.products.find(x=>x.id===editingId),data={...(p?{id:p.id}:{}),archived:false};for(const key of ['platform','folderId','url','productId','brand','name','imageUrl','category'])data[key]=form.elements[key].value.trim();for(const key of ['price','wowPrice','shipping','reviews','rating'])if((key!=='wowPrice'||data.platform==='coupang')&&(!p||form.elements[key].value!==productFormBaseline[key]))data[key]=form.elements[key].value===''?null:Number(form.elements[key].value);data.tags=form.elements.tags.value.split(',').map(s=>s.trim()).filter(Boolean);data.keywords=parseKeywordLines(form.elements.keywords.value);if(await save('product',{product:data},'상품을 저장했습니다.')){$('dm-product-dialog').close();if(p){drafts.delete(p.id);rankOrders.delete(p.id);}render();}else{$('dm-product-error').textContent=$('dm-status').textContent;$('dm-product-error').hidden=false;}}
+  function renderFolders(){$('dm-folders').innerHTML=state.folders.map(f=>'<div class="dm-folder-entry"><form class="dm-folder-edit dm-toolbar" data-folder-edit="'+esc(f.id)+'"><span aria-hidden="true">▱</span><input required maxlength="100" aria-label="폴더 이름" value="'+esc(f.name)+'"><button type="submit" data-write>이름 저장</button><button type="button" data-folder-remove="'+esc(f.id)+'">삭제</button></form>'+(pendingFolderRemoval===f.id?'<div class="dm-folder-remove-confirm"><p>폴더를 삭제하면 상품 '+state.products.filter(p=>p.folderId===f.id).length+'개가 미분류로 이동합니다. 상품과 과거 기록은 보존됩니다.</p><div class="dm-toolbar"><button type="button" data-folder-remove-cancel>취소</button><button type="button" data-folder-remove-confirm="'+esc(f.id)+'" data-write>폴더만 삭제</button></div></div>':'')+'</div>').join('')||'<p class="dm-empty">등록한 폴더가 없습니다.</p>';}
+  function renderOrder(){$('dm-order-list').innerHTML=order.map((id,i)=>{const p=state.products.find(x=>x.id===id);return'<div class="dm-order-row"><span>'+esc(p.name)+'</span><button type="button" data-move="'+i+'" data-direction="-1" '+(!i?'disabled':'')+' aria-label="'+esc(p.name)+' 위로">↑</button><button type="button" data-move="'+i+'" data-direction="1" '+(i===order.length-1?'disabled':'')+' aria-label="'+esc(p.name)+' 아래로">↓</button></div>';}).join('');}
+  function downloadCsv(headers,rows,name){const cell=value=>{const text=String(value??'');return'"'+(/^[=+\-@\t\r]/.test(text)?"'":'')+text.replace(/"/g,'""')+'"';};const blob=new Blob(['\ufeff'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadTable(headers,rows,name,xlsx){try{if(xlsx){if(!window.MonitoringExport?.download)throw Error('엑셀 내보내기 기능을 불러오지 못했습니다.');window.MonitoringExport.download(headers,rows,name+'.xlsx','일간 모니터링');}else downloadCsv(headers,rows,name+'.csv');}catch(error){notify(error.message,true);}}
+  function rankExportData(p){const rows=[];for(const s of histories(p.id))for(const k of s.keywords||[])rows.push([s.date,p.platform,p.productId,p.name,k.keyword,k.searchVolume??'',k.status,k.rank??'',k.groupRank??'',k.adRank??'',k.adCount??'',k.outsideLimit??'',k.page??'',k.position??'',s.price??'',s.shipping??'',s.reviews??'',s.rating??'',s.sales??'',s.salesAmount??'',s.rollingSales7d??'',s.wowPrice??'']);return{headers:['일자','마켓','상품ID','상품명','키워드','검색량','상태','순위','묶음순위','광고순위','광고개수','순위밖기준','페이지','페이지내순위','가격','배송비','리뷰수','평점','판매량','매출액','7일구매건수','와우할인가'],rows};}
+  function exportRanks(xlsx){const p=product();if(!p)return;const d=rankExportData(p);downloadTable(d.headers,d.rows,'일간모니터링-'+p.productId,xlsx);}
+  function exportMetrics(xlsx){const p=product();if(!p)return;downloadTable(['일자','마켓','상품ID','상품명','가격','배송비','리뷰수','평점','판매량','매출액','7일구매건수','와우할인가'],histories(p.id).map(s=>[s.date,p.platform,p.productId,p.name,s.price??'',s.shipping??'',s.reviews??'',s.rating??'',s.sales??'',s.salesAmount??'',s.rollingSales7d??'',s.wowPrice??'']),'일간모니터링-'+p.productId+'-'+detailTab,xlsx);}
+  function exportReviews(xlsx){const p=product();if(!p)return;downloadTable(['리뷰ID','상품ID','마켓','일자','별점','제목','리뷰내용','옵션','작성자표시','사진URL','동영상URL','한달사용리뷰','원본순서','원문URL'],reviewRows(p).map(r=>[r.id,p.productId,p.platform,r.date,r.rating??'',r.title||'',r.text||'',r.option||'',r.authorMasked||'',(r.imageUrls||[]).join('\n'),(r.videoUrls||[]).join('\n'),r.monthUse===true?'예':r.monthUse===false?'아니오':'',r.sourceOrder??'',r.sourceUrl||'']),'일간모니터링-'+p.productId+'-리뷰',xlsx);}
+  function exportBackup(){if(!loaded){notify('자료를 불러온 뒤 내보내세요.',true);return;}const data={products:state.products,folders:state.folders,snapshots:state.snapshots,reviews:state.reviews,alerts:state.alerts,settings:state.settings||{},source:'ROAS Pilot 일간 모니터링 전체 자료'},blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});if(blob.size>160*1024*1024){notify('전체 자료가 160MiB를 넘어 다시 가져올 수 없습니다. 파일을 내보내지 않았습니다.',true);return;}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='일간모니터링-전체자료-'+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function startImport(id){importProductId=id||null;$('dm-file').value='';$('dm-file').click();}
+  async function importFile(event){const file=event.target.files[0];if(!file)return;notify('자료를 읽고 있습니다.');try{if(!window.MonitoringImport?.parse)throw Error('자료 가져오기 기능을 불러오지 못했습니다. 화면을 새로고침하세요.');const data=await window.MonitoringImport.parse(file,state.products.find(p=>p.id===importProductId));await save('import',{...data,source:file.name},'자료를 가져왔습니다.');}catch(error){notify(error.message,true);}}
+  function persistedSettings(){return{expanded:!!view.expanded,orientation:view.orientation,keywordSort:view.keywordSort,rankOptions:{...view.rankOptions}};}
+  async function toggleZoom(){view.expanded=!view.expanded;render();await save('settings',{settings:persistedSettings()},'화면 크기를 저장했습니다.');}
+  function renderCollectorStatus(value){collectorState=value;const running=!!value?.running,summary=value?(running?'수집 중 '+(value.completed||0)+' / '+(value.total||0):value.error?'수집 확인 필요':value.lastSuccessAt?'최근 수집 '+new Date(value.lastSuccessAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'Chrome 수집 연결 준비'):'Chrome 연결 페이지에서 수집을 시작하세요.';$('dm-collector-summary').textContent=summary;$('dm-collector-detail').textContent=value?.message||'로그인한 Chrome에서 셀하에 등록된 상품과 실제 제공되는 날짜의 기록을 수집합니다. Chrome과 로하스 파일럿이 실행되어 있어야 갱신됩니다.';$('dm-collect-pause').disabled=!running;}
+  async function pollCollector(){if(collectorLoading)return;collectorLoading=true;try{const response=await fetch('/api/monitoring/collector/status',{cache:'no-store'});if(!response.ok)throw Error();const result=await response.json(),old=collectorState?.lastSuccessAt;renderCollectorStatus(result);if(loaded&&result.lastSuccessAt&&old&&result.lastSuccessAt!==old)await load(true);}catch(_){renderCollectorStatus(null);}finally{collectorLoading=false;}}
+  async function startCollection(mode,onlyProduct){const popup=window.open('/monitoring-collector.html','roas-monitoring-collector');if(popup)popup.opener=null;try{const body={mode,platform,...(onlyProduct?{productIds:[onlyProduct]}:{})},response=await fetch('/api/monitoring/collector/start',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify(body)}),result=await response.json();if(!response.ok)throw Error(result.error||'수집을 시작하지 못했습니다.');renderCollectorStatus(result);notify('Chrome 수집 연결 화면에서 로그인과 수집 진행을 확인하세요.');}catch(error){notify(error.message,true);}}
+  async function pauseCollection(){try{const response=await fetch('/api/monitoring/collector/pause',{method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:'{}'}),result=await response.json();if(!response.ok)throw Error(result.error||'수집을 중지하지 못했습니다.');renderCollectorStatus(result);}catch(error){notify(error.message,true);}}
 
-  function notify(message, error) {
-    $('dm-status').hidden = !message;
-    $('dm-status').textContent = message || '';
-    $('dm-status').dataset.error = String(!!error);
-  }
-  function setBusy(value) {
-    busy = value;
-    document.body.dataset.monitoringBusy = String(value);
-    document.querySelectorAll('[data-write], #dm-product-form button, #dm-folder-form button, #dm-keyword-form button, #dm-alert-form button, #dm-order-save, #dm-save-sort, #dm-orientation, #dm-zoom, #dm-detail-zoom, [data-rank-option]').forEach(el => { el.disabled = value; });
-  }
-  function hydrate(result) {
-    if (!result || !Array.isArray(result.products) || !Array.isArray(result.snapshots) || !Array.isArray(result.folders) || !Number.isInteger(result.revision)) throw Error('모니터링 자료 형식이 올바르지 않습니다.');
-    state = result;
-    applyViewSettings(state.settings);
-    // Build lookup tables once per revision, so rendering each rank cell does
-    // not scan the full history for every keyword and comparison date.
-    historyIndex = new Map(); snapshotIndex = new Map(); keywordIndex = new Map(); latestKeywordIndex = new Map(); metricIndex = new Map();
-    for (const snapshot of state.snapshots) {
-      if (!historyIndex.has(snapshot.productId)) historyIndex.set(snapshot.productId,[]);
-      historyIndex.get(snapshot.productId).push(snapshot);
-      if (!snapshotIndex.has(snapshot.productId)) snapshotIndex.set(snapshot.productId,new Map());
-      snapshotIndex.get(snapshot.productId).set(snapshot.date,snapshot);
-      keywordIndex.set(snapshot,new Map((snapshot.keywords || []).map(k=>[k.keyword,k])));
-    }
-    for (const [id, snapshots] of historyIndex) {
-      snapshots.sort((a,b)=>b.date.localeCompare(a.date));
-      const latest = new Map(), metrics = new Map();
-      for (const snapshot of snapshots) {
-        for (const k of snapshot.keywords || []) if (!latest.has(k.keyword)) latest.set(k.keyword,{keyword:k,date:snapshot.date});
-        for (const key of ['price','shipping','reviews','rating']) if (!metrics.has(key) && Object.prototype.hasOwnProperty.call(snapshot,key)) metrics.set(key,snapshot[key]);
-      }
-      latestKeywordIndex.set(id,latest); metricIndex.set(id,metrics);
-    }
-    loaded = true;
-  }
-  async function load() {
-    try {
-      const response = await fetch('/api/monitoring/state', {cache:'no-store'}), result = await response.json();
-      if (!response.ok) throw Error(result.error || '저장 자료를 불러오지 못했습니다.');
-      hydrate(result);
-      notify(''); render();
-    } catch (error) {
-      notify(error.message, true);
-      if (!loaded) $('dm-cards').innerHTML = '<div class="dm-empty">저장 자료를 불러오지 못했습니다.<br><button id="dm-retry" type="button">다시 불러오기</button></div>';
-    }
-  }
-  async function save(route, data, message) {
-    if (busy || !loaded) return false;
-    setBusy(true);
-    try {
-      const response = await fetch('/api/monitoring/' + route, {method:'POST',headers:{'Content-Type':'application/json','x-roas-local-action':'yes'},body:JSON.stringify({revision:state.revision,...data})});
-      const result = await response.json();
-      if (!response.ok) {
-        if (response.status === 409) { await load(); throw Error('다른 화면에서 자료가 변경되었습니다. 최신 자료를 불러왔으니 다시 저장하세요.'); }
-        throw Error(result.error || '자료를 저장하지 못했습니다.');
-      }
-      hydrate(result); render(); notify(message || '저장했습니다.');
-      return true;
-    } catch (error) { notify(error.message, true); return false; }
-    finally { setBusy(false); }
-  }
-  function activeProducts() { return state.products.filter(p => !p.archived); }
-  function product() { return state.products.find(p => p.id === selectedId && !p.archived); }
-  function histories(id) { return historyIndex.get(id) || []; }
-  function currentMetric(p, key) {
-    const metrics = metricIndex.get(p.id);
-    return metrics?.has(key) ? metrics.get(key) : p[key];
-  }
-  function keywordsFor(p) {
-    return (p.keywords || []).map(k => ({...k}));
-  }
-  function keywordAt(id, date, keyword) { const snapshot=snapshotIndex.get(id)?.get(date);return keywordIndex.get(snapshot)?.get(keyword); }
-  function previousDate(date) { return new Date(Date.parse(date + 'T00:00:00Z') - 86400000).toISOString().slice(0,10); }
-  function movement(p, date, keyword, field) {
-    const latest = keywordAt(p.id,date,keyword), before = keywordAt(p.id,previousDate(date),keyword), key = field || 'rank';
-    if (!num(latest?.[key]) || !num(before?.[key])) return '';
-    const d = before[key] - latest[key];
-    return d ? '<span class="' + (d > 0 ? 'dm-up' : 'dm-down') + '">' + (d > 0 ? '▲' : '▼') + Math.abs(d) + '</span>' : '<span class="dm-flat">-</span>';
-  }
-  function rankText(k) {
-    if (!k || k.status === 'missing') return '—';
-    if (k.status === 'pending') return '업데이트 중';
-    if (k.status === 'outside') return num(k.outsideLimit) && k.outsideLimit > 0 ? count(k.outsideLimit) + '위 밖' : '순위 밖';
-    return num(k.rank) ? count(k.rank) + '위' : '—';
-  }
-  function latestKeyword(p, name) {
-    return latestKeywordIndex.get(p.id)?.get(name) || null;
-  }
-  function image(p, className) {
-    const url = safeUrl(p.imageUrl);
-    return url ? '<img class="' + className + '" src="' + esc(url) + '" alt="' + esc(p.name) + '" loading="lazy" referrerpolicy="no-referrer">' : '<span class="' + className + ' dm-image-placeholder" aria-label="썸네일 없음">▧</span>';
-  }
-  function card(p) {
-    const keys = keywordsFor(p), keywords = keys.slice(0,3).map(k => {
-      const latest = latestKeyword(p,k.keyword);
-      return '<span class="dm-keyword-pill">' + esc(k.keyword) + ' <span>' + esc(rankText(latest?.keyword)) + '</span> ' + (latest ? movement(p,latest.date,k.keyword) : '') + '</span>';
-    }).join('');
-    return '<article class="dm-card"><div class="dm-card-head"><a class="dm-card-product" href="?product=' + encodeURIComponent(p.id) + '">' + image(p,'dm-product-image') + '<span class="dm-card-name">' + (p.brand ? esc(p.brand) + ' <span class="dm-divider">|</span> ' : '') + esc(p.name) + '</span></a><div class="dm-card-actions"><button type="button" data-write data-favorite="' + esc(p.id) + '" aria-label="' + esc(p.name) + ' 관심 상품" aria-pressed="' + !!p.favorite + '">' + (p.favorite ? '★' : '☆') + '</button><button type="button" data-alert="' + esc(p.id) + '" aria-label="' + esc(p.name) + ' 순위 알림">'+bellIcon+'</button></div></div><div class="dm-card-metrics"><div><span>가격</span><strong>' + money(currentMetric(p,'price')) + '</strong></div><div><span>배송비</span><strong>' + money(currentMetric(p,'shipping')) + '</strong></div><div><span>리뷰</span><strong>' + count(currentMetric(p,'reviews')) + (num(currentMetric(p,'reviews')) ? '개' : '') + '</strong></div><div><span>평점</span><strong>' + (num(currentMetric(p,'rating')) ? currentMetric(p,'rating').toFixed(1) + '점' : '—') + '</strong></div></div><div class="dm-keywords">' + keywords + (keys.length > 3 ? '<a class="dm-card-more" href="?product=' + encodeURIComponent(p.id) + '">더보기</a>' : '') + (!keys.length ? '<a class="dm-card-more" href="?product=' + encodeURIComponent(p.id) + '">키워드를 추가하세요</a>' : '') + '</div></article>';
-  }
-  const addCard = () => '<button type="button" class="dm-add-card" id="dm-add" data-write><span class="dm-add-plus">＋</span><span>모니터링하고 싶은<br><strong>' + (platform === 'naver' ? '네이버쇼핑' : '쿠팡') + '</strong> 아이템을 추가하세요.</span><span class="dm-add-note">상품과 키워드를 한곳에서 확인하세요.</span></button>';
-  function renderList() {
-    const products = activeProducts().filter(p => p.platform === platform), totalKeywords = products.reduce((sum,p) => sum + keywordsFor(p).length,0);
-    $('dm-counts').innerHTML = '<span><i>🔸</i> 등록 상품 수 <strong>' + products.length + '개</strong><small>/ 600</small></span><span><i>🔸</i> 등록 키워드 수 <strong>' + count(totalKeywords) + '개</strong><small>/ 3000</small></span>';
-    const importInfo=state.lastImport, latestDate=products.reduce((latest,p)=>{const date=histories(p.id)[0]?.date||'';return date>latest?date:latest;},'');
-    $('dm-last-import').hidden=!importInfo&&!latestDate;
-    $('dm-last-import').textContent=(latestDate?'최근 기록 '+latestDate:'')+(importInfo?' · 자료 출처 '+importInfo.source+(importInfo.at&&Number.isFinite(Date.parse(importInfo.at))?' · 가져온 시각 '+new Date(importInfo.at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):''):'');
-    const select = $('dm-folder-filter');
-    select.innerHTML = '<option value="">전체 상품</option><option value="__none">미분류</option>' + state.folders.map(f => '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>').join('') + '<option value="__archived">보관 상품</option>';
-    if (folderId && !['__none','__archived'].includes(folderId) && !state.folders.some(f => f.id === folderId)) folderId = '';
-    select.value = folderId;
-    const candidates=folderId==='__archived'?state.products.filter(p=>p.archived&&p.platform===platform):products;
-    const filtered = candidates.filter(p => (!folderId || folderId==='__archived' || (folderId === '__none' ? !p.folderId : p.folderId === folderId)) && (!query || [p.name,p.brand,state.folders.find(f => f.id === p.folderId)?.name,...keywordsFor(p).map(k => k.keyword)].join(' ').toLowerCase().includes(query)));
-    if (folderId || query || !state.folders.length) $('dm-cards').innerHTML = '<div class="dm-grid">' + addCard() + filtered.map(card).join('') + '</div>' + (!filtered.length && (query || folderId) ? '<p class="dm-empty">검색 조건에 맞는 상품이 없습니다.</p>' : '');
-    else {
-      const ungrouped = filtered.filter(p => !p.folderId), groups = state.folders.map(f => ({folder:f,products:filtered.filter(p => p.folderId === f.id)})).filter(g => g.products.length);
-      $('dm-cards').innerHTML = '<div class="dm-grid">' + addCard() + ungrouped.map(card).join('') + '</div>' + groups.map(g => '<section class="dm-folder-section"><h2 class="dm-folder-head">▱ ' + esc(g.folder.name) + '<small>' + g.products.length + '개</small></h2><div class="dm-grid">' + g.products.map(card).join('') + '</div></section>').join('');
-    }
-    document.querySelectorAll('[data-platform]').forEach(el => el.setAttribute('aria-selected', String(el.dataset.platform === platform)));
-  }
-  function sortedKeywords(p) {
-    const keys = keywordsFor(p);
-    if (view.keywordSort === 'volume') keys.sort((a,b) => (num(b.searchVolume) ? b.searchVolume : -1) - (num(a.searchVolume) ? a.searchVolume : -1));
-    if (view.keywordSort === 'rank') keys.sort((a,b) => (latestKeyword(p,a.keyword)?.keyword?.rank ?? Infinity) - (latestKeyword(p,b.keyword)?.keyword?.rank ?? Infinity));
-    return keys;
-  }
-  function rankCell(p,date,key) {
-    const k = keywordAt(p.id,date,key.keyword), options = view.rankOptions;
-    const alert = p.alert?.enabled && num(k?.rank) && k.rank > (p.alert.threshold || 10);
-    let result = '';
-    if (options.normal) result += '<div class="dm-rank' + (alert ? ' dm-rank-alert' : '') + '"><strong>' + esc(rankText(k)) + '</strong>' + (num(k?.page) && num(k?.position) ? '<small> - ' + count(k.page) + '페이지 ' + count(k.position) + '위</small>' : '') + ' ' + movement(p,date,key.keyword) + '</div>';
-    if (options.group && num(k?.groupRank)) result += '<div class="dm-rank-sub">브랜드묶음 <strong>내 ' + count(k.groupRank) + '위</strong> ' + movement(p,date,key.keyword,'groupRank') + '</div>';
-    if (options.ads && num(k?.adRank)) result += '<div class="dm-rank-sub">광고 <strong>' + count(k.adRank) + '위</strong> ' + movement(p,date,key.keyword,'adRank') + '</div>';
-    if (options.adCount && num(k?.adCount)) result += '<div class="dm-rank-sub">광고 개수 ' + count(k.adCount) + '개</div>';
-    return result || '<span class="dm-muted">—</span>';
-  }
-  function renderRank(p) {
-    const keys = sortedKeywords(p), dates = [...new Set(histories(p.id).map(s => s.date))];
-    $('dm-rank-note').textContent = dates.length ? '저장된 자료 기준 · 최근 ' + dates[0] + ' · ' + dates.length + '일' : '순위 자료를 가져오면 날짜별 기록이 표시됩니다.';
-    if (!keys.length || !dates.length) { $('dm-rank-table').innerHTML = '<div class="dm-empty">' + (!keys.length ? '모니터링할 키워드를 추가하세요.' : '저장된 순위 기록이 없습니다. 셀하에서 내려받은 자료를 가져오세요.') + '<br><button type="button" data-import>자료 가져오기</button></div>'; return; }
-    if (view.orientation === 'vertical') {
-      $('dm-rank-table').innerHTML = '<table class="dm-table"><thead><tr><th class="dm-sticky-key" scope="col">일자</th>' + keys.map(k => '<th scope="col">' + esc(k.keyword) + '<small>검색량 ' + count(k.searchVolume) + '</small></th>').join('') + '</tr></thead><tbody>' + dates.map(date => '<tr><th class="dm-sticky-key" scope="row">' + date + '</th>' + keys.map(k => '<td>' + rankCell(p,date,k) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
-    } else {
-      $('dm-rank-table').innerHTML = '<table class="dm-table"><thead><tr><th class="dm-sticky-key" scope="col">키워드</th><th class="dm-sticky-volume" scope="col">검색량</th>' + dates.map(date => '<th scope="col" title="' + date + '">' + date.slice(5).replace('-','. ') + '</th>').join('') + '</tr></thead><tbody>' + keys.map(k => '<tr><th class="dm-sticky-key" scope="row">☰　' + esc(k.keyword) + '</th><td class="dm-sticky-volume">' + count(k.searchVolume) + '</td>' + dates.map(date => '<td>' + rankCell(p,date,k) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
-    }
-  }
-  function chart(values, key, label) {
-    const points = values.filter(s => num(s[key])).slice().reverse();
-    if (!points.length) return '';
-    const width = 980, height = 230, pad = 38, max = Math.max(...points.map(s=>s[key]),1), min = Math.min(...points.map(s=>s[key]),0), range = max-min || 1;
-    const timestamp = date => Date.parse(date+'T00:00:00Z'), firstDate = timestamp(points[0].date), dateRange = timestamp(points[points.length-1].date)-firstDate;
-    const x = i => dateRange ? pad + (timestamp(points[i].date)-firstDate) * (width-pad*2) / dateRange : width/2, y = value => height-pad - (value-min)/range*(height-pad*2);
-    // A missing day has no connecting line; horizontal spacing follows real dates.
-    const path = points.map((s,i) => (i && previousDate(s.date)===points[i-1].date ? 'L' : 'M') + x(i).toFixed(2)+','+y(s[key]).toFixed(2)).join(' ');
-    const ticks = Array.from({length:4},(_,i) => {const val=min+range*i/3,yy=y(val);return '<line x1="38" y1="'+yy+'" x2="942" y2="'+yy+'" stroke="#ececec"/><text x="30" y="'+(yy+4)+'" text-anchor="end" fill="#999" font-size="10">'+esc(Math.round(val).toLocaleString('ko-KR'))+'</text>';}).join('');
-    return '<svg class="dm-review-chart" viewBox="0 0 980 230" role="img" aria-label="' + esc(label) + ' 날짜별 추이">'+ticks+'<path d="'+path+'" fill="none" stroke="#ffc226" stroke-width="2.5"/>' + points.map((s,i)=>'<circle cx="'+x(i)+'" cy="'+y(s[key])+'" r="3" fill="#ffc226"><title>'+esc(s.date+' '+label+' '+count(s[key]))+'</title></circle>').join('')+'<text x="38" y="222" font-size="11" fill="#888">'+points[0].date+'</text><text x="942" y="222" text-anchor="end" font-size="11" fill="#888">'+points[points.length-1].date+'</text></svg>';
-  }
-  function renderMetric(p) {
-    const reviews = detailTab === 'reviews', label = reviews ? '리뷰' : '판매량', key = reviews ? 'reviews' : 'sales', all = histories(p.id), values = all.filter(s => num(s[key]));
-    const headers = reviews ? ['일자','리뷰 수','전일 대비','평점','가격'] : ['일자','판매량','전일 대비','매출액','가격'];
-    $('dm-metric-view').innerHTML = '<div class="dm-panel-head"><h2>'+label+' 모니터링</h2><button type="button" id="dm-metric-export">CSV 다운로드</button></div>' + (values.length ? chart(values,key,label) + '<div class="dm-table-scroll"><table class="dm-table dm-metric-table"><thead><tr>'+headers.map(h=>'<th scope="col">'+h+'</th>').join('')+'</tr></thead><tbody>'+all.map(s=>{const before=all.find(o=>o.date===previousDate(s.date)),delta=num(s[key])&&num(before?.[key])?s[key]-before[key]:null;return '<tr><td>'+s.date+'</td><td>'+count(s[key])+'</td><td>'+(delta===null?'—':(delta>0?'+':'')+count(delta))+'</td><td>'+(reviews?(num(s.rating)?s.rating.toFixed(1):'—'):money(s.salesAmount))+'</td><td>'+money(s.price)+'</td></tr>';}).join('')+'</tbody></table></div>' : '<div class="dm-empty">저장된 '+label+' 자료가 없습니다.<br>자료에 포함된 실제 '+label+'만 표시합니다.<br><button type="button" data-import>자료 가져오기</button></div>');
-  }
-  function renderDetail() {
-    const p = product();
-    if (!p) { selectedId = null; updateUrl(null,true); render(); return; }
-    $('dm-product-summary').innerHTML = image(p,'dm-summary-image') + '<div class="dm-summary-content"><h1>' + (p.brand ? esc(p.brand)+' <span class="dm-divider">|</span> ' : '')+esc(p.name)+'</h1><div class="dm-summary-metrics"><span>가격 <strong>'+money(currentMetric(p,'price'))+'</strong></span><span>리뷰 <strong>'+count(currentMetric(p,'reviews'))+(num(currentMetric(p,'reviews'))?'개':'')+'</strong></span><span>배송비 <strong>'+money(currentMetric(p,'shipping'))+'</strong></span>'+(safeUrl(p.url)?'<a href="'+esc(safeUrl(p.url))+'" target="_blank" rel="noopener noreferrer">상품 보기 ↗</a>':'')+'</div><p class="dm-summary-category">카테고리　'+esc(p.category || '—')+'</p><div class="dm-tags"><span>태그 키워드</span> '+(p.tags || []).map(t=>'<span># '+esc(t)+'</span>').join('')+'</div></div>';
-    $('dm-keyword-lines').value = (p.keywords||[]).map(k=>k.keyword+(num(k.searchVolume)?','+k.searchVolume:'')).join('\n');
-    $('dm-alert-enabled').checked = !!p.alert?.enabled;
-    $('dm-alert-threshold').value = p.alert?.threshold || 10;
-    $('dm-keywords-view').hidden = detailTab !== 'keywords'; $('dm-metric-view').hidden = detailTab === 'keywords';
-    document.querySelectorAll('[data-detail-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.detailTab===detailTab)));
-    $('dm-keyword-sort').value = view.keywordSort;
-    $('dm-orientation').value = view.orientation;
-    document.querySelectorAll('[data-rank-option]').forEach(el=>el.checked=!!view.rankOptions[el.dataset.rankOption]);
-    if (detailTab === 'keywords') renderRank(p); else renderMetric(p);
-  }
-  function render() {
-    $('dm-list').hidden = !!selectedId; $('dm-detail').hidden = !selectedId;
-    $('app-main').classList.toggle('dm-expanded', !!view.expanded);
-    $('dm-zoom').setAttribute('aria-pressed',String(!!view.expanded)); $('dm-zoom').textContent=view.expanded?'↔　기본보기':'↔　크게보기';
-    $('dm-detail-zoom').textContent=view.expanded?'↔　기본보기':'↔　크게보기';
-    if (selectedId) renderDetail(); else renderList();
-  }
-  function updateUrl(id, replace) {
-    const url = new URL(location.href);
-    if (id) url.searchParams.set('product',id); else url.searchParams.delete('product');
-    if (platform === 'coupang') url.searchParams.set('platform','coupang'); else url.searchParams.delete('platform');
-    history[replace?'replaceState':'pushState']({},'',url.pathname+url.search);
-  }
-  function openProduct(id, alert) {
-    selectedId=id;detailTab='keywords';updateUrl(id);render();
-    if (alert) $('dm-alert-form').closest('details').open=true;
-    $('app-main').focus({preventScroll:true});window.scrollTo({top:0});
-  }
-  function parseKeywordLines(text) {
-    const map = new Map();
-    for (const line of text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)) {
-      const match=line.match(/^(.*?)[,\t]\s*([\d,]+)\s*$/), keyword=(match?match[1]:line).trim(), volume=match?Number(match[2].replace(/,/g,'')):null;
-      if (keyword) map.set(keyword,{keyword,searchVolume:volume});
-    }
-    return [...map.values()];
-  }
-  function showDialog(id) { $(id).showModal(); }
-  function editProduct(id) {
-    editingId=id || null;
-    const p = state.products.find(x=>x.id===id), form=$('dm-product-form');form.reset();
-    form.elements.folderId.innerHTML='<option value="">미분류</option>'+state.folders.map(f=>'<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>').join('');
-    const values=p || {platform,folderId:['__none','__archived'].includes(folderId)?'':folderId};
-    for (const key of ['platform','folderId','url','productId','brand','name','imageUrl','price','shipping','reviews','rating','category']) form.elements[key].value=values[key] ?? '';
-    form.elements.platform.disabled=!!p;form.elements.productId.readOnly=!!p;
-    form.elements.tags.value=(p?.tags || []).join(', ');form.elements.keywords.value=(p?.keywords || []).map(k=>k.keyword+(num(k.searchVolume)?','+k.searchVolume:'')).join('\n');
-    $('dm-product-dialog-title').textContent=p?.archived?'보관 상품 복원':id?'모니터링 상품 편집':'모니터링 상품 추가';$('dm-archive').hidden=!id||!!p?.archived;$('dm-product-error').hidden=true;
-    form.querySelector('button[type="submit"]').textContent=p?.archived?'복원':'저장';
-    showDialog('dm-product-dialog');
-  }
-  async function submitProduct(event) {
-    event.preventDefault(); const form=event.currentTarget, p=state.products.find(x=>x.id===editingId);
-    const data={...(p || {}),archived:false};
-    for (const key of ['platform','folderId','url','productId','brand','name','imageUrl','category']) data[key]=form.elements[key].value.trim();
-    for (const key of ['price','shipping','reviews','rating']) data[key]=form.elements[key].value===''?null:Number(form.elements[key].value);
-    data.tags=form.elements.tags.value.split(',').map(s=>s.trim()).filter(Boolean);data.keywords=parseKeywordLines(form.elements.keywords.value);
-    if (await save('product',{product:data},'상품을 저장했습니다.')) $('dm-product-dialog').close();
-    else {$('dm-product-error').textContent=$('dm-status').textContent;$('dm-product-error').hidden=false;}
-  }
-  function renderFolders() {
-    $('dm-folders').innerHTML=state.folders.map(f=>'<form class="dm-folder-edit dm-toolbar" data-folder-edit="'+esc(f.id)+'"><span aria-hidden="true">▱</span><input required maxlength="120" aria-label="폴더 이름" value="'+esc(f.name)+'"><button type="submit" data-write>이름 저장</button></form>').join('') || '<p class="dm-empty">등록한 폴더가 없습니다.</p>';
-  }
-  function renderOrder() {
-    $('dm-order-list').innerHTML=order.map((id,i)=>{const p=state.products.find(x=>x.id===id);return '<div class="dm-order-row"><span>'+esc(p.name)+'</span><button type="button" data-move="'+i+'" data-direction="-1" '+(!i?'disabled':'')+' aria-label="'+esc(p.name)+' 위로">↑</button><button type="button" data-move="'+i+'" data-direction="1" '+(i===order.length-1?'disabled':'')+' aria-label="'+esc(p.name)+' 아래로">↓</button></div>';}).join('');
-  }
-  function downloadCsv(headers,rows,name) {
-    const cell=value=>{const text=String(value??'');return '"'+(/^[=+\-@\t\r]/.test(text)?"'":'')+text.replace(/"/g,'""')+'"';};
-    const blob=new Blob(['\ufeff'+[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }
-  function exportRanks() {
-    const p=product();if(!p)return;
-    const rows=[];for(const s of histories(p.id))for(const k of s.keywords || [])rows.push([s.date,p.platform,p.productId,p.name,k.keyword,k.searchVolume??p.keywords?.find(x=>x.keyword===k.keyword)?.searchVolume??'',k.status,k.rank??'',k.groupRank??'',k.adRank??'',k.adCount??'',k.outsideLimit??'',k.page??'',k.position??'',s.price??'',s.shipping??'',s.reviews??'',s.rating??'',s.sales??'',s.salesAmount??'']);
-    downloadCsv(['일자','마켓','상품ID','상품명','키워드','검색량','상태','순위','묶음순위','광고순위','광고개수','순위밖기준','페이지','페이지내순위','가격','배송비','리뷰수','평점','판매량','매출액'],rows,'일간모니터링-'+p.productId+'.csv');
-  }
-  function exportMetrics() {
-    const p=product();if(!p)return;
-    downloadCsv(['일자','마켓','상품ID','상품명','가격','배송비','리뷰수','평점','판매량','매출액'],histories(p.id).map(s=>[s.date,p.platform,p.productId,p.name,s.price??'',s.shipping??'',s.reviews??'',s.rating??'',s.sales??'',s.salesAmount??'']),'일간모니터링-'+p.productId+'-'+detailTab+'.csv');
-  }
-  function exportBackup() {
-    if(!loaded){notify('자료를 불러온 뒤 내보내세요.',true);return;}
-    const data={products:state.products,folders:state.folders,snapshots:state.snapshots,settings:state.settings||{},source:'ROAS Pilot 일간 모니터링 전체 자료'};
-    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
-    if(blob.size>160*1024*1024){notify('전체 자료가 160MiB를 넘어 다시 가져올 수 없습니다. 파일을 내보내지 않았습니다.',true);return;}
-    const url=URL.createObjectURL(blob),a=document.createElement('a');
-    a.href=url;a.download='일간모니터링-전체자료-'+new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }
-  function startImport(id) { importProductId=id || null; $('dm-file').value=''; $('dm-file').click(); }
-  async function importFile(event) {
-    const file=event.target.files[0];if(!file)return;
-    notify('자료를 읽고 있습니다.');
-    try {
-      if(!window.MonitoringImport?.parse)throw Error('자료 가져오기 기능을 불러오지 못했습니다. 화면을 새로고침하세요.');
-      const data=await window.MonitoringImport.parse(file,state.products.find(p=>p.id===importProductId));
-      if(await save('import',{...data,source:file.name},'자료를 가져왔습니다.'))render();
-    } catch(error) {notify(error.message,true);}
-  }
-  function persistedSettings() { return {expanded:!!view.expanded,orientation:view.orientation,keywordSort:view.keywordSort,rankOptions:{...view.rankOptions}}; }
-  async function toggleZoom() {view.expanded=!view.expanded;render();await save('settings',{settings:persistedSettings()},'화면 크기를 저장했습니다.');}
-
-  document.addEventListener('click',async event=>{
-    const target=event.target.closest('button,a');if(!target)return;
-    if(target.matches('[data-close]')){target.closest('dialog').close();return;}
-    if(target.id==='dm-retry'){await load();return;}
-    if(target.id==='dm-add'){editProduct();return;}
-    if(target.hasAttribute('data-favorite')){const p=state.products.find(p=>p.id===target.dataset.favorite);await save('product',{product:{...p,favorite:!p.favorite}},'관심 상품을 저장했습니다.');return;}
-    if(target.hasAttribute('data-alert')){openProduct(target.dataset.alert,true);return;}
-    if(target.matches('.dm-card-product,.dm-card-more')){event.preventDefault();const id=new URL(target.href).searchParams.get('product');if(state.products.find(p=>p.id===id)?.archived)editProduct(id);else openProduct(id);return;}
-    if(target.hasAttribute('data-platform')){platform=target.dataset.platform;query='';$('dm-search').value='';folderId='';updateUrl(null);render();return;}
-    if(target.hasAttribute('data-detail-tab')){detailTab=target.dataset.detailTab;renderDetail();return;}
-    if(target.hasAttribute('data-import')){startImport(selectedId);return;}
-    if(target.id==='dm-metric-export'){exportMetrics();return;}
-    if(target.hasAttribute('data-move')){const index=Number(target.dataset.move),next=index+Number(target.dataset.direction);if(next>=0&&next<order.length){[order[index],order[next]]=[order[next],order[index]];renderOrder();}return;}
-  });
-  document.addEventListener('error',event=>{const img=event.target;if(img instanceof HTMLImageElement && img.closest('[data-monitoring]')){const placeholder=document.createElement('span');placeholder.className=img.className+' dm-image-placeholder';placeholder.textContent='▧';placeholder.setAttribute('aria-label','썸네일을 불러오지 못했습니다');img.replaceWith(placeholder);}},true);
-  $('dm-search-form').addEventListener('submit',event=>{event.preventDefault();query=$('dm-search').value.trim().toLowerCase();renderList();});
-  $('dm-search').addEventListener('input',()=>{query=$('dm-search').value.trim().toLowerCase();renderList();});
-  $('dm-folder-filter').addEventListener('change',event=>{folderId=event.target.value;renderList();});
-  $('dm-back').addEventListener('click',()=>{selectedId=null;updateUrl(null);render();});
-  $('dm-edit').addEventListener('click',()=>editProduct(selectedId));
-  $('dm-product-form').addEventListener('submit',submitProduct);
-  $('dm-product-form').elements.url.addEventListener('change',event=>{const field=$('dm-product-form').elements.productId;if(field.value||editingId)return;try{const url=new URL(event.target.value),match=url.pathname.match(/\/(?:products|catalog)\/(\d+)/);field.value=url.searchParams.get('productId')||match?.[1]||'';}catch(_){} });
-  $('dm-archive').addEventListener('click',async()=>{if(await save('archive',{id:editingId},'상품을 보관했습니다.')){$('dm-product-dialog').close();selectedId=null;updateUrl(null);render();}});
-  $('dm-folder-add').addEventListener('click',()=>{renderFolders();showDialog('dm-folder-dialog');});
-  $('dm-folder-form').addEventListener('submit',async event=>{event.preventDefault();if(await save('folder',{folder:{name:$('dm-folder-name').value.trim()}},'폴더를 추가했습니다.')){$('dm-folder-name').value='';renderFolders();}});
-  $('dm-folders').addEventListener('submit',async event=>{event.preventDefault();const form=event.target;if(await save('folder',{folder:{id:form.dataset.folderEdit,name:form.querySelector('input').value.trim()}},'폴더 이름을 저장했습니다.'))renderFolders();});
-  $('dm-order').addEventListener('click',()=>{order=activeProducts().map(p=>p.id);renderOrder();showDialog('dm-order-dialog');});
-  $('dm-order-save').addEventListener('click',async()=>{if(await save('order',{ids:order},'상품 순서를 저장했습니다.'))$('dm-order-dialog').close();});
-  $('dm-keyword-form').addEventListener('submit',async event=>{event.preventDefault();await save('keywords',{id:selectedId,keywords:parseKeywordLines($('dm-keyword-lines').value)},'키워드를 저장했습니다.');});
-  $('dm-alert-form').addEventListener('submit',async event=>{event.preventDefault();const p=product();await save('product',{product:{...p,alert:{enabled:$('dm-alert-enabled').checked,threshold:Number($('dm-alert-threshold').value)}}},'순위 강조 기준을 저장했습니다.');});
-  $('dm-keyword-sort').addEventListener('change',event=>{view.keywordSort=event.target.value;renderRank(product());});
-  $('dm-save-sort').addEventListener('click',async()=>{await save('settings',{settings:persistedSettings()},'정렬 방식을 저장했습니다.');});
-  $('dm-orientation').addEventListener('change',async event=>{view.orientation=event.target.value;renderRank(product());await save('settings',{settings:persistedSettings()},'표시 방향을 저장했습니다.');});
-  document.querySelectorAll('[data-rank-option]').forEach(input=>input.addEventListener('change',async()=>{view.rankOptions[input.dataset.rankOption]=input.checked;renderRank(product());await save('settings',{settings:persistedSettings()},'순위 표시 옵션을 저장했습니다.');}));
-  $('dm-zoom').addEventListener('click',toggleZoom);$('dm-detail-zoom').addEventListener('click',toggleZoom);
-  $('dm-export').addEventListener('click',exportRanks);
-  $('dm-backup').addEventListener('click',exportBackup);
-  $('dm-import-list').addEventListener('click',()=>startImport(null));$('dm-import-detail').addEventListener('click',()=>startImport(selectedId));$('dm-file').addEventListener('change',importFile);
-  window.addEventListener('popstate',()=>{selectedId=new URL(location.href).searchParams.get('product');platform=new URL(location.href).searchParams.get('platform')==='coupang'?'coupang':'naver';render();});
-  const params=new URL(location.href).searchParams;selectedId=params.get('product');platform=params.get('platform')==='coupang'?'coupang':'naver';
-  load();
+  document.addEventListener('click',async event=>{const t=event.target.closest('button,a');if(!t)return;if(t.matches('[data-close]')){t.closest('dialog').close();return;}if(t.id==='dm-retry'){await load();return;}if(t.id==='dm-add'){editProduct();return;}if(t.hasAttribute('data-folder-remove')){pendingFolderRemoval=t.dataset.folderRemove;renderFolders();return;}if(t.hasAttribute('data-folder-remove-cancel')){pendingFolderRemoval=null;renderFolders();return;}if(t.hasAttribute('data-folder-remove-confirm')){if(await save('folder',{folder:{id:t.dataset.folderRemoveConfirm,remove:true}},'폴더를 삭제하고 상품을 미분류로 이동했습니다.')){pendingFolderRemoval=null;renderFolders();}return;}if(t.hasAttribute('data-favorite')){const p=state.products.find(p=>p.id===t.dataset.favorite);await save('product',{product:{id:p.id,favorite:!p.favorite}},'관심 상품을 저장했습니다.');return;}if(t.hasAttribute('data-alert')){openProduct(t.dataset.alert,true);return;}if(t.matches('.dm-card-product,.dm-card-more')){event.preventDefault();openProduct(new URL(t.href).searchParams.get('product'));return;}if(t.hasAttribute('data-platform')){platform=t.dataset.platform;query='';$('dm-search').value='';folderId='';updateUrl(null);render();return;}if(t.hasAttribute('data-detail-tab')){detailTab=t.dataset.detailTab;renderDetail();return;}if(t.hasAttribute('data-import')){startImport(selectedId);return;}if(t.hasAttribute('data-collect')){await startCollection('recent',selectedId);return;}if(t.id==='dm-metric-export'){exportMetrics(false);return;}if(t.hasAttribute('data-metric-xlsx')){exportMetrics(true);return;}if(t.hasAttribute('data-review-xlsx')){exportReviews(true);return;}if(t.hasAttribute('data-review-csv')){exportReviews(false);return;}if(t.hasAttribute('data-move')){const i=Number(t.dataset.move),next=i+Number(t.dataset.direction);if(next>=0&&next<order.length){[order[i],order[next]]=[order[next],order[i]];renderOrder();}return;}if(t.hasAttribute('data-keyword-remove')){const d=markDraft(product());d.items=d.items.filter(k=>k.keyword!==t.dataset.keywordRemove);renderKeywordEditor(product());return;}if(t.hasAttribute('data-keyword-suggest')){const d=markDraft(product());if(!d.items.some(k=>k.keyword===t.dataset.keywordSuggest))d.items.push({keyword:t.dataset.keywordSuggest,searchVolume:t.hasAttribute('data-volume')?Number(t.dataset.volume):null});renderKeywordEditor(product());return;}if(t.hasAttribute('data-draft-move')){const d=markDraft(product()),i=Number(t.dataset.draftMove),next=i+Number(t.dataset.direction);if(next>=0&&next<d.items.length){[d.items[i],d.items[next]]=[d.items[next],d.items[i]];renderKeywordEditor(product());}return;}if(t.hasAttribute('data-rank-move')){moveRank(t.dataset.rankMove,Number(t.dataset.direction));return;}if(t.hasAttribute('data-review-star')){reviewView.stars=reviewView.stars===t.dataset.reviewStar?'':t.dataset.reviewStar;reviewView.page=1;renderReviews(product());return;}if(t.hasAttribute('data-review-scope')){reviewView.scope=t.dataset.reviewScope;reviewView.page=1;renderReviews(product());return;}if(t.hasAttribute('data-review-page')){reviewView.page+=Number(t.dataset.reviewPage);renderReviews(product());return;}if(t.hasAttribute('data-alert-read')){if(await save('alerts-ack',{ids:[t.dataset.alertRead]},'알림을 읽음 처리했습니다.'))renderAlerts();return;}if(t.hasAttribute('data-alert-open-product')){$('dm-alerts-dialog').close();openProduct(t.dataset.alertOpenProduct);return;}});
+  document.addEventListener('change',event=>{const t=event.target;if(t.matches('#dm-alert-form input,#dm-alert-mode')){if(t.id==='dm-alert-enabled'&&t.checked&&!document.querySelectorAll('[data-alert-keyword]:checked').length)document.querySelectorAll('[data-alert-keyword]').forEach(el=>{el.checked=true;});captureAlertDraft();$('dm-threshold-label').hidden=$('dm-alert-mode').value!=='threshold';}if(t.id==='dm-review-stars'){reviewView.stars=t.value;reviewView.page=1;renderReviews(product());}if(t.id==='dm-review-sort'){reviewView.sort=t.value;reviewView.page=1;renderReviews(product());}if(t.id==='dm-review-media'){reviewView.media=t.value;reviewView.page=1;renderReviews(product());}});
+  document.addEventListener('input',event=>{if(event.target.id==='dm-review-search'){const input=event.target,position=input.selectionStart;reviewView.query=input.value;reviewView.page=1;renderReviews(product());$('dm-review-search').focus();$('dm-review-search').setSelectionRange(position,position);}});
+  document.addEventListener('keydown',event=>{const handle=event.target.closest('[data-rank-handle]');if(handle&&event.altKey&&['ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();const name=handle.dataset.rankHandle;moveRank(name,event.key==='ArrowUp'?-1:1);document.querySelectorAll('[data-rank-handle]').forEach(el=>{if(el.dataset.rankHandle===name)el.focus();});}});
+  document.addEventListener('dragstart',event=>{const rank=event.target.closest('[data-rank-keyword]'),chip=event.target.closest('[data-draft-keyword]');if(rank)draggedKeyword={kind:'rank',keyword:rank.dataset.rankKeyword};else if(chip)draggedKeyword={kind:'draft',index:Number(chip.dataset.draftKeyword)};else return;event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',draggedKeyword.kind==='rank'?draggedKeyword.keyword:String(draggedKeyword.index));});
+  document.addEventListener('dragover',event=>{if(draggedKeyword&&event.target.closest('[data-rank-keyword],[data-draft-keyword]')){event.preventDefault();event.dataTransfer.dropEffect='move';}});
+  document.addEventListener('drop',event=>{if(!draggedKeyword)return;const rank=event.target.closest('[data-rank-keyword]'),chip=event.target.closest('[data-draft-keyword]');event.preventDefault();if(draggedKeyword.kind==='rank'&&rank)moveRank(draggedKeyword.keyword,0,rank.dataset.rankKeyword);if(draggedKeyword.kind==='draft'&&chip){const d=markDraft(product()),from=draggedKeyword.index,to=Number(chip.dataset.draftKeyword);if(from!==to){d.items.splice(to,0,d.items.splice(from,1)[0]);renderKeywordEditor(product());}}draggedKeyword=null;});
+  document.addEventListener('dragend',()=>{draggedKeyword=null;});
+  document.addEventListener('error',event=>{const img=event.target;if(img instanceof HTMLImageElement&&img.closest('[data-monitoring]')){const span=document.createElement('span');span.className=img.className+' dm-image-placeholder';span.textContent='▧';span.setAttribute('aria-label','이미지를 불러오지 못했습니다');img.replaceWith(span);}},true);
+  $('dm-search-form').addEventListener('submit',event=>{event.preventDefault();query=$('dm-search').value.trim().toLowerCase();renderList();});$('dm-search').addEventListener('input',()=>{query=$('dm-search').value.trim().toLowerCase();renderList();});$('dm-folder-filter').addEventListener('change',event=>{folderId=event.target.value;renderList();});$('dm-favorites-only').addEventListener('change',event=>{favoritesOnly=event.target.checked;renderList();});
+  $('dm-back').addEventListener('click',()=>{selectedId=null;updateUrl(null);render();});$('dm-edit').addEventListener('click',()=>editProduct(selectedId));$('dm-product-form').addEventListener('submit',submitProduct);$('dm-product-form').elements.platform.addEventListener('change',event=>{$('dm-wow-price-field').hidden=event.target.value!=='coupang';});
+  $('dm-product-form').elements.url.addEventListener('change',event=>{const field=$('dm-product-form').elements.productId;if(field.value||editingId)return;try{const url=new URL(event.target.value),match=url.pathname.match(/\/(?:products|catalog)\/(\d+)/);field.value=url.searchParams.get('productId')||match?.[1]||'';}catch(_){}});
+  $('dm-archive').addEventListener('click',async()=>{if(await save('archive',{id:editingId},'상품을 보관했습니다.')){$('dm-product-dialog').close();selectedId=null;updateUrl(null);render();}});$('dm-folder-add').addEventListener('click',()=>{pendingFolderRemoval=null;renderFolders();showDialog('dm-folder-dialog');});$('dm-folder-form').addEventListener('submit',async event=>{event.preventDefault();if(await save('folder',{folder:{name:$('dm-folder-name').value.trim()}},'폴더를 추가했습니다.')){$('dm-folder-name').value='';renderFolders();}});$('dm-folders').addEventListener('submit',async event=>{event.preventDefault();const form=event.target;if(await save('folder',{folder:{id:form.dataset.folderEdit,name:form.querySelector('input').value.trim()}},'폴더 이름을 저장했습니다.'))renderFolders();});
+  $('dm-order').addEventListener('click',()=>{order=activeProducts().map(p=>p.id);renderOrder();showDialog('dm-order-dialog');});$('dm-order-save').addEventListener('click',async()=>{if(await save('order',{ids:order},'상품 순서를 저장했습니다.'))$('dm-order-dialog').close();});
+  $('dm-keyword-add-button').addEventListener('click',addKeywordInputs);$('dm-keyword-add').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();addKeywordInputs();}});$('dm-keyword-find').addEventListener('input',event=>{const d=draft(product());d.find=event.target.value;renderKeywordEditor(product());$('dm-keyword-find').focus();});$('dm-keyword-clear').addEventListener('click',()=>{markDraft(product()).items=[];renderKeywordEditor(product());});$('dm-keyword-reset').addEventListener('click',()=>{drafts.delete(selectedId);$('dm-keyword-add').value='';renderKeywordEditor(product());});$('dm-keyword-form').addEventListener('submit',async event=>{event.preventDefault();if($('dm-keyword-add').value.trim())addKeywordInputs();const id=selectedId,items=draft(product()).items;if(await save('keywords',{id,keywords:items},'키워드를 저장했습니다.')){drafts.delete(id);rankOrders.delete(id);renderDetail();}});
+  $('dm-alert-select-all').addEventListener('click',()=>{const d=alertDraft(product());d.keywords=keywordsFor(product()).map(k=>k.keyword);d.dirty=true;renderAlertSettings(product());});$('dm-alert-select-none').addEventListener('click',()=>{const d=alertDraft(product());d.keywords=[];d.enabled=false;d.dirty=true;renderAlertSettings(product());});$('dm-alert-form').addEventListener('submit',async event=>{event.preventDefault();captureAlertDraft();const id=selectedId,d=alertDrafts.get(id),{dirty,...alert}=d;if(await save('product',{product:{id,alert}},'알림 설정을 저장했습니다.')){alertDrafts.delete(id);renderAlertSettings(product());}});
+  $('dm-keyword-sort').addEventListener('change',event=>{view.keywordSort=event.target.value;renderRank(product());});$('dm-save-sort').addEventListener('click',async()=>{const p=product(),custom=rankOrders.get(p.id);if(custom){const map=new Map(keywordsFor(p).map(k=>[k.keyword,k]));const arranged=[...custom.map(k=>map.get(k)).filter(Boolean),...keywordsFor(p).filter(k=>!custom.includes(k.keyword))];if(!await save('keywords',{id:p.id,keywords:arranged},'키워드 순서를 저장했습니다.'))return;rankOrders.delete(p.id);}await save('settings',{settings:persistedSettings()},'정렬 방식을 저장했습니다.');});$('dm-orientation').addEventListener('change',async event=>{view.orientation=event.target.value;renderRank(product());await save('settings',{settings:persistedSettings()},'표시 방향을 저장했습니다.');});document.querySelectorAll('[data-rank-option]').forEach(input=>input.addEventListener('change',async()=>{view.rankOptions[input.dataset.rankOption]=input.checked;renderRank(product());await save('settings',{settings:persistedSettings()},'순위 표시 옵션을 저장했습니다.');}));
+  $('dm-zoom').addEventListener('click',toggleZoom);$('dm-detail-zoom').addEventListener('click',toggleZoom);$('dm-export').addEventListener('click',()=>exportRanks(true));$('dm-export-csv').addEventListener('click',()=>exportRanks(false));$('dm-backup').addEventListener('click',exportBackup);$('dm-import-list').addEventListener('click',()=>startImport(null));$('dm-import-detail').addEventListener('click',()=>startImport(selectedId));$('dm-file').addEventListener('change',importFile);
+  $('dm-alerts-open').addEventListener('click',()=>{renderAlerts();showDialog('dm-alerts-dialog');});$('dm-alerts-unread').addEventListener('change',renderAlerts);$('dm-alerts-read-all').addEventListener('click',async()=>{const ids=unreadAlerts().map(a=>a.id);if(ids.length&&await save('alerts-ack',{ids},'모든 알림을 읽음 처리했습니다.'))renderAlerts();});
+  $('dm-collect-full').addEventListener('click',()=>startCollection('full'));$('dm-collect-recent').addEventListener('click',()=>startCollection('recent'));$('dm-collect-product').addEventListener('click',()=>startCollection('recent',selectedId));$('dm-collect-pause').addEventListener('click',pauseCollection);
+  window.addEventListener('popstate',()=>{const url=new URL(location.href);selectedId=url.searchParams.get('product');platform=url.searchParams.get('platform')==='coupang'?'coupang':'naver';render();});window.addEventListener('focus',()=>{if(loaded&&!busy)load(true);pollCollector();});
+  const params=new URL(location.href).searchParams;selectedId=params.get('product');platform=params.get('platform')==='coupang'?'coupang':'naver';load();pollCollector();setInterval(pollCollector,15000);
 })();
