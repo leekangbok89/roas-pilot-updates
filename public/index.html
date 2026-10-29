@@ -139,6 +139,7 @@
  <p class="helper">원본 주문정보에 고객 이름·전화번호·주소는 저장하지 않습니다. 프로그램이 실행 중일 때만 약 6시간 간격으로 최근 7일을 점검합니다. 백필은 API 제공 범위와 접근 권한에 따라 일부 날짜가 수집되지 않을 수 있으며, 실패 시 상태 메시지에 표시합니다.</p>
 </div></div></section>
 <section id="sales-impact" class="panel settings-page" style="margin-top:24px"><div class="section-head"><div><h2>광고비 증액 전후 위마망 매출 분석</h2><p>메타 광고비와 스마트스토어·카페24의 위마망 주문 매출을 같은 날짜 기준으로 비교합니다. 미분류 상품은 포함 여부를 확인한 뒤 반영합니다.</p></div></div><div class="api-form" style="gap:10px;flex-wrap:wrap"><div style="width:100%;display:flex;gap:8px;flex-wrap:wrap"><button class="button ghost" type="button" data-impact-days="7">전후 7일</button><button class="button ghost" type="button" data-impact-days="14">전후 14일</button><button class="button ghost" type="button" data-impact-days="30">전후 30일</button></div><label>조회 시작<input type="date" id="impact-start" value="2026-09-01"></label><label>조회 종료<input type="date" id="impact-end" value="2026-10-23"></label><label>증액 시점<input type="date" id="impact-pivot" value="2026-10-01"></label><button class="button primary" id="impact-run" type="button">전체 매출 비교</button></div><div id="impact-summary" class="helper" style="white-space:pre-wrap;margin:12px 0">기간을 선택한 뒤 전체 매출 비교를 눌러주세요.</div><div class="table-wrap"><table><thead><tr><th>날짜</th><th>스마트스토어 매출</th><th>카페24 매출</th><th>위마망 합산 매출</th><th>Meta 광고비</th><th>자료 상태</th></tr></thead><tbody id="impact-daily"></tbody></table></div><p class="helper">광고비와 매출 증가의 단순 관측 관계만 표시하며, 광고에 의해 발생한 인과적 증분 매출로 확정하지 않습니다. 비어 있는 날은 0원으로 계산하지 않습니다.</p></section>
+<section id="meta-purchase-gap" class="panel settings-page" style="margin-top:16px"><div class="section-head"><div><h2>Meta 구매 신호 점검</h2><p>위의 조회 시작·종료 기간을 기준으로 카페24 실제 위마망 주문과 카페24용 Meta 광고 계정의 Purchase 신호를 대조합니다. 이 화면은 읽기 전용이며 CAPI 이벤트를 전송하지 않습니다.</p></div></div><div class="api-form" style="gap:10px;flex-wrap:wrap"><button class="button primary" id="signal-run" type="button">구매 신호 대조</button></div><div id="signal-summary" class="helper" style="white-space:pre-wrap;margin:12px 0">위의 조회 시작일·종료일을 선택한 뒤 구매 신호 대조를 눌러주세요.</div><div class="table-wrap"><table><thead><tr><th>날짜</th><th>카페24 확인 주문</th><th>카페24 확인 매출</th><th>Meta Purchase</th><th>Meta 구매매출</th><th>단순 건수 격차</th><th>자료 상태</th></tr></thead><tbody id="signal-daily"></tbody></table></div><p class="helper">단순 건수 격차는 CAPI 누락 확정값이 아닙니다. Meta는 광고 귀속 기준일을 사용하고 실제 주문에는 검색·직접·기타 유입이 포함될 수 있습니다. CAPI 보완 대상을 확정하려면 주문별 Meta 클릭정보(fbc/fbp 등)와 주문번호를 연결해야 합니다.</p></section>
 <section class="setting-bar settings-page"><div class="setting-caption">분석 기준</div><label>목표 ROAS <div class="input-inline"><input id="target-roas" type="number" min="50" max="10000" step="10" value="300"><span>%</span></div></label><label>참고 CPA <div class="input-inline"><input id="target-cpa" type="number" min="1000" step="1000" value="40000"><span>원</span></div></label><label>최소 구매 데이터 <div class="input-inline"><input id="min-purchases" type="number" min="1" max="100" value="3"><span>건</span></div></label><div class="note">판단 기준 변경 시 즉시 재분석</div></section>
 <section class="fx-bar settings-page" id="fx-bar"><div><b>달러 / 원화 동시 표시</b><p class="helper">Meta 광고 계정의 통화를 유지하면서 원화 환산값을 함께 표시합니다. 분석용 환율이며 결제·정산 환율과 다를 수 있습니다.</p></div><label>환율 방식 <select id="fx-mode"><option value="fixed">고정 환율</option><option value="live">최신 공시 환율</option></select></label><label>1달러당 원화 <input id="fx-rate" type="number" step="0.01" min="1" value="1350" /></label><button id="fx-refresh" class="button ghost" type="button">최신 환율 가져오기</button><span id="fx-info" class="helper">고정 환율 · 1 USD = 1,350 KRW</span></section><section class="panel settings-page" id="history-audit" style="margin-top:22px"><div class="section-head"><div><h2>과거 Meta 광고 데이터 수집 · 누락 검사</h2><p>2026년 6월 1일부터 오늘까지 연결된 Meta 광고 계정의 광고 데이터를 재조회합니다. 쇼핑몰 주문·상품 상세는 이 버튼의 수집 대상이 아닙니다. 주문 상세는 한눈에 보기에서 기간을 선택한 뒤 “선택 기간 주문 상세 복구”를 실행하세요. Meta 조회 실패 시 기존 저장 데이터는 유지합니다.</p></div></div><div class="api-form" style="margin-top:14px"><button class="button primary" type="button" id="history-backfill">6월 1일부터 Meta 광고 재수집</button><span id="history-backfill-status" class="helper" aria-live="polite">대기 중</span></div><div class="helper" id="history-backfill-report">재수집 전후의 저장 날짜 수, 데이터가 없는 저장일, API 차단 여부를 별도로 확인합니다. 수집 중에는 이 페이지를 닫지 마세요.</div></section>
 <section class="panel settings-page" id="update-manager" style="margin-top:24px"><div class="section-head"><div><h2>프로그램 자동 업데이트 · 버전 기록</h2><p>맨 아래에서 설치 버전과 복원 가능한 백업을 확인할 수 있습니다.</p></div><span class="ai-tag" id="program-version">설치 버전 확인 중</span></div>
@@ -248,6 +249,28 @@ function scopeStatus(day){
  for(const [key,label] of [['unclassifiedOrders','미분류'],['mixedOrders','혼합 주문'],['missingItemOrders','상품 정보 미확인'],['invalidOrders','결제 정보 미확인']])if(p[key]>0)parts.push(label+' '+p[key]+'건');
  return parts.join(' · ');
 }
+const purchaseSignalTypes=['purchase','omni_purchase','offsite_conversion.fb_pixel_purchase'];
+function metaPurchaseValue(list){
+ if(!Array.isArray(list))return 0;
+ for(const type of purchaseSignalTypes){
+  const found=list.find(item=>item&&item.action_type===type);
+  if(found){const value=Number(found.value);return Number.isFinite(value)?value:0;}
+ }
+ return 0;
+}
+function signalActual(day){
+ const cafe=day&&day.cafe24;
+ if(!cafe)return null;
+ if(cafe.revenueComplete&&Number.isFinite(cafe.revenue))return {orders:Number(cafe.orders||0),revenue:cafe.revenue,partial:false};
+ if(cafe.confirmedAvailable&&Number.isFinite(cafe.confirmed?.revenue))return {orders:Number(cafe.confirmed?.orders??cafe.orders??0),revenue:cafe.confirmed.revenue,partial:true};
+ return null;
+}
+const signalCount=value=>Number(value||0).toLocaleString('ko-KR',{maximumFractionDigits:2});
+function signalMoney(value,currency){
+ if(value==null||!Number.isFinite(Number(value)))return '—';
+ const n=Number(value),unit=String(currency||'').toUpperCase();
+ return unit==='KRW'?Math.round(n).toLocaleString('ko-KR')+'원':n.toLocaleString('ko-KR',{maximumFractionDigits:2})+(unit?' '+unit:'');
+}
 async function api(path,body){const response=await fetch(path,{cache:'no-store',method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-ROAS-Local-Action':'yes'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||'HTTP '+response.status);return data;}
 async function syncStatus(){const d=await api('/api/cafe24/orders/status'),j=d.job; 
  $('cafe-sync-status').textContent='수집 상태: '+j.progress+' · 완료 '+j.done+'/'+j.total+'일 · 저장 주문 '+d.totalOrders+'건 · 확인 날짜 '+d.daysChecked+'일'+(j.error?'\n오류: '+j.error:'')+(d.unverified?'\n결제금액 미확인 '+d.unverified+'건':'');
@@ -258,6 +281,48 @@ async function syncStatus(){const d=await api('/api/cafe24/orders/status'),j=d.j
 }
 for(const [id,mode] of [['cafe-backfill','backfill'],['cafe-recent','recent']])$(id).addEventListener('click',async()=>{try{await api('/api/cafe24/orders/sync',{mode});await syncStatus();}catch(e){$('cafe-sync-status').textContent='수집 시작 실패: '+e.message;}});
 $('cafe-refresh').onclick=()=>syncStatus().catch(e=>$('cafe-sync-status').textContent=e.message);
+$('signal-run').onclick=async()=>{
+ const button=$('signal-run'),start=$('impact-start').value,end=$('impact-end').value,summary=$('signal-summary'),table=$('signal-daily');
+ if(!start||!end||start>end){summary.textContent='조회 시작일과 종료일을 확인해 주세요.';return;}
+ let stored={};try{stored=JSON.parse(localStorage.getItem('roas-account-ids')||'{}')||{};}catch{}
+ const cafeAccount=String(stored.cafe||'').replace(/^act_/,'');
+ if(!/^\d{5,30}$/.test(cafeAccount)){summary.textContent='설정 관리 → 광고 계정에서 카페24용 Meta 광고 계정 ID를 먼저 확인해 주세요.';return;}
+ button.disabled=true;summary.textContent='카페24 실제 주문과 저장된 Meta Purchase 신호를 대조하고 있습니다…';table.replaceChildren();
+ try{
+  const [profit,meta]=await Promise.all([
+   api('/api/profit/daily?'+new URLSearchParams({since:start,until:end})),
+   api('/api/insights?'+new URLSearchParams({account:cafeAccount,since:start,until:end,cacheOnly:'1'}))
+  ]);
+  const missing=new Set(meta.cache?.missingDays||[]),byDate=new Map(),currency=meta.currency||(meta.rows||[]).find(row=>row.account_currency)?.account_currency||'';
+  for(const row of meta.rows||[]){
+   if(!row.date_start)continue;
+   const current=byDate.get(row.date_start)||{purchases:0,revenue:0};
+   current.purchases+=metaPurchaseValue(row.actions);current.revenue+=metaPurchaseValue(row.action_values);byDate.set(row.date_start,current);
+  }
+  let comparable=0,actualTotal=0,metaTotal=0,partialDays=0,missingMetaDays=0;
+  for(const day of profit.days||[]){
+   const actual=signalActual(day),metaKnown=!missing.has(day.date),m=byDate.get(day.date)||{purchases:0,revenue:0};
+   let gap=null,status='';
+   if(!actual)status='카페24 주문 미확정';
+   else if(!metaKnown){status='Meta 저장 누락';missingMetaDays++;}
+   else{
+    comparable++;actualTotal+=actual.orders;metaTotal+=m.purchases;gap=actual.orders-m.purchases;
+    status=gap>0?'전환 신호 격차 +'+signalCount(gap)+'건':gap<0?'Meta 귀속이 '+signalCount(-gap)+'건 많음':'건수 일치';
+    if(actual.partial){status+=' · 부분집계';partialDays++;}
+   }
+   const tr=document.createElement('tr');
+   const values=[day.date,actual?signalCount(actual.orders)+'건':'—',actual?format(actual.revenue):'—',metaKnown?signalCount(m.purchases)+'건':'—',metaKnown?signalMoney(m.revenue,currency):'—',gap==null?'—':(gap>0?'+':'')+signalCount(gap)+'건',status];
+   for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}table.append(tr);
+  }
+  const totalGap=actualTotal-metaTotal;
+  summary.textContent='비교 가능 '+comparable+'/'+((profit.days||[]).length)+'일 · 카페24 확인 주문 '+signalCount(actualTotal)+'건 · Meta Purchase '+signalCount(metaTotal)+'건 · 단순 건수 격차 '+(totalGap>0?'+':'')+signalCount(totalGap)+'건\n'+
+   '이 격차는 CAPI 누락 확정값이 아닙니다. 현재 Meta 저장 데이터는 광고 귀속 기준일로 집계되며, 실제 보완 전송은 주문별 Meta 클릭정보와 중복제거용 event_id를 연결한 뒤에만 진행해야 합니다.'+
+   (partialDays?'\n부분집계 '+partialDays+'일은 미분류·혼합·미확인 주문을 제외한 확인 소계입니다.':'')+
+   (missingMetaDays?'\nMeta 저장 누락 '+missingMetaDays+'일은 격차 계산에서 제외했습니다.':'');
+ }catch(e){summary.textContent='구매 신호 대조 실패: '+e.message;}
+ finally{button.disabled=false;}
+};
+syncStatus().catch(e=>$('cafe-sync-status').textContent=e.message);
 $('impact-run').onclick=async()=>{
  const button=$('impact-run'),start=$('impact-start').value,end=$('impact-end').value,pivot=$('impact-pivot').value;button.disabled=true;$('impact-summary').textContent='저장된 판매처 및 Meta 일별 데이터를 확인하고 있습니다…';
  try{
