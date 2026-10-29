@@ -47,7 +47,11 @@ async function main() {
   await page.waitForFunction(() => document.querySelectorAll('#ca-daily-head th').length === 8);
   assert.equal(await page.locator('html').getAttribute('data-workspace'), 'sellha');
   assert.equal(await page.locator('#app-drawer').count(), 0);
-  assert.equal(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'), '/coupang-dashboard.html');
+  const activeNavigation = new URL(await page.locator('.growth-navigation a[aria-current=page]').getAttribute('href'), base);
+  assert.equal(activeNavigation.pathname, '/coupang-dashboard.html');
+  assert.equal(activeNavigation.searchParams.get('since'), '2026-10-25');
+  assert.equal(activeNavigation.searchParams.get('until'), '2026-10-27');
+  assert.equal(activeNavigation.searchParams.get('channel'), 'all');
   assert.equal(await page.locator('.growth-supplemental').evaluate(node => node.open), false);
   const chartBox = await page.locator('.ca-chart-panel').boundingBox(), dailyBox = await page.locator('.ca-daily-panel').boundingBox();
   assert.ok(Math.abs(chartBox.y - dailyBox.y) < 2 && dailyBox.x > chartBox.x + chartBox.width, 'Chart and report occupy separate side-by-side columns');
