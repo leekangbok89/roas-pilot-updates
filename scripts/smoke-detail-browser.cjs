@@ -122,7 +122,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     assert.match(await imageStats.innerText(),/구간 1/);assert.match(await imageStats.innerText(),/도달 80회/);
     assert.match(await imageStats.innerText(),/구간 2/);assert.match(await imageStats.innerText(),/도달 40회/);assert.match(await imageStats.innerText(),/클릭·터치 2회/);
     assert.match(await ui.locator('#catalog-body .catalog-stats').nth(1).innerText(),/수집된 구간 데이터가 없습니다/);
-    assert.equal(await ui.locator('#catalog-body img').getAttribute('src'),'https://wemamang.mycafe24.com/detail/dp01.jpg');
+    assert.equal(await ui.locator('#catalog-body img[alt="상세 이미지"]').getAttribute('src'),'https://wemamang.mycafe24.com/detail/dp01.jpg');
     assert.equal(await ui.locator('#catalog-body video').count(),0,'No blank video player should be displayed');
     await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
     await ui.waitForFunction(()=>document.querySelector('#catalog-body .video-thumb .thumb-message').textContent==='');
