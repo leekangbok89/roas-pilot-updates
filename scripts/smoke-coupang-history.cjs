@@ -38,7 +38,7 @@ async function exercise(context, base, file) {
   assert.equal(await page.locator('#ca-history-resume').isDisabled(), true);
   assert.equal(await page.locator('#ca-history-pause').isDisabled(), true);
   assert.match(await page.locator('#ca-history-detail').innerText(), /365일.*판매자배송.*로켓그로스/);
-  assert.ok(await page.locator('.ca-history-panel a[href="/coupang-collector.html"]').isVisible());
+  assert.ok(await page.locator('.ca-history-panel a.ca-manage-link[href="/coupang-collector.html"]').isVisible());
   let started;
   const observed = new Promise(resolve => { startObserved = resolve; });
   const held = new Promise(resolve => { releaseStart = resolve; });
