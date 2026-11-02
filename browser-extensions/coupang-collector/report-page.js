@@ -5,18 +5,42 @@ const controls=()=>[...document.querySelectorAll('button,a,[role="button"],[role
 function radio(label){const list=[...document.querySelectorAll('label')].filter(visible),match=list.find(e=>text(e)===label||text(e).startsWith(label+' '));if(match){const r=match.querySelector('input[type="radio"]');if(r&&!r.checked)match.click();return true;}const r=[...document.querySelectorAll('[role="radio"]')].find(e=>visible(e)&&text(e)===label);if(r){if(r.getAttribute('aria-checked')!=='true')r.click();return true;}return false;}
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function input(el,value){if(el.readOnly||el.disabled)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));el.dispatchEvent(new Event('blur',{bubbles:true}));return true;}
+const normalDate=value=>{const m=/^(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})(?:\s*일|\.)?$/.exec(String(value||'').trim());return m?m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0'):null;};
+const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&!/disabled/i.test(String(e.className))&&!e.closest('[aria-disabled="true"],.ant-picker-cell-disabled,.ant-calendar-disabled-cell');
+function dateCells(){return [...document.querySelectorAll('td[title],[data-date],[role="gridcell"][aria-label],button[aria-label]')].filter(visible).map(e=>({e,date:normalDate(e.getAttribute('title'))||normalDate(e.getAttribute('data-date'))||normalDate(e.getAttribute('aria-label'))})).filter(x=>x.date);}
+function monthButton(previous){
+ const selector=previous?'.ant-picker-header-prev-btn,.ant-calendar-prev-month-btn,.rc-picker-header-prev-btn':'.ant-picker-header-next-btn,.ant-calendar-next-month-btn,.rc-picker-header-next-btn';
+ const exact=[...document.querySelectorAll(selector)].filter(e=>visible(e)&&enabled(e));
+ if(exact.length)return previous?exact[0]:exact.at(-1);
+ const matches=controls().filter(e=>{if(!enabled(e))return false;const label=[e.getAttribute('title'),e.getAttribute('aria-label'),text(e)].filter(Boolean).join(' ');return previous?/이전\s*(달|월)|지난달|prev(?:ious)?\s*month/i.test(label):/다음\s*(달|월)|next\s*month/i.test(label);});
+ return previous?matches[0]:matches.at(-1);
+}
 async function calendarInput(el,date){
- if(!el||el.disabled)return false;if(!el.readOnly)return input(el,date);
- el.click();await wait(150);
- for(let n=0;n<15;n++){
-  const cells=[...document.querySelectorAll('td[title],[role="gridcell"][data-date],button[aria-label]')].filter(visible).map(e=>({e,date:e.getAttribute('title')||e.getAttribute('data-date')||e.getAttribute('aria-label')})).filter(x=>/^\d{4}-\d\d-\d\d$/.test(x.date));
-  const match=cells.find(x=>x.date===date&&!/disabled/i.test(String(x.e.className))&&x.e.getAttribute('aria-disabled')!=='true');
-  if(match){match.e.click();await wait(150);return true;}
-  if(!cells.length)return false;const dates=cells.map(x=>x.date).sort(),previous=date<dates[0],next=date>dates.at(-1);if(!previous&&!next)return false;
-  const buttons=controls().filter(e=>{const label=e.getAttribute('title')||e.getAttribute('aria-label')||text(e);return previous?/^(이전 달|지난달|Previous month|prev month)$/i.test(label):/^(다음 달|다음달|Next month)$/i.test(label);});
-  const button=previous?buttons[0]:buttons.at(-1);if(!button||button.disabled||button.getAttribute('aria-disabled')==='true')return false;button.click();await wait(150);
+ if(!el||el.disabled)return false;if(normalDate(el.value)===date)return true;
+ if(!el.readOnly){el.focus();input(el,date);await wait(150);if(normalDate(el.value)===date)return true;}
+ el.click();await wait(200);
+ for(let n=0;n<26;n++){
+  const cells=dateCells(),matches=cells.filter(x=>x.date===date&&enabled(x.e));
+  const match=matches.find(x=>/in-view|in-month/.test(String(x.e.className)))||matches[0];
+  if(match){match.e.click();await wait(200);return true;}
+  const dates=cells.map(x=>x.date).sort();if(!dates.length)return false;
+  const previous=date<dates[0],next=date>dates.at(-1);if(!previous&&!next)return false;
+  const button=monthButton(previous);if(!button)return false;
+  const before=dates.join();button.click();await wait(200);
+  if(dateCells().map(x=>x.date).sort().join()===before)return false;
  }
  return false;
+}
+function dateFields(){
+ const inputs=[...document.querySelectorAll('input')].filter(e=>visible(e)&&!['radio','checkbox','hidden','password'].includes(e.type));
+ // Range pickers have two inputs in one control, sometimes with empty values.
+ const ranges=[...document.querySelectorAll('.ant-picker-range,.ant-calendar-range-picker,.rc-picker-range')].filter(visible);
+ const pairs=ranges.map(e=>[...e.querySelectorAll('input')].filter(visible)).filter(a=>a.length===2);
+ if(pairs.length===1)return pairs[0];
+ const label=e=>(e.placeholder||'')+' '+(e.getAttribute('aria-label')||'');
+ const start=inputs.find(e=>/시작일|시작 날짜|start|开始/i.test(label(e))),finish=inputs.find(e=>/종료일|종료 날짜|end|结束/i.test(label(e)));
+ if(start&&finish&&start!==finish)return [start,finish];
+ const dated=inputs.filter(e=>normalDate(e.value));return dated.length===2?dated:[null,null];
 }
 async function step(m){
  const body=document.body.innerText;
@@ -30,11 +54,9 @@ async function step(m){
  if(job.confirmedAllCampaigns&&rows.some(r=>/생성\s*중|요청\s*완료|대기/.test(text(r))))return {message:'보고서 생성 중 · 완료 상태를 기다립니다.'};
  if(!m.allowCreate){const refresh=controls().find(e=>text(e)==='목록 새로 고침'||text(e)==='목록 새로고침');if(refresh)refresh.click();return {message:'요청한 보고서의 생성 상태를 확인합니다.'};}
  if(!radio('기간 설정'))return {notSubmitted:true,needsInput:true,message:'기간 설정 항목을 찾지 못했습니다.'};await wait(250);
- let fields=[...document.querySelectorAll('input')].filter(e=>visible(e)&&!['radio','checkbox','hidden','password'].includes(e.type));
- const start=fields.find(e=>/시작일|start/i.test((e.placeholder||'')+' '+(e.getAttribute('aria-label')||'')))||fields.find(e=>/^\d{4}[-./]\d\d[-./]\d\d$/.test(e.value));
- const finish=fields.find(e=>/종료일|end/i.test((e.placeholder||'')+' '+(e.getAttribute('aria-label')||'')))||fields.filter(e=>/^\d{4}[-./]\d\d[-./]\d\d$/.test(e.value))[1];
- if(!start||!finish||!await calendarInput(start,job.since)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'날짜 입력이 이 화면 방식과 맞지 않습니다. 달력 입력 방식의 추가 검증이 필요합니다.'};
- const normalize=s=>s.replace(/[.\/]/g,'-').replace(/\s/g,'');if(normalize(start.value)!==job.since||normalize(finish.value)!==job.until)return {notSubmitted:true,needsInput:true,message:'화면에 반영된 시작일·종료일이 요청 기간과 다릅니다. 조회하지 않았습니다.'};
+ const [start,finish]=dateFields();
+ if(!start||!finish||!await calendarInput(start,job.since)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'쿠팡 보고서의 범위 달력을 선택하지 못했습니다. 입력칸 '+[start,finish].filter(Boolean).length+'/2 · 달력 날짜 '+dateCells().length+'개. 쿠팡 보고서 달력이 펼쳐진 화면을 확인해 주세요.'};
+ if(normalDate(start.value)!==job.since||normalDate(finish.value)!==job.until)return {notSubmitted:true,needsInput:true,message:'화면에 반영된 시작일·종료일이 요청 기간과 다릅니다. 조회하지 않았습니다.'};
  if(!radio('일별'))return {notSubmitted:true,needsInput:true,message:'기간 구분 일별을 찾지 못했습니다.'};await wait(250);
  const select=[...document.querySelectorAll('select')].find(e=>visible(e)&&[...e.options].some(o=>/전체.*캠페인|전체 선택/.test(o.textContent)));
  let all=false;
