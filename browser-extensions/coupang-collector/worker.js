@@ -26,7 +26,7 @@ async function tick(){if(working)return;working=true;try{
  // Store the intent before submitting so a worker restart cannot submit twice.
  const submitting=!job.submitted;job.submitted=true;await write(s);
  const current=await read();if(current?.runId!==s.runId||!current.running)return;let result;try{result=await chrome.tabs.sendMessage(tab.id,{kind:'step',job,allowCreate:submitting});}catch{if(submitting)job.submitted=false;s.message='광고 보고서 화면이 준비되기를 기다립니다.';await write(s);return;}
- s.message=result.message||'보고서 확인 중';if(result.requested){job.confirmedAllCampaigns=true;job.baselineCount=result.baselineCount;}if(result.downloading)job.downloadRequestedAt=Date.now();if(result.blocked){s.running=false;s.automatic=false;}if(result.needsInput){s.running=false;s.automatic=false;s.message+=' 수집을 멈췄습니다. 화면 변경 사항을 확인한 뒤 다시 시작하세요.';}if(result.notSubmitted)job.submitted=false;
+ s.message=result.message||'보고서 확인 중';if(result.requested){job.confirmedAllCampaigns=true;job.baselineCount=result.baselineCount;job.baselineReports=result.baselineReports;}if(result.downloading)job.downloadRequestedAt=Date.now();if(result.blocked){s.running=false;s.automatic=false;}if(result.needsInput){s.running=false;s.automatic=false;s.message+=' 수집을 멈췄습니다. 화면 변경 사항을 확인한 뒤 다시 시작하세요.';}if(result.notSubmitted)job.submitted=false;
  await write(s);
  }catch(e){const s=await read();if(s){s.message=String(e.message).slice(0,500);await write(s);}}finally{working=false;}}
 async function collectFile(id){if(working){setTimeout(()=>collectFile(id),1000);return;}if(receiving)return;receiving=true;try{

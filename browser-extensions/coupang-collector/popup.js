@@ -6,3 +6,5 @@ $('start').onclick=async()=>{const r=await chrome.runtime.sendMessage({kind:'sta
 $('stop').onclick=async()=>{await chrome.runtime.sendMessage({kind:'stop'});await show();};
 $('permission').onclick=async()=>{const {collector:s}=await chrome.storage.local.get('collector');if(!s?.permissionHost)return;const ok=await chrome.permissions.request({origins:['https://'+s.permissionHost+'/*']});if(ok){await chrome.runtime.sendMessage({kind:'resume'});await show();}};
 show();
+
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.collector)show();});
