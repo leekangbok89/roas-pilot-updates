@@ -137,7 +137,7 @@
     host.textContent = !status?.configured ? '쿠팡 연결 후 과거 주문을 수집할 수 있습니다.' : (names[job.status] || '상태 확인') + (total ? ' · 저장/확인 ' + done + '/' + total + '일·배송방식' : '');
     const progress = $('ca-history-progress'); if (progress) { progress.max = Math.max(1, total); progress.value = Math.min(done, total); progress.hidden = !total; }
     const failures = Array.isArray(job.failures) && job.failures.length ? job.failures : job.lastFailure ? [job.lastFailure] : [];
-    const detail = [job.since && job.until ? '대상 ' + job.since + ' ~ ' + job.until : '오늘 포함 최근 365일 · 판매자배송 + 로켓그로스', job.current ? (channels[job.current.channel] || '주문') + ' ' + job.current.since + ' ~ ' + job.current.until : '', job.skippedDays ? '기존 저장분 ' + job.skippedDays + '일·배송방식 재사용' : '', job.pauseRequested && job.running ? '현재 구간 저장 후 중지합니다.' : ''].filter(Boolean).join(' · ');
+    const detail = [job.force ? '전체 다시 수집 · 기존 저장분도 API 재조회' : '', job.backupReady ? '재수집 전 주문 백업 ' + (job.backupDays || 0) + '일·배송방식' : '', job.since && job.until ? '대상 ' + job.since + ' ~ ' + job.until : '오늘 포함 최근 365일 · 판매자배송 + 로켓그로스', job.current ? (channels[job.current.channel] || '주문') + ' ' + job.current.since + ' ~ ' + job.current.until : '', job.skippedDays ? '기존 저장분 ' + job.skippedDays + '일·배송방식 재사용' : '', job.pauseRequested && job.running ? '현재 구간 저장 후 중지합니다.' : ''].filter(Boolean).join(' · ');
     if ($('ca-history-detail')) $('ca-history-detail').textContent = detail;
     const error = [historyRequestError, job.error || '', ...failures.map(failure => {
       const diagnosis = failure.diagnosis;
@@ -145,6 +145,7 @@
     })].filter(Boolean).join('\n');
     if ($('ca-history-error')) { $('ca-history-error').textContent = error; $('ca-history-error').hidden = !error; }
     if ($('ca-history-start')) $('ca-history-start').disabled = pipelineRefreshing || historyActionPending || state.disabled;
+    if ($('ca-history-recollect')) $('ca-history-recollect').disabled = pipelineRefreshing || historyActionPending || state.disabled;
     if ($('ca-history-resume')) $('ca-history-resume').disabled = pipelineRefreshing || historyActionPending || state.disabled || !['failed', 'paused', 'partial'].includes(job.status);
     if ($('ca-history-pause')) $('ca-history-pause').disabled = historyActionPending || !job.running || !!job.pauseRequested;
   }
@@ -153,9 +154,9 @@
     if (action === 'pause' ? !pipelineStatus.history?.running : pipelineState(pipelineStatus).running) return;
     historyActionPending = true; historyRequestError = ''; renderPipeline(pipelineStatus);
     try {
-      const job = await request(action === 'pause' ? 'history-pause' : 'history', action === 'pause' ? {} : action === 'resume' ? { resume: true } : { mode: 'maximum' });
+      const job = await request(action === 'pause' ? 'history-pause' : 'history', action === 'pause' ? {} : action === 'resume' ? { resume: true } : { mode: 'maximum', ...(action === 'recollect' ? { force: true } : {}) });
       renderPipeline({ ...pipelineStatus, busy: job.running === true, history: job });
-      message(action === 'pause' ? '현재 구간을 저장한 후 과거 수집을 중지합니다. 저장된 자료는 유지됩니다.' : job.status === 'completed' ? '과거 주문의 저장 상태를 확인했습니다. 저장 자료를 다시 조회합니다.' : '과거 주문을 7일씩 나누어 수집합니다. 저장된 구간은 유지하며, ROAS Pilot 프로그램을 실행해 두면 계속 진행합니다.');
+      message(action === 'pause' ? '현재 구간을 저장한 후 과거 수집을 중지합니다. 저장된 자료는 유지됩니다.' : job.status === 'completed' ? '과거 주문의 저장 상태를 확인했습니다. 저장 자료를 다시 조회합니다.' : action === 'recollect' ? '최근 365일 주문을 백업한 뒤 기존 저장분까지 7일씩 다시 수집합니다. 완료 후에는 최근 7일 자동 확인만 진행합니다.' : '과거 주문을 7일씩 나누어 수집합니다. 저장된 구간은 유지하며, ROAS Pilot 프로그램을 실행해 두면 계속 진행합니다.');
       pipelineNeedsReload = true; await loadPipelineStatus();
     } catch (error) { historyRequestError = error.message; message(error.message, true); }
     finally { historyActionPending = false; renderPipeline(pipelineStatus); schedulePipeline(pipelineState(pipelineStatus).running || pipelineNeedsReload); }
@@ -896,6 +897,7 @@
   if ($('ca-refresh-orders')) {
     $('ca-refresh-orders').addEventListener('click', refreshOrders); loadPipelineStatus();
     $('ca-history-start')?.addEventListener('click', () => historyAction('maximum'));
+    $('ca-history-recollect')?.addEventListener('click', () => historyAction('recollect'));
     $('ca-history-resume')?.addEventListener('click', () => historyAction('resume'));
     $('ca-history-pause')?.addEventListener('click', () => historyAction('pause'));
     window.addEventListener('pagehide', () => { pipelineStopped = true; clearTimeout(pipelineTimer); });

@@ -53,11 +53,34 @@ test('maximum button sends one bulk request, locks competing collection and pres
   assert.deepEqual(ui.calls[0].body, { mode: 'maximum' });
   assert.equal(ui.node('ca-refresh-orders').disabled, true);
   assert.equal(ui.node('ca-history-start').disabled, true);
+  assert.equal(ui.node('ca-history-recollect').disabled, true);
   release(job); await first;
   assert.equal(ui.node('ca-since').value, '2026-08-30');
   assert.equal(ui.node('ca-until').value, '2026-10-28');
   assert.equal(ui.node('ca-history-pause').disabled, false);
   assert.match(ui.node('ca-auto-state').textContent, /과거 주문 수집/);
+});
+
+test('full recollection explicitly requests force, locks competing actions and shows original-order backup', async () => {
+  let release;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const job = { id: 'forced', force: true, status: 'running', running: true, totalDays: 730, completedDays: 0, skippedDays: 0, backupReady: true, backupDays: 730 };
+  const status = { configured: true, busy: true, automatic: {}, history: job };
+  const ui = harness(call => call.url.endsWith('/history') ? waiting : status);
+  ui.node('ca-since').value = '2026-08-30'; ui.node('ca-until').value = '2026-10-28'; ui.node('ca-channel').value = 'growth';
+  ui.renderPipeline({ configured: true, automatic: {}, history: { status: 'completed', completedDays: 730, totalDays: 730 } });
+  const first = ui.historyAction('recollect');
+  await ui.historyAction('recollect'); await ui.historyAction('maximum');
+  assert.equal(ui.calls.length, 1);
+  assert.deepEqual(ui.calls[0].body, { mode: 'maximum', force: true });
+  for (const id of ['ca-history-start', 'ca-history-recollect', 'ca-refresh-orders']) assert.equal(ui.node(id).disabled, true);
+  release(job); await first;
+  for (const id of ['ca-history-start', 'ca-history-recollect', 'ca-refresh-orders']) assert.equal(ui.node(id).disabled, true);
+  assert.equal(ui.node('ca-history-progress').value, 0, 'Existing files are not counted as verified progress in this new run');
+  assert.match(ui.node('ca-history-detail').textContent, /전체 다시 수집.*기존 저장분도 API 재조회/);
+  assert.match(ui.node('ca-history-detail').textContent, /재수집 전 주문 백업 730일·배송방식/);
+  assert.doesNotMatch(ui.node('ca-history-detail').textContent, /기존 저장분 .*재사용/);
+  assert.equal(ui.node('ca-since').value, '2026-08-30'); assert.equal(ui.node('ca-until').value, '2026-10-28'); assert.equal(ui.node('ca-channel').value, 'growth');
 });
 
 test('resume and pause use persisted job endpoints', async () => {

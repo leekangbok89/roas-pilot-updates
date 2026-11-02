@@ -565,16 +565,40 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (job && historyActive) { job.pauseRequested = true; saveHistory(c, job); }
     return historyStatus();
   }
+  function backupHistory(c, job, days) {
+    if (!job.force || job.backupReady) return;
+    // A fresh run never deletes the saved orders first. Keep their original
+    // bytes too, since an upstream empty result may differ from old history.
+    if (!/^[a-f0-9]{24}$/.test(job.id)) throw fail(500, '재수집 작업의 백업 ID를 확인하세요.');
+    const destination = path.join(dir(c), 'history-backups', job.id, 'orders');
+    fs.mkdirSync(destination, { recursive: true });
+    let count = 0;
+    for (const ch of job.channels) for (const date of days) {
+      const filename = date + '-' + ch + '.json', original = path.join(dir(c), 'orders', filename);
+      if (!fs.existsSync(original)) continue;
+      try { fs.copyFileSync(original, path.join(destination, filename), fs.constants.COPYFILE_EXCL); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      count++;
+    }
+    job.backupReady = true; job.backupDays = count;
+    saveHistory(c, job);
+  }
   function startHistory(v = {}, source = 'manual') {
     const c = config();
+    if (v.force !== undefined && typeof v.force !== 'boolean') throw fail(400, '전체 재수집 설정을 확인하세요.');
+    const force = v.force === true;
     const maximum = v.mode === 'maximum';
     if (maximum) {
       const requestedAt = now();
       v = { ...v, resume: false, since: kstDay(requestedAt - 364 * DAY), until: kstDay(requestedAt), channels: [...CHANNELS] };
       const existing = read(historyFile(c), null);
-      if (existing && existing.status !== 'completed' && existing.since === v.since && existing.until === v.until && Array.isArray(existing.channels) && existing.channels.length === CHANNELS.length && CHANNELS.every(ch => existing.channels.includes(ch))) v.resume = true;
+      if (existing && existing.status !== 'completed' && (existing.force === true) === force && existing.since === v.since && existing.until === v.until && Array.isArray(existing.channels) && existing.channels.length === CHANNELS.length && CHANNELS.every(ch => existing.channels.includes(ch))) v.resume = true;
     }
-    if (historyActive) { if (v.resume === true || maximum) return historyStatus(); throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.'); }
+    if (historyActive) {
+      const active = read(historyFile(c), null);
+      if (v.resume === true || maximum && (active?.force === true) === force) return historyStatus();
+      throw fail(409, '쿠팡 장기 수집이 진행 중입니다. 진행 상태를 확인하세요.');
+    }
     if (busy || refreshActive) throw fail(409, '쿠팡 자료를 수집 중입니다.');
     let job;
     if (v.resume === true) {
@@ -587,10 +611,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const done = Object.fromEntries(channels.map(ch => [ch, []]));
       // Recent days can change as orders ship. Recollect them; older confirmed snapshots can be reused.
       const refreshFrom = kstDay(now() - 7 * DAY);
-      for (const ch of channels) for (const date of days) {
+      if (!force) for (const ch of channels) for (const date of days) {
         if (date < refreshFrom && savedHistoryDay(c, date, ch)) done[ch].push(date);
       }
-      job = { id: crypto.randomBytes(12).toString('hex'), kind: source, since: v.since, until: v.until, channels: [...channels], done,
+      job = { id: crypto.randomBytes(12).toString('hex'), kind: source, force, since: v.since, until: v.until, channels: [...channels], done,
         totalDays: days.length * channels.length, completedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), skippedDays: Object.values(done).reduce((n, ds) => n + ds.length, 0), startedAt: new Date(now()).toISOString() };
     }
     if (maximum) job.mode = 'maximum';
@@ -600,6 +624,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     historyTask = Promise.resolve().then(async () => {
       try {
         const days = range(job.since, job.until, now()), blocks = [];
+        backupHistory(c, job, days);
         if (job.mode === 'maximum') for (let end = days.length; end > 0; end -= 7) blocks.push(days.slice(Math.max(0, end - 7), end));
         else for (let i = 0; i < days.length; i += 7) blocks.push(days.slice(i, i + 7));
         // Fetch both delivery methods for recent dates first. A delivery-method
