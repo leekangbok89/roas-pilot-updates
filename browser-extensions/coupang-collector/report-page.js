@@ -42,6 +42,40 @@ function dateFields(){
  if(start&&finish&&start!==finish)return [start,finish];
  const dated=inputs.filter(e=>normalDate(e.value));return dated.length===2?dated:[null,null];
 }
+const allCampaignLabel=value=>/^(?:전체선택|전체캠페인|모든캠페인)(?:[（(]?\d+개?[)）]?)?$/.test(String(value||'').replace(/\s/g,''));
+function campaignPicker(){
+ const candidates=[...new Set([...controls(),...document.querySelectorAll('.ant-select-selector,.ant-select-selection,.ant-select,.rc-select,input[role="combobox"]'),...[...document.querySelectorAll('div,span')].filter(e=>/^(모든 캠페인|전체 캠페인|캠페인을 선택하세요)$/.test(text(e)))])];
+ return candidates.find(e=>visible(e)&&enabled(e)&&text(e).length<100&&(/캠페인을 선택|캠페인 선택/.test(text(e)+' '+(e.getAttribute('placeholder')||''))||allCampaignLabel(text(e))&&!/전체선택/.test(text(e).replace(/\s/g,''))));
+}
+function campaignMaster(){
+ const candidates=[...document.querySelectorAll('label,[role="checkbox"],[role="option"],span,div,button')].filter(e=>visible(e)&&allCampaignLabel(text(e)));
+ for(const label of candidates){
+  for(let root=label;root&&allCampaignLabel(text(root));root=root.parentElement){
+   const inputs=[...root.querySelectorAll('input[type="checkbox"]')];
+   if(inputs.length===1)return {root,input:inputs[0]};
+   if(root.getAttribute('role')==='checkbox')return {root,input:null};
+  }
+ }
+ return null;
+}
+const masterChecked=m=>!!m&&(m.input?m.input.checked&&!m.input.indeterminate:m.root.getAttribute('aria-checked')==='true');
+async function selectAllCampaigns(){
+ const select=[...document.querySelectorAll('select')].find(e=>visible(e)&&[...e.options].some(o=>allCampaignLabel(o.textContent)));
+ if(select){const option=[...select.options].find(o=>allCampaignLabel(o.textContent)&&!o.disabled);if(!option)return false;select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));await wait(150);return select.value===option.value;}
+ let master=campaignMaster();
+ if(!master){const picker=campaignPicker();if(!picker)return false;picker.click();await wait(300);master=campaignMaster();}
+ if(!master)return false;
+ if(!masterChecked(master)){
+  if(!enabled(master.root)||master.input?.disabled)return false;
+  (master.input||master.root).click();await wait(200);master=campaignMaster();
+ }
+ if(!masterChecked(master))return false;
+ // Apply inside the menu containing the master checkbox, never an unrelated dialog.
+ let scope=master.root,apply=null;
+ while(scope&&scope!==document.body){apply=[...scope.querySelectorAll('button,a,[role="button"],input[type="button"]')].find(e=>visible(e)&&enabled(e)&&/^(確認|확인|적용)$/.test(text(e)||e.value||''));if(apply)break;scope=scope.parentElement;}
+ if(apply){apply.click();await wait(200);const picker=campaignPicker();if(picker&&allCampaignLabel(text(picker)))return true;return masterChecked(campaignMaster());}
+ return masterChecked(master);
+}
 async function step(m){
  const body=document.body.innerText;
  if(/Access Denied|Request Header Or Cookie Too Large|permission to access/i.test(body))return {blocked:true,message:'쿠팡 접근 제한으로 중단했습니다.'};
@@ -58,10 +92,7 @@ async function step(m){
  if(!start||!finish||!await calendarInput(start,job.since)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'쿠팡 보고서의 범위 달력을 선택하지 못했습니다. 입력칸 '+[start,finish].filter(Boolean).length+'/2 · 달력 날짜 '+dateCells().length+'개. 쿠팡 보고서 달력이 펼쳐진 화면을 확인해 주세요.'};
  if(normalDate(start.value)!==job.since||normalDate(finish.value)!==job.until)return {notSubmitted:true,needsInput:true,message:'화면에 반영된 시작일·종료일이 요청 기간과 다릅니다. 조회하지 않았습니다.'};
  if(!radio('일별'))return {notSubmitted:true,needsInput:true,message:'기간 구분 일별을 찾지 못했습니다.'};await wait(250);
- const select=[...document.querySelectorAll('select')].find(e=>visible(e)&&[...e.options].some(o=>/전체.*캠페인|전체 선택/.test(o.textContent)));
- let all=false;
- if(select){const option=[...select.options].find(o=>/전체.*캠페인|전체 선택/.test(o.textContent));select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));all=select.value===option.value;}
- else {const picker=controls().find(e=>/캠페인을 선택|캠페인 선택/.test(text(e)));if(picker){picker.click();await wait(250);}const label=[...document.querySelectorAll('label,[role="option"]')].find(e=>visible(e)&&/^(전체 선택|전체 캠페인|전체선택)$/.test(text(e)));if(label){const checkbox=label.querySelector('input[type="checkbox"]');if(checkbox&&!checkbox.checked)label.click();await wait(100);all=!!checkbox?.checked||label.getAttribute('aria-selected')==='true';const apply=controls().find(e=>/^(확인|적용)$/.test(text(e)));if(apply)apply.click();}}
+ const all=await selectAllCampaigns();
  if(!all)return {notSubmitted:true,needsInput:true,message:'전체 캠페인 선택 상태를 확인하지 못했습니다. 일부 캠페인을 전체 금액으로 저장하지 않도록 중단합니다.'};await wait(250);
  const keywords=[...document.querySelectorAll('label')].find(e=>visible(e)&&text(e).replace(/\s/g,'')==='클릭이발생한키워드만보고서에포함'),check=keywords?.querySelector('input[type="checkbox"]');if(check?.checked)keywords.click();
  const create=controls().find(e=>text(e)==='보고서 만들기');if(!create||create.disabled||create.getAttribute('aria-disabled')==='true')return {notSubmitted:true,needsInput:true,message:'보고서 만들기가 비활성 상태입니다. 기간·캠페인 설정을 확인해 주세요.'};
