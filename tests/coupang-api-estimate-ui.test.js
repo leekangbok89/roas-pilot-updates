@@ -42,6 +42,12 @@ test('refresh verification deduplicates delivery dates and keeps any changed dat
   assert.match(unchanged.verification, /변경 0일.*동일 1일/);
   assert.notEqual(unchanged.detail, state.detail, 'Verification time must advance even when order data is unchanged');
 });
+test('pipeline exposes Windows login registration success or failure', () => {
+  const { h } = helpers();
+  assert.match(h.pipelineState({ configured: true, windowsStartup: { enabled: true, status: 'registered' } }).detail, /Windows 로그인 시 자동 실행 켜짐/);
+  const state = h.pipelineState({ configured: true, windowsStartup: { enabled: false, status: 'failed', error: 'Windows 자동 실행 등록 실패' } });
+  assert.match(state.error, /Windows 자동 실행 등록 실패/);
+});
 test('estimates aggregate separately from exact source profit and preserve missing cost inputs', () => {
   const { h } = helpers();
   const rows = [

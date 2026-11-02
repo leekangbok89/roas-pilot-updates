@@ -66,7 +66,7 @@ function safeThumbnailUrl(value) {
     url.protocol = 'https:'; return url.href;
   } catch { return null; }
 }
-function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...args), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
+function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...args), now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), startupStatus = () => null }) {
   const privateFile = path.join(baseDir, '.roas-private', 'coupang.dpapi');
   const root = path.join(baseDir, '.roas-data', 'coupang');
   let busy = false, lastRequest = 0, historyActive = false, historyTask = null, refreshActive = false, refreshTask = null;
@@ -111,9 +111,9 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     return extra;
   }
   function status() {
-    if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [] };
+    if (!fs.existsSync(privateFile)) return { configured: false, busy, products: [], windowsStartup: startupStatus() };
     const c = config(), s = scope(c);
-    return { configured: true, vendorId: c.vendorId, busy: busy || historyActive || refreshActive, products: s.products, scopeKey: s.key, advertisingRevision: advertisingRevision(c), apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: automaticStatus(c), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
+    return { configured: true, windowsStartup: startupStatus(), vendorId: c.vendorId, busy: busy || historyActive || refreshActive, products: s.products, scopeKey: s.key, advertisingRevision: advertisingRevision(c), apiVerified: read(path.join(dir(c), 'state.json'), {}), history: historyStatus(), backfill: read(path.join(dir(c), 'backfill.json'), {}), automatic: automaticStatus(c), connectionCheck: read(path.join(dir(c), 'connection-check.json'), null) };
   }
   function saveCredentials(v) {
     if (busy || historyActive || refreshActive) throw fail(409, '수집 중에는 연결 정보를 바꿀 수 없습니다.');
@@ -704,9 +704,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     // Only a job that was actively running at shutdown is resumed. Explicit
     // pauses and API failures (including 401/403) require a user retry.
     if (startupRefreshRequested && !startupRefreshDone && interrupted?.status === 'running' && !interrupted.pauseRequested) {
+      // Always verify the current week before resuming a potentially long old checkpoint.
+      let recent = null;
+      if (scope(c).products.length) {
+        refresh({}, 'startup');
+        await refreshTask;
+        recent = automaticStatus(c);
+      }
       startHistory({ resume: true }, 'startup'); startupRefreshDone = true; startupRefreshRequested = false;
       await historyTask;
-      return { started: true, reason: 'history-resumed', history: historyStatus() };
+      return { started: true, reason: 'history-resumed', history: historyStatus(), ...(recent ? { automatic: recent } : {}) };
     }
     if (!scope(c).products.length) return { started: false, reason: 'products-not-selected' };
     const state = read(path.join(dir(c), 'automatic.json'), {}), last = Date.parse(state.lastStartedAt || '');

@@ -98,3 +98,25 @@ test('failed startup rechecks preserve prior saved snapshots and report the fail
   assert.ok(result.automatic.error);
   for (const [filename, bytes] of before) assert.equal(fs.readFileSync(filename, 'utf8'), bytes);
 });
+test('startup checks both delivery methods for the current week before resuming old history', async t => {
+  const { s, service, calls, root } = setup(t);
+  s.startHistory({ since: '2026-10-01', until: '2026-10-07', channels: ['growth'] });
+  await s.waitForHistory();
+  const file = path.join(root, 'history.json'), previous = JSON.parse(fs.readFileSync(file, 'utf8'));
+  previous.status = 'running'; previous.pauseRequested = false;
+  fs.writeFileSync(file, JSON.stringify(previous));
+  fs.unlinkSync(path.join(root, 'orders', '2026-10-01-growth.json'));
+  calls.length = 0;
+  const restarted = service(), result = await restarted.automatic({ startup: true });
+  assert.equal(result.reason, 'history-resumed');
+  assert.equal(result.automatic.trigger, 'startup');
+  assert.equal(result.automatic.status, 'completed');
+  assert.equal(calls.length, 8);
+  assert.equal(calls[0].searchParams.get('paidDateFrom'), '20261021');
+  assert.equal(calls[0].searchParams.get('paidDateTo'), '20261027');
+  assert.ok(calls.slice(1, 7).every(url => url.pathname.endsWith('ordersheets')));
+  assert.equal(calls[7].searchParams.get('paidDateFrom'), '20261001');
+  assert.equal(restarted.historyStatus().id, previous.id);
+  assert.equal(restarted.historyStatus().status, 'completed');
+  assert.equal((await restarted.automatic({ startup: true })).reason, 'startup-already-checked');
+});
