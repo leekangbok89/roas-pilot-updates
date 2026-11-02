@@ -9,7 +9,7 @@ const errors = [], external = [], posts = [], queries = [];
 let state, releaseStart, startObserved;
 const period = { since: '2026-08-30', until: '2026-10-28', channel: 'all' };
 const idle = () => ({ status: 'idle', running: false, completedDays: 0, totalDays: 0 });
-const job = () => ({ id: 'history-synthetic', mode: 'maximum', since: '2025-10-30', until: '2026-10-29', channels: ['growth', 'seller'], status: 'running', running: true, completedDays: 70, totalDays: 730, skippedDays: 56, current: { channel: 'growth', since: '2026-10-23', until: '2026-10-29' }, failures: [], error: null });
+const job = (force = false) => ({ id: force ? 'history-force-synthetic' : 'history-synthetic', mode: 'maximum', force, since: '2025-10-30', until: '2026-10-29', channels: ['growth', 'seller'], status: 'running', running: true, completedDays: force ? 0 : 70, totalDays: 730, skippedDays: force ? 0 : 56, ...(force ? { backupReady: true, backupDays: 730 } : {}), current: { channel: 'growth', since: '2026-10-23', until: '2026-10-29' }, failures: [], error: null });
 async function waitState(page, text) {
   await page.waitForFunction(value => document.getElementById('ca-history-state').textContent.includes(value), text, { timeout: 12000 });
   await page.waitForFunction(() => !document.querySelector('#ca-query [type=submit]').disabled);
@@ -46,6 +46,7 @@ async function exercise(context, base, file) {
   await page.locator('#ca-history-start').click();
   await observed;
   assert.equal(await page.locator('#ca-history-start').isDisabled(), true);
+  assert.equal(await page.locator('#ca-history-recollect').isDisabled(), true);
   assert.equal(await page.locator('#ca-refresh-orders').isDisabled(), true);
   await page.locator('#ca-history-start').evaluate(button => button.click());
   assert.equal(posts.length - firstPost, 1, 'Pending clicks cannot create duplicate jobs');
@@ -92,6 +93,29 @@ async function exercise(context, base, file) {
   assert.equal(await page.locator('#ca-history-resume').isDisabled(), true);
   assert.ok(queries.length > beforeCompletion, 'Completion reloads saved analytics');
   assert.deepEqual(posts.slice(firstPost), [{ endpoint: 'history', body: { mode: 'maximum' } }, { endpoint: 'history-pause', body: {} }, { endpoint: 'history', body: { resume: true } }, { endpoint: 'history', body: { resume: true } }]);
+  // Starting over is distinct from the normal cache-reusing collection above.
+  const beforeForce = posts.length;
+  const forceObserved = new Promise(resolve => { startObserved = resolve; });
+  state.startGate = new Promise(resolve => { releaseStart = resolve; });
+  await page.locator('#ca-history-recollect:not(:disabled)').click(); await forceObserved;
+  for (const id of ['ca-history-start', 'ca-history-recollect', 'ca-refresh-orders']) assert.equal(await page.locator('#' + id).isDisabled(), true);
+  await page.locator('#ca-history-start').evaluate(button => button.click());
+  await page.locator('#ca-history-recollect').evaluate(button => button.click());
+  assert.equal(posts.length - beforeForce, 1, 'Pending recollection cannot create a competing normal or force run');
+  releaseStart();
+  await page.waitForFunction(() => document.getElementById('ca-history-detail').textContent.includes('전체 다시 수집') && document.getElementById('ca-history-progress').value === 0);
+  await waitState(page, '수집 중');
+  assert.deepEqual(posts.at(-1), { endpoint: 'history', body: { mode: 'maximum', force: true } });
+  const recollection = await page.locator('#ca-history-detail').innerText();
+  assert.match(recollection, /전체 다시 수집.*기존 저장분도 API 재조회/);
+  assert.match(recollection, /재수집 전 주문 백업 730일·배송방식/);
+  assert.doesNotMatch(recollection, /기존 저장분 \d+일·배송방식 재사용/);
+  await unchangedPeriod(page);
+  state.history = { ...state.history, running: false, status: 'completed', completedDays: 730, current: null };
+  await poll(page); await waitState(page, '전체 수집 완료');
+  await poll(page); await unchangedPeriod(page);
+  assert.equal(posts.length - beforeForce, 1, 'Completed forced collection is not restarted by status polling');
+  assert.equal(await page.locator('#ca-history-resume').isDisabled(), true);
   for (const query of queries.slice(firstQuery)) for (const [key, value] of Object.entries(period)) assert.equal(query[key], value, 'Collection preserves the selected reporting dates');
   await unchangedPeriod(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -113,7 +137,7 @@ async function main() {
     const endpoint = url.pathname.split('/').pop(), body = request.method() === 'POST' ? request.postDataJSON() : null;
     if (body) { assert.equal(request.headers()['x-roas-local-action'], 'yes'); posts.push({ endpoint, body }); }
     let json = {};
-    if (endpoint === 'history' && body?.mode === 'maximum') { state.history = job(); startObserved(); await state.startGate; }
+    if (endpoint === 'history' && body?.mode === 'maximum') { state.history = job(body.force === true); startObserved(); await state.startGate; }
     if (endpoint === 'history' && body?.resume) state.history = { ...state.history, status: 'running', running: true, pauseRequested: false, error: null, failures: [] };
     if (endpoint === 'history-pause') state.history = { ...state.history, pauseRequested: true };
     if (endpoint === 'history' || endpoint === 'history-pause') json = state.history;
@@ -127,6 +151,6 @@ async function main() {
   });
   for (const file of ['coupang-dashboard.html', 'coupang-sales.html']) await exercise(context, base, file);
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  console.log('PASS embedded dashboard/sales one-click history, duplicate guard, 730-day-method progress, pause/checkpoint/resume, two-channel 403, unchanged query dates, completion reload and mobile width');
+  console.log('PASS embedded dashboard/sales history and forced recollection, backup display, duplicate guard, 730-day-method progress, pause/checkpoint/resume, two-channel 403, unchanged query dates, completion reload and mobile width');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { releaseStart?.(); await browser?.close(); child?.kill(); fs.rmSync(temp, { recursive: true, force: true }); });

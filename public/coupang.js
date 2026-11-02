@@ -50,7 +50,7 @@
     const failedRange = failed?.since && failed?.until ? '중단 구간: ' + (channels[failed.channel] || '배송 방식 확인') + ' ' + failed.since + ' ~ ' + failed.until : '';
     const failureCode = Number.isInteger(diagnosis?.httpStatus) ? 'HTTP ' + diagnosis.httpStatus : '';
     const failureDetail = diagnosis ? ['중단 원인: ' + (diagnosis.message || diagnosis.category || '상세 진단 확인'), failureCode, diagnosis.action || ''].filter(Boolean).join(' · ') : '';
-    $('cp-history-detail').textContent = [h.kind === 'startup' ? '프로그램 실행 시 최근 7일 자동 재확인' : '', h.since && h.until ? '대상: ' + h.since + ' ~ ' + h.until : '', h.current ? channels[h.current.channel] + ' ' + h.current.since + ' ~ ' + h.current.until : '', failedRange, failureDetail, h.pauseRequested && h.running ? '현재 구간 저장 후 중지합니다.' : '', h.error || ''].filter(Boolean).join('\n');
+    $('cp-history-detail').textContent = [h.force ? '전체 다시 수집 · 기존 저장분도 API 재조회' : '', h.backupReady ? '재수집 전 주문 백업 ' + (h.backupDays || 0) + '일·배송방식' : '', h.kind === 'startup' ? '프로그램 실행 시 최근 7일 자동 재확인' : '', h.since && h.until ? '대상: ' + h.since + ' ~ ' + h.until : '', h.current ? channels[h.current.channel] + ' ' + h.current.since + ' ~ ' + h.current.until : '', failedRange, failureDetail, h.pauseRequested && h.running ? '현재 구간 저장 후 중지합니다.' : '', h.error || ''].filter(Boolean).join('\n');
     $('cp-resume').disabled = !['failed', 'paused'].includes(h.status); $('cp-pause').disabled = !h.running;
     return h;
   }
@@ -66,7 +66,8 @@
   }
   async function startCollection(input) {
     if (!configured) throw Error('먼저 API 정보를 등록하세요.');
-    renderHistory(await request('history', input));
+    const job = renderHistory(await request('history', input));
+    if (input.force) { $('cp-since').value = job.since; $('cp-until').value = job.until; }
     message('백그라운드 수집을 시작했습니다. 7일씩 나누어 저장합니다. 브라우저를 닫아도 계속되지만 ROAS Pilot 프로그램은 실행해 두세요.');
   }
   function activeRows() { const ch = $('cp-channel').value; return report ? report.daily.filter(r => ch === 'all' || r.channel === ch) : []; }
@@ -190,6 +191,7 @@
   });
   $('cp-products').addEventListener('change', () => { dirtyScope = true; });
   $('cp-year').addEventListener('click', () => work(async () => { recentDates(365); await startCollection({ ...period(), channels: ['growth', 'seller'] }); }));
+  $('cp-recollect')?.addEventListener('click', () => work(async () => { await startCollection({ mode: 'maximum', force: true }); }));
   $('cp-resume').addEventListener('click', () => work(async () => { const h = await request('history', { resume: true }); $('cp-since').value = h.since; $('cp-until').value = h.until; renderHistory(h); message('완료된 구간은 유지하고 미완료 구간부터 이어서 수집합니다.'); }));
   $('cp-pause').addEventListener('click', () => work(async () => { renderHistory(await request('history-pause', {})); message('현재 구간을 저장한 후 일시정지합니다.'); }));
   document.querySelectorAll('[data-cp-days]').forEach(button => button.addEventListener('click', () => { if (!busy) recentDates(Number(button.dataset.cpDays)); }));
