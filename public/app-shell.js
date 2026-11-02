@@ -45,9 +45,10 @@
     var header = document.createElement('header');
     header.className = 'growth-header' + (dailyMonitoring ? ' growth-smart-header' : '');
     header.innerHTML = '<div class="growth-header-inner"><div class="growth-topline">' +
-      '<a class="growth-brand" href="/coupang-dashboard.html" aria-label="ROAS Pilot 셀하 모드 대시보드">ROAS<span>Pilot.</span><small>셀하 모드</small></a>' +
+      '<a class="growth-brand" href="/coupang-dashboard.html" aria-label="ROAS Pilot 쿠팡 대시보드">ROAS<span>Pilot.</span></a>' +
+      '<nav class="workspace-switch" aria-label="작업 공간 선택"><a class="growth-return" href="/visual-overview.html">위마망</a><a href="/coupang-dashboard.html" aria-current="page">쿠팡</a></nav>' +
       '<nav class="growth-modes" aria-label="분석 모드"><a href="/daily-monitoring.html"' + (dailyMonitoring ? ' aria-current="page"' : '') + '>스마트 분석</a><a href="/coupang-dashboard.html"' + (dailyMonitoring ? '' : ' aria-current="page"') + '><i aria-hidden="true"></i>그로스 분석</a></nav>' +
-      '<a class="growth-return" href="/visual-overview.html">기존 네이버 모드로 ↗</a></div>' +
+      '</div>' +
       '<div class="growth-context"><span><b aria-hidden="true">●</b> ' + (dailyMonitoring ? '네이버 · 쿠팡 상품 모니터링' : '쿠팡 수익 분석') + '</span><span>' + (dailyMonitoring ? '위마망' : '트루버 · 위마망') + '</span><span class="growth-context-note">' + (dailyMonitoring ? '상품별 일간 흐름을 확인합니다' : '쿠팡 자료만 조회합니다') + '</span></div>' +
       '<nav class="growth-navigation" aria-label="셀하 모드 메뉴"></nav></div>';
     var navigation = header.querySelector('.growth-navigation');
@@ -125,10 +126,10 @@
       initializeGrowthShell(body);
       return;
     }
-    var modeLink = document.createElement('a');
-    modeLink.className = 'app-mode-entry';
-    modeLink.href = '/coupang-dashboard.html';
-    modeLink.innerHTML = '<span aria-hidden="true">↗</span> 셀하 모드 <small>상품 모니터링 · 쿠팡 · 그로스 분석</small>';
+    var modeLink = document.createElement('nav');
+    modeLink.className = 'workspace-switch';
+    modeLink.setAttribute('aria-label', '작업 공간 선택');
+    modeLink.innerHTML = '<a href="/visual-overview.html" aria-current="page">위마망</a><a class="app-mode-entry" href="/coupang-dashboard.html">쿠팡</a>';
     var pageMain = document.getElementById('app-main');
     if (pageMain) pageMain.prepend(modeLink);
     var rail = document.getElementById('app-nav-rail');

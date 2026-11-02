@@ -250,5 +250,8 @@ body[data-app-page="cost"] .app-main>section th {
 
 
 
-.app-mode-entry{display:flex;align-items:center;gap:8px;width:max-content;max-width:100%;box-sizing:border-box;margin:0 0 14px auto;padding:9px 15px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-surface);text-decoration:none;font-weight:700}
-.app-mode-entry small{font-size:12px;color:var(--app-muted)}
+.workspace-switch{display:inline-flex;align-items:center;gap:3px;width:max-content;max-width:100%;padding:4px;border-radius:999px;background:var(--app-surface-soft);border:1px solid var(--app-border)}
+body .workspace-switch a,body .app-main .workspace-switch a{display:block;margin:0;padding:7px 18px;border-radius:999px;color:var(--app-text);font-size:14px;font-weight:700;line-height:1.4;text-decoration:none;white-space:nowrap}
+body .workspace-switch a[aria-current="page"],body .app-main .workspace-switch a[aria-current="page"]{background:#514fe3;color:#fff}
+body .app-main > .workspace-switch{margin:0 0 14px}
+body .growth-topline .workspace-switch{flex-shrink:0}

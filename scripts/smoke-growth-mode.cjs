@@ -66,12 +66,14 @@ async function main() {
   await page.goto(base + '/coupang.html#cp-catalog');
   assert.equal(await page.locator('.growth-navigation a[aria-current]').textContent(), '자료·연결 관리');
   await page.locator('.growth-return').click(); await page.waitForSelector('.app-mode-entry');
+  assert.equal(await page.locator('.workspace-switch a[aria-current]').textContent(), '위마망');
   assert.equal(await page.locator('html').getAttribute('data-workspace'), 'naver');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   assert.equal(await page.locator('#app-nav-rail').count(), 1);
   assert.equal(await page.locator('.growth-header').count(), 0);
   assert.equal(await page.locator('.app-mode-entry').getAttribute('href'), '/coupang-dashboard.html');
   await page.locator('.app-mode-entry').click(); await page.waitForSelector('.growth-header');
+  assert.equal(await page.locator('.workspace-switch a[aria-current]').textContent(), '쿠팡');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   assert.equal(await page.evaluate(() => localStorage.getItem('roas-pilot-theme')), 'dark');
   // Both directions and direct links retain their workspace on Back / Forward.
