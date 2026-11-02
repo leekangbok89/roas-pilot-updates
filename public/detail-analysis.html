@@ -13,6 +13,7 @@
     .detail-bar{min-width:130px;height:8px;background:var(--app-surface-soft);border-radius:4px;overflow:hidden}.detail-bar span{display:block;height:100%;background:var(--app-accent)}
     .detail-scroll{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.detail-scroll article{padding:12px;border:1px solid var(--app-border);border-radius:10px}.detail-scroll strong{font-size:24px;display:block}
     .detail-table{overflow:auto}.detail-table table{width:100%;border-collapse:collapse}.detail-table td,.detail-table th{padding:10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--app-border)}
+    #catalog-body .catalog-stats{white-space:normal;min-width:330px;max-width:750px}.catalog-stat-part + .catalog-stat-part{margin-top:8px;padding-top:8px;border-top:1px solid var(--app-border)}.catalog-stat-values{display:flex;flex-wrap:wrap;gap:4px 14px}.catalog-stat-values span{white-space:nowrap}.catalog-stat-part strong{display:block}.catalog-stat-empty{color:var(--app-muted, #697586)}
     .content-preview{display:flex;align-items:center;gap:10px;min-width:240px;white-space:normal}.content-preview img,.content-preview video{width:110px;height:88px;object-fit:contain;border-radius:6px;background:var(--app-surface-soft)}.content-preview small{display:block;max-width:240px;overflow-wrap:anywhere}.content-preview strong{display:block}.catalog-name{width:240px;max-width:100%;box-sizing:border-box}#catalog-message{overflow-wrap:anywhere}
     .video-thumb{width:110px;flex:none}.video-thumb a{display:block;position:relative;width:110px;height:88px;border-radius:6px;background:var(--app-surface-soft);overflow:hidden}.video-thumb img,.video-thumb canvas{display:block;width:110px;height:88px;object-fit:contain}.video-thumb .thumb-placeholder{display:flex;align-items:center;justify-content:center;width:110px;height:88px;text-align:center;font-size:12px;color:var(--app-muted)}.thumb-upload{display:block;font-size:12px;cursor:pointer;text-decoration:underline}.thumb-upload input{display:none}.thumb-message{max-width:140px;font-size:12px;white-space:normal}
     details>summary{cursor:pointer;font-weight:600}#detail-status,#settings-message{padding:10px;border-radius:8px;background:var(--app-info-bg)}#detail-status[data-error=true],#settings-message[data-error=true]{background:var(--app-warning-bg);color:var(--app-warning)}
@@ -94,12 +95,13 @@
     </div>
     <details class="panel" id="detail-report-notes" hidden><summary>집계 안내</summary><ul id="detail-warnings"></ul><p>구간별 구매·장바구니 클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></details>
     <details class="panel" id="content-catalog">
-      <summary>이미지 · 영상 이름 관리</summary>
+      <summary>이미지 · 영상별 성과 및 이름 관리</summary>
       <p>현재 자사몰에서 파일 목록을 불러온 뒤 ‘100℃ 가열 설명’, ‘세척 시연’처럼 이름을 붙여 저장하세요. 같은 이름이 통계에도 표시됩니다. GA4 연결 없이도 목록을 관리할 수 있습니다.</p>
       <p>영상은 재생창 대신 자동으로 추출한 장면을 표시합니다. 추출이 제한되면 ‘썸네일 등록 / 변경’에서 이미지 또는 원본 영상 파일을 선택하세요. 썸네일을 누르면 원본 영상이 열립니다.</p>
       <div class="detail-actions"><button id="catalog-import" type="button">자사몰 콘텐츠 불러오기</button><button id="catalog-save" type="button" disabled>이름 저장</button></div>
       <p id="catalog-message" role="status" aria-live="polite">콘텐츠 목록 확인 중…</p>
-      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
+      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>선택 기간의 성과</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
+      <p class="helper">위에서 선택한 기간·유입·기기에 해당하는 수치입니다. 긴 이미지는 중복 집계를 막기 위해 구간별로 나눠 표시하며, 구간 수치를 합산한 고유 방문자는 제공하지 않습니다. —는 자료가 없거나 확인할 수 없는 값입니다.</p>
       <p class="helper">이름은 상품번호·상세 버전별로 이 PC에 저장됩니다. 이미지 미리보기는 분할 구간이 아닌 원본 전체입니다. 콘텐츠 순서·파일을 바꾸면 상세 버전과 자사몰 설치코드도 함께 바꿔 새 목록을 불러오세요. 처음 불러온 목록은 현재 페이지 기준이므로 그 이전에 페이지 구성이 달랐다면 과거 통계와 대조가 필요합니다.</p>
     </details>
     <details class="panel" id="detail-reference">

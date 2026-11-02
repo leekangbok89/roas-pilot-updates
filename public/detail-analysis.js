@@ -168,11 +168,38 @@
     catalog = value; $('catalog-body').replaceChildren();
     value.items.forEach(function (item) {
       var tr = document.createElement('tr'); mediaIdentity(cell(tr, ''), item, item.id);
+      var stats = cell(tr, ''); stats.className = 'catalog-stats'; stats.dataset.contentId = item.id;
       var input = document.createElement('input'); input.className = 'catalog-name'; input.value = item.name || ''; input.maxLength = 80; input.dataset.contentId = item.id;
       input.setAttribute('aria-label', label(item.id) + ' 분석 이름'); input.placeholder = item.alt || '예: 100℃ 가열 설명'; cell(tr, '').appendChild(input); $('catalog-body').appendChild(tr);
     });
     $('catalog-save').disabled = !value.items.length;
     $('catalog-message').textContent = value.items.length ? value.items.length + '개 콘텐츠 · 상품 ' + value.productId + ' / ' + value.contentVersion + ' · 이름을 입력한 뒤 저장하세요.' : '아직 연결된 파일이 없습니다. 자사몰 콘텐츠 불러오기를 누르세요.';
+    refreshCatalogMetrics();
+  }
+  function refreshCatalogMetrics(message) {
+    document.querySelectorAll('#catalog-body .catalog-stats').forEach(function (box) {
+      box.replaceChildren();
+      var report = lastReport, state = report && (report.trackingState || report.state);
+      var matched = report && catalog && report.productId === catalog.productId && report.contentVersion === catalog.contentVersion;
+      var rows = matched && state === 'ready' ? (report.rows || []).filter(function (r) { return r.id === box.dataset.contentId || r.id.replace(/_p\d+$/, '') === box.dataset.contentId; }) : [];
+      if (!rows.length) {
+        var empty = document.createElement('span'); empty.className = 'catalog-stat-empty';
+        empty.textContent = message || (!connected ? 'GA4 연결이 필요합니다.' : !report ? '기간 조회 후 표시됩니다.' : state === 'setup_required' ? '추적 설정이 필요합니다.' : state === 'error' || state === 'unavailable' ? '수치를 확인할 수 없습니다.' : '이 기간에 수집된 구간 데이터가 없습니다.');
+        box.appendChild(empty); return;
+      }
+      rows.forEach(function (r) {
+        var group = document.createElement('div'), title = document.createElement('strong'), values = document.createElement('div');
+        group.className = 'catalog-stat-part'; values.className = 'catalog-stat-values';
+        title.textContent = r.type === 'image' ? label(r.id) : '영상 성과'; group.appendChild(title);
+        var entries = [['도달', r.views, '회'], ['도달률', pct(r.reachRate), ''], ['평균 화면 체류', r.averageVisibleSeconds, '초'],
+          ['3초 이상', r.threeSeconds == null ? null : num(r.threeSeconds) + '회 (' + pct(r.threeRate) + ')', ''],
+          ['5초 이상', r.fiveSeconds == null ? null : num(r.fiveSeconds) + '회 (' + pct(r.fiveRate) + ')', ''], ['클릭·터치', r.clicks, '회']];
+        if (r.type !== 'image') entries.push(['영상 시작', r.starts, '회'], ['25% 재생', r.video25, '회'], ['50% 재생', r.video50, '회'], ['75% 재생', r.video75, '회'], ['완료율', pct(r.completionRate), '']);
+        entries.forEach(function (entry) { var span = document.createElement('span'), value = entry[1];
+          span.textContent = entry[0] + ' ' + (value == null || value === '—' ? '—' : typeof value === 'number' ? num(value) + entry[2] : value + entry[2]); values.appendChild(span); });
+        group.appendChild(values); box.appendChild(group);
+      });
+    });
   }
   async function loadCatalog() {
     catalog = null; $('catalog-body').replaceChildren(); $('catalog-save').disabled = true;
@@ -195,6 +222,7 @@
   }
   function render(report) {
     lastReport = report;
+    refreshCatalogMetrics();
     var pageAvailable = renderPage(report), tracking = report.trackingState || report.state;
     $('detail-results').hidden = true; $('detail-empty').hidden = pageAvailable;
     $('detail-tracking-note').hidden = tracking === 'ready';
@@ -226,9 +254,9 @@
     if (!connected) { notice('detail-status', '먼저 GA4 연결 관리에서 기존 속성을 연결하세요.', true); return; }
     var current = ++sequence; $('detail-query').disabled = $('detail-refresh').disabled = true;
     notice('detail-status', '상세페이지 기본 데이터와 구간별 추적 이벤트를 불러오고 있습니다…');
-    lastReport = null; $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
+    lastReport = null; refreshCatalogMetrics('수치를 불러오는 중입니다…'); $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
     try { var report = await api('detail-report?' + new URLSearchParams({ since: $('detail-since').value, until: $('detail-until').value, scope: $('detail-scope').value, device: $('detail-device').value, refresh: refresh ? '1' : '0' })); if (current === sequence) render(report); }
-    catch (error) { if (current === sequence) notice('detail-status', error.message, true); }
+    catch (error) { if (current === sequence) { refreshCatalogMetrics('수치를 불러오지 못했습니다.'); notice('detail-status', error.message, true); } }
     finally { if (current === sequence) $('detail-query').disabled = $('detail-refresh').disabled = false; }
   }
   $('detail-settings-form').addEventListener('submit', async function (e) {

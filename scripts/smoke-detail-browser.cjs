@@ -63,6 +63,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     ui.on('pageerror',e=>errors.push(e.message));let saved={...DETAIL_DEFAULTS},mode='ready',reportRequests=[],catalog={productId:'458',contentVersion:'v1',items:[],importedAt:null};
     const raw={dimensionHeaders:['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name=>({name})),metricHeaders:['eventCount','customEvent:rp_visible_ms'].map(name=>({name})),rows:[['rp_detail_view','page','page','100','0'],['rp_content_view','image_001_p01','image','80','0'],['rp_content_time','image_001_p01','image','3','400000']].map(r=>({dimensionValues:r.slice(0,3).map(value=>({value})),metricValues:r.slice(3).map(value=>({value}))}))};
     const report=assembleDetailReport(raw,{since:'2026-10-19',until:'2026-10-25',productId:'458',contentVersion:'v1'},true);
+    report.rows.push({...report.rows[0],id:'image_001_p02',views:40,reachRate:.4,averageVisibleSeconds:3,threeSeconds:20,threeRate:.5,clicks:2});
     const pageResponse=(dims,metrics,entries)=>({dimensionHeaders:dims.map(name=>({name})),metricHeaders:metrics.map(name=>({name})),rows:entries.map(([d,m])=>({dimensionValues:d.map(value=>({value})),metricValues:m.map(value=>({value:String(value)}))}))});
     report.trackingState='ready';report.pageAnalytics=assembleDetailPageReport({
       summary:pageResponse([],DETAIL_PAGE_METRICS,[[[],[240,180,4800,800,60]]]),
@@ -117,11 +118,17 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     await ui.locator('#detail-clarity').fill('abc123456');await ui.locator('#settings-save').click();await ui.waitForFunction(()=>document.querySelector('#install-code').value.includes('abc123456'));
     assert.match(await ui.locator('#clarity-dashboard').getAttribute('href'),/abc123456/);
     await ui.locator('#content-catalog > summary').click();await ui.locator('#catalog-import').click();await ui.locator('.catalog-name').first().waitFor();
+    const imageStats=ui.locator('#catalog-body .catalog-stats').first();
+    assert.match(await imageStats.innerText(),/구간 1/);assert.match(await imageStats.innerText(),/도달 80회/);
+    assert.match(await imageStats.innerText(),/구간 2/);assert.match(await imageStats.innerText(),/도달 40회/);assert.match(await imageStats.innerText(),/클릭·터치 2회/);
+    assert.match(await ui.locator('#catalog-body .catalog-stats').nth(1).innerText(),/수집된 구간 데이터가 없습니다/);
     assert.equal(await ui.locator('#catalog-body img').getAttribute('src'),'https://wemamang.mycafe24.com/detail/dp01.jpg');
     assert.equal(await ui.locator('#catalog-body video').count(),0,'No blank video player should be displayed');
     await ui.waitForFunction(()=>Array.from(document.querySelectorAll('#catalog-body .video-thumb img')).some(img=>img.src.startsWith('data:image/jpeg;base64,')));
     await ui.waitForFunction(()=>document.querySelector('#catalog-body .video-thumb .thumb-message').textContent==='');
     await ui.locator('.catalog-name').first().fill('수정 중인 이름');
+    await ui.locator('#detail-refresh').click();await ui.waitForFunction(()=>!document.querySelector('#detail-refresh').disabled);
+    assert.equal(await ui.locator('.catalog-name').first().inputValue(),'수정 중인 이름','Refreshing statistics must preserve unsaved names');
     await ui.locator('#catalog-body input[type=file]').first().setInputFiles({name:'local-video.mp4',mimeType:'video/mp4',buffer:thumbnailVideo});
     await ui.waitForFunction(()=>document.querySelector('#catalog-body .thumb-message').textContent.includes('썸네일 저장 완료'));
     assert.equal(await ui.locator('.catalog-name').first().inputValue(),'수정 중인 이름','Thumbnail updates must preserve unsaved names');
@@ -138,7 +145,7 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     assert.equal(await ui.locator('#detail-views').innerText(),'100');assert.match(await ui.locator('#detail-content-body').innerText(),/80%/);assert.match(await ui.locator('#detail-content-body').innerText(),/5초/);
     assert.match(await ui.locator('#detail-content-body').innerText(),/100℃ 가열 설명 <b>테스트<\/b>/);
     assert.match(await ui.locator('#detail-content-body').innerText(),/dp01.jpg/);assert.equal(await ui.locator('#detail-content-body b').count(),0);
-    assert.equal(await ui.locator('#detail-content-body img').count(),1);pass('catalog previews, filenames and safe saved aliases map split image rows to their original asset');
+    assert.equal(await ui.locator('#detail-content-body img').count(),2);pass('catalog previews, filenames and safe saved aliases map split image rows to their original asset');
     await ui.screenshot({path:path.join(base,'..','detail-analysis-qa.png'),fullPage:true});
     assert.equal(await ui.locator('#app-nav [data-app-route="detail"]').getAttribute('aria-current'),'page');
     await ui.locator('#app-theme-toggle').click();assert.equal(await ui.locator('html').getAttribute('data-theme'),'light');
@@ -160,6 +167,9 @@ const pass=label=>{checks++;console.log('PASS '+label);};
       }
       assert.ok(reportRequests.length>count,'Mode '+m+' must issue one explicit refresh request');
       assert.equal(await ui.locator('#detail-results').isVisible(),false);
+      const statsText=await ui.locator('#catalog-body .catalog-stats').first().textContent();
+      assert.doesNotMatch(statsText,/도달 80회/,'Old statistics must be cleared on an unsuccessful refresh');
+      assert.match(statsText,m==='error'?/불러오지 못했습니다/:m==='setup'?/추적 설정이 필요합니다/:/수집된 구간 데이터가 없습니다/);
       assert.equal(await ui.locator('#detail-page-results').isVisible(),m!=='error');
       if(m!=='error'){
         assert.match(await ui.locator('#detail-page-kpis').innerText(),/240회/);
