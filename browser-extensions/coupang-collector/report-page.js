@@ -76,17 +76,35 @@ async function selectAllCampaigns(){
  if(apply){apply.click();await wait(200);const picker=campaignPicker();if(picker&&allCampaignLabel(text(picker)))return true;return masterChecked(campaignMaster());}
  return masterChecked(master);
 }
+function reportKey(row){
+ for(const name of ['data-report-id','data-request-id']){const value=row.getAttribute(name);if(value&&value.length<200)return name+':'+value;}
+ const item=row.querySelector('[data-report-id],[data-request-id]');if(item)return 'report:'+(item.getAttribute('data-report-id')||item.getAttribute('data-request-id'));
+ for(const link of row.querySelectorAll('a[href]')){try{const url=new URL(link.getAttribute('href'),location.href);for(const key of ['reportId','report_id','reportNo','requestId'])if(url.searchParams.get(key))return key+':'+url.searchParams.get(key);}catch{}}
+ const rowKey=row.getAttribute('data-row-key');return rowKey&&rowKey.length<200?'row:'+rowKey:null;
+}
+function reportSignature(row){return text(row).replace(/생성\s*(완료|중|실패)|요청\s*완료|대기|(?:엑셀\s*)?다운로드(?:\s*\([^)]*\))?|자세히\s*보기|재시도/g,'').replace(/\s+/g,' ').trim().slice(0,1200);}
+function reportBaseline(rows){return rows.slice(0,100).map(row=>({key:reportKey(row),signature:reportSignature(row)}));}
+function newReports(rows,job){
+ if(!Array.isArray(job.baselineReports))return rows.length>(job.baselineCount??0)?rows:[];
+ const oldKeys=new Set(job.baselineReports.map(r=>r.key).filter(Boolean)),counts=new Map();
+ for(const r of job.baselineReports)counts.set(r.signature,(counts.get(r.signature)||0)+1);
+ const seen=new Map();return rows.filter(row=>{const key=reportKey(row),sig=reportSignature(row),count=(seen.get(sig)||0)+1;seen.set(sig,count);return key&&!oldKeys.has(key)&&job.baselineReports.every(r=>r.key)||count>(counts.get(sig)||0);});
+}
 async function step(m){
  const body=document.body.innerText;
  if(/Access Denied|Request Header Or Cookie Too Large|permission to access/i.test(body))return {blocked:true,message:'쿠팡 접근 제한으로 중단했습니다.'};
  if(document.querySelector('input[type="password"]')||/본인 인증|보안문자|사람인지 확인|로봇이 아닙니다/.test(body))return {blocked:true,message:'로그인·추가 인증을 직접 완료해 주세요. 인증을 자동으로 처리하지 않습니다.'};
  const job=m.job,dateMatches=s=>{const compact=s.replace(/[.\/]/g,'-').replace(/\s/g,'');const match=/(\d{4}-\d{2}-\d{2})[~～–—](\d{4}-\d{2}-\d{2})/.exec(compact);return !!match&&match[1]===job.since&&match[2]===job.until;};
  const rows=[...document.querySelectorAll('tr')].filter(e=>visible(e)&&dateMatches(text(e)));
- const ready=rows.find(r=>/생성\s*완료/.test(text(r)));
- if(ready&&job.confirmedAllCampaigns&&rows.length>(job.baselineCount??0)){const download=[...ready.querySelectorAll('a,button,[role="button"]')].find(e=>visible(e)&&/^(?:엑셀\s*)?다운로드$|^다운로드\s*\(/.test(text(e)));
+ const freshRows=job.confirmedAllCampaigns?newReports(rows,job):[],ready=freshRows.find(r=>/생성\s*완료/.test(text(r)));
+ if(ready&&job.confirmedAllCampaigns){const download=[...ready.querySelectorAll('a,button,[role="button"]')].find(e=>visible(e)&&/^(?:엑셀\s*)?다운로드$|^다운로드\s*\(/.test(text(e)));
   if(!download)return {needsInput:true,message:'생성 완료 보고서의 다운로드 버튼을 찾지 못했습니다. 보고서 조회 열의 버튼을 확인해 주세요.'};download.click();return {downloading:true,message:'생성 완료 보고서를 내려받고 저장 확인을 기다립니다.'};}
- if(job.confirmedAllCampaigns&&rows.some(r=>/생성\s*중|요청\s*완료|대기/.test(text(r))))return {message:'보고서 생성 중 · 완료 상태를 기다립니다.'};
- if(!m.allowCreate){const refresh=controls().find(e=>text(e)==='목록 새로 고침'||text(e)==='목록 새로고침');if(refresh)refresh.click();return {message:'요청한 보고서의 생성 상태를 확인합니다.'};}
+ if(!m.allowCreate){
+  const refresh=controls().find(e=>enabled(e)&&/^(목록 새로\s*고침|새로\s*고침|Refresh)$/i.test(text(e)));
+  if(refresh){refresh.click();await wait(200);}
+  const pending=freshRows.some(r=>/생성\s*중|요청\s*완료|대기/.test(text(r)));
+  return {message:(pending?'새 보고서 생성 중':'새 보고서 식별 대기')+' · '+job.since+' ~ '+job.until+' · 같은 기간 '+rows.length+'개 / 새 보고서 '+freshRows.length+'개 · '+(refresh?'목록 새로고침 완료':'목록 새로고침 버튼 확인 필요')};
+ }
  if(!radio('기간 설정'))return {notSubmitted:true,needsInput:true,message:'기간 설정 항목을 찾지 못했습니다.'};await wait(250);
  const [start,finish]=dateFields();
  if(!start||!finish||!await calendarInput(start,job.since)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'쿠팡 보고서의 범위 달력을 선택하지 못했습니다. 입력칸 '+[start,finish].filter(Boolean).length+'/2 · 달력 날짜 '+dateCells().length+'개. 쿠팡 보고서 달력이 펼쳐진 화면을 확인해 주세요.'};
@@ -100,10 +118,12 @@ async function step(m){
  const before=new Set(document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(Boolean));
  const alerts=()=>[...document.querySelectorAll('[role="alert"],[role="dialog"],.ant-message-notice,.ant-notification-notice,.ant-modal,.ant-alert')].filter(visible).map(text).filter(Boolean);
  const priorAlerts=new Set(alerts());
+ const baselineRows=[...document.querySelectorAll('tr')].filter(e=>visible(e)&&dateMatches(text(e)));
+ const baselineReports=reportBaseline(baselineRows);
  create.click();await wait(500);
  const fresh=[...alerts().filter(s=>!priorAlerts.has(s)),...document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(s=>s&&!before.has(s))];
  const restriction=fresh.find(s=>/최대.*일|조회.*불가|기간.*초과|요청.*초과|한도.*초과/.test(s));
  if(restriction)return {blocked:true,message:'쿠팡 안내: '+restriction.slice(0,200)+' · 수집을 중단했습니다.'};
- return {requested:true,baselineCount:rows.length,message:'보고서 만들기를 누른 뒤 생성 상태를 확인하고 있습니다.'};
+ return {requested:true,baselineCount:baselineRows.length,baselineReports,message:'보고서 만들기를 누른 뒤 생성 상태를 확인하고 있습니다.'};
 }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id||m.kind!=='step')return;step(m).then(reply,e=>reply({needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});
