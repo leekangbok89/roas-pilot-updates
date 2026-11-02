@@ -130,10 +130,9 @@
     modeLink.className = 'workspace-switch';
     modeLink.setAttribute('aria-label', '작업 공간 선택');
     modeLink.innerHTML = '<a href="/visual-overview.html" aria-current="page">위마망</a><a class="app-mode-entry" href="/coupang-dashboard.html">쿠팡</a>';
-    var pageMain = document.getElementById('app-main');
-    if (pageMain) pageMain.prepend(modeLink);
     var rail = document.getElementById('app-nav-rail');
     var drawer = document.getElementById('app-drawer');
+    if (drawer) drawer.prepend(modeLink);
     var toggle = document.getElementById('app-nav-toggle');
     var main = document.getElementById('app-main');
     var themeToggle = document.getElementById('app-theme-toggle');

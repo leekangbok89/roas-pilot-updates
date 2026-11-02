@@ -65,7 +65,10 @@ async function main() {
   assert.equal(await page.locator('.growth-navigation a[aria-current]').textContent(), '상품 리스트');
   await page.goto(base + '/coupang.html#cp-catalog');
   assert.equal(await page.locator('.growth-navigation a[aria-current]').textContent(), '자료·연결 관리');
-  await page.locator('.growth-return').click(); await page.waitForSelector('.app-mode-entry');
+  await page.locator('.growth-return').click(); await page.waitForSelector('.app-mode-entry', { state: 'attached' });
+  assert.equal(await page.locator('#app-drawer').evaluate(el => el.firstElementChild.classList.contains('workspace-switch')), true);
+  assert.equal(await page.locator('#app-main .workspace-switch').count(), 0);
+  await page.locator('#app-nav-toggle').click();
   assert.equal(await page.locator('.workspace-switch a[aria-current]').textContent(), '위마망');
   assert.equal(await page.locator('html').getAttribute('data-workspace'), 'naver');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
@@ -77,7 +80,7 @@ async function main() {
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   assert.equal(await page.evaluate(() => localStorage.getItem('roas-pilot-theme')), 'dark');
   // Both directions and direct links retain their workspace on Back / Forward.
-  await page.goBack(); await page.waitForSelector('.app-mode-entry');
+  await page.goBack(); await page.waitForSelector('.app-mode-entry', { state: 'attached' });
   await page.goForward(); await page.waitForSelector('.growth-header');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
