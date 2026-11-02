@@ -8,7 +8,7 @@ const read=async()=>(await chrome.storage.local.get('collector')).collector;
 async function write(s,force=false){const current=await read();if(!force&&current?.runId&&(current.runId!==s.runId||current.running===false&&s.running===true))return false;await chrome.storage.local.set({collector:s});if(s.receiverTab)try{await chrome.tabs.sendMessage(s.receiverTab,{kind:'status',message:s.message});}catch{}return true;}
 async function receiver(s){
  let ready=false;
- try{const t=await chrome.tabs.get(s.receiverTab);if(t.url===LOCAL)ready=true;else if(t.url?.startsWith('chrome-error:')){await chrome.tabs.update(t.id,{url:LOCAL});ready=true;}}catch{}
+ try{const t=await chrome.tabs.get(s.receiverTab);if(/^http:\/\/(127\.0\.0\.1|localhost):3000\/coupang-collector\.html(?:[?#]|$)/.test(t.url||''))ready=true;else if(t.url?.startsWith('chrome-error:')){await chrome.tabs.update(t.id,{url:LOCAL});ready=true;}}catch{}
  if(!ready){const t=await chrome.tabs.create({url:LOCAL,active:false});s.receiverTab=t.id;await write(s);}
  for(let attempt=0;attempt<10;attempt++){try{const reply=await chrome.tabs.sendMessage(s.receiverTab,{kind:'ping'});if(reply?.ok)return;}catch{}await new Promise(resolve=>setTimeout(resolve,250));}
  throw Error('ROAS Pilot의 광고 수집 연결 화면이 준비되지 않았습니다. 로컬 프로그램을 켜 주세요.');
@@ -52,8 +52,11 @@ chrome.downloads.onChanged.addListener(d=>{if(d.state?.current==='complete')coll
 chrome.alarms.onAlarm.addListener(async a=>{if(a.name==='roas-coupang-tick')tick();if(a.name==='roas-coupang-daily'){const s=await read();if(s?.automatic&&!s.running&&!s.permissionHost){s.queue=plan(shift(kst(),-7),shift(kst(),-1));s.completed=0;s.runId=crypto.randomUUID();s.running=true;await write(s,true);tick();}}});
 chrome.runtime.onInstalled.addListener(()=>{chrome.alarms.create('roas-coupang-tick',{periodInMinutes:1});chrome.alarms.create('roas-coupang-daily',{periodInMinutes:1440});});
 chrome.runtime.onStartup?.addListener(()=>{chrome.alarms.create('roas-coupang-tick',{periodInMinutes:1});chrome.alarms.create('roas-coupang-daily',{periodInMinutes:1440});tick();});
-chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id||sender.tab)return;
- (async()=>{if(m.kind==='start'){const old=await read(),s={runId:crypto.randomUUID(),queue:plan(m.since,m.until),completed:0,running:true,automatic:m.automatic===true,reportTab:old?.reportTab,receiverTab:old?.receiverTab,message:'수집 연결 시작'};await write(s,true);await tick();}
+async function controlStatus(){const s=await read();return s?{running:s.running===true,automatic:s.automatic===true,completed:s.completed||0,total:s.queue?.length||0,message:s.message||'대기',permissionHost:s.permissionHost||null}:{running:false,completed:0,total:0,message:'수집 대기'};}
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{
+ const local=sender.tab&&/^http:\/\/(127\.0\.0\.1|localhost):3000\/coupang-collector\.html(?:[?#]|$)/.test(sender.url||'');
+ if(sender.id!==chrome.runtime.id||sender.tab&&!local||local&&!['start','stop','status'].includes(m.kind))return;
+ (async()=>{if(m.kind==='start'){const old=await read();if(old?.running)throw Error('광고 보고서를 이미 수집 중입니다.');const s={runId:crypto.randomUUID(),queue:plan(m.since,m.until),completed:0,running:true,automatic:m.automatic===true,reportTab:old?.reportTab,receiverTab:local?sender.tab.id:old?.receiverTab,message:'수집 연결 시작'};await write(s,true);await tick();}
  else if(m.kind==='stop'){const s=await read();if(s){s.running=false;s.automatic=false;s.message='사용자가 수집을 중단했습니다.';await write(s,true);}}
  else if(m.kind==='resume'){const s=await read();if(s){s.runId=crypto.randomUUID();s.running=true;s.permissionHost=null;const job=s.queue[s.completed];if(job){job.startedAt=Date.now();delete job.downloadRequestedAt;}await write(s,true);await tick();}}
- reply({ok:true});})().catch(e=>reply({ok:false,error:e.message}));return true;});
+ reply({ok:true,collector:await controlStatus()});})().catch(e=>reply({ok:false,error:e.message}));return true;});

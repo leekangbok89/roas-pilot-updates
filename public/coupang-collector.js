@@ -6,6 +6,15 @@
  $('cc-since').value=valid(initial.get('since'))?initial.get('since'):shift(today,-7);$('cc-until').value=valid(initial.get('until'))?initial.get('until'):shift(today,-1);
  function context(){const query=new URLSearchParams(initial);query.set('since',$('cc-since').value);query.set('until',$('cc-until').value);window.ROASCoupangNavigation?.update(query);const back=document.querySelector('a[href^="/coupang-ads.html"]');if(back)back.href='/coupang-ads.html?'+query;}
  const pending=new Set();let saving=false;
+ const controls=new Map();let controlBusy=false,controlConnected=false,pollTimer;
+ function renderControl(s){controlConnected=true;$('cc-connection').textContent='Chrome 수집 연결됨 · 아래 버튼으로 수집을 시작할 수 있습니다.';$('cc-year').disabled=controlBusy||s.running;$('cc-week').disabled=controlBusy||s.running;$('cc-stop').disabled=controlBusy||!s.running;$('cc-progress').hidden=!s.total;$('cc-progress').max=Math.max(1,s.total||0);$('cc-progress').value=s.completed||0;$('cc-control').textContent=(s.message||'수집 대기')+' · 저장 확인 '+(s.completed||0)+'/'+(s.total||0)+'개 기간';$('cc-permission').hidden=!s.permissionHost;}
+ function command(kind,extra={}){return new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{controls.delete(id);reject(Error('연결용 확장프로그램을 설치·업데이트한 뒤 이 화면을 새로고침해 주세요.'));},12000);controls.set(id,{resolve,reject,timer});window.postMessage({source:'ROAS_COUPANG_PAGE',id,kind,...extra},origin);});}
+ window.addEventListener('message',event=>{const m=event.data;if(event.source!==window||event.origin!==origin||m?.source!=='ROAS_COUPANG_CONTROL')return;const item=controls.get(m.id);if(!item)return;clearTimeout(item.timer);controls.delete(m.id);if(m.ok){renderControl(m.collector||{});item.resolve(m);}else item.reject(Error(m.error||'수집 연결 실패'));});
+ async function pollControl(){try{await command('status');}catch(e){if(!controlConnected)$('cc-control').textContent=e.message;}finally{pollTimer=setTimeout(pollControl,5000);}}
+ async function collect(days){if(controlBusy)return;controlBusy=true;$('cc-year').disabled=true;$('cc-week').disabled=true;$('cc-stop').disabled=true;try{await command(days?'start':'stop',days?{since:shift(today,-days),until:shift(today,-1),automatic:$('cc-auto').checked}:{});}catch(e){$('cc-control').textContent=e.message;}finally{controlBusy=false;try{await command('status');}catch{}}}
+ $('cc-year').addEventListener('click',()=>collect(365));$('cc-week').addEventListener('click',()=>collect(7));$('cc-stop').addEventListener('click',()=>collect(0));setTimeout(pollControl,500);
+ window.addEventListener('pagehide',()=>clearTimeout(pollTimer));
+
  async function api(route,body){const r=await fetch('/api/coupang/'+route,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json','X-ROAS-Local-Action':'yes'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(v.error||'쿠팡 보고서 요청 실패');return v;}
  const el=(tag,text)=>{const e=document.createElement(tag);e.textContent=text;return e;};
  const value=n=>typeof n==='number'&&Number.isFinite(n)?n.toLocaleString('ko-KR',{maximumFractionDigits:2}):'—';
@@ -19,5 +28,5 @@
   if(m.kind!=='workbook'||typeof m.id!=='string'||pending.has(m.id))return;
   pending.add(m.id);try{if(typeof m.data!=='string'||m.data.length>12*1024*1024||typeof m.filename!=='string')throw Error('보고서 크기·파일명을 확인하세요.');const binary=atob(m.data),bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));const result=await save(new File([bytes],m.filename,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));window.postMessage({source:'ROAS_COUPANG_RECEIVER',id:m.id,ok:true,result},origin);}catch(e){$('cc-result').textContent=e.message;window.postMessage({source:'ROAS_COUPANG_RECEIVER',id:m.id,ok:false,error:e.message},origin);}finally{pending.delete(m.id);}
  });
- api('status').then(s=>{$('cc-connection').textContent=s.configured?'쿠팡 계정 '+s.vendorId+' · 확장프로그램 연결 대기':'자료·연결 관리에서 쿠팡 API 계정을 먼저 연결하세요.';}).catch(e=>{$('cc-connection').textContent=e.message;});load();
+ api('status').then(s=>{$('cc-connection').textContent=s.configured?'쿠팡 계정 '+s.vendorId+(controlConnected?' · Chrome 수집 연결됨':' · 확장프로그램 연결 대기'):'자료·연결 관리에서 쿠팡 API 계정을 먼저 연결하세요.';}).catch(e=>{$('cc-connection').textContent=e.message;});load();
 })();
