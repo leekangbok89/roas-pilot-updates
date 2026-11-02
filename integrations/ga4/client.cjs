@@ -71,16 +71,24 @@ function validateDetailSettings(input = {}) {
   }
   return value;
 }
+function detailFilters(expressions, input) {
+  if (input.scope === 'meta') expressions.push(metaFilter());
+  else if (input.scope === 'naver') expressions.push({ filter: { fieldName: 'sessionSource', stringFilter: { matchType: 'FULL_REGEXP', value: '(^|.*\\.)naver\\.com$|^naver$', caseSensitive: false } } });
+  else if (input.scope && input.scope !== 'all') throw failure(400, '유입 범위를 확인해 주세요.', 'GA4_SCOPE');
+  if (input.device && input.device !== 'all') {
+    if (!['desktop','mobile','tablet'].includes(input.device)) throw failure(400, '기기 범위를 확인해 주세요.', 'GA4_DEVICE');
+    expressions.push({ filter: { fieldName: 'deviceCategory', stringFilter: { matchType: 'EXACT', value: input.device } } });
+  }
+}
 function buildDetailRequest(input, withTime = true) {
   validateDates(input.since, input.until);
   const config = validateDetailSettings(input);
   const expressions = [
     { filter: { fieldName: 'customEvent:rp_product_id', stringFilter: { matchType: 'EXACT', value: config.productId } } },
     { filter: { fieldName: 'customEvent:rp_content_version', stringFilter: { matchType: 'EXACT', value: config.contentVersion } } },
-    { filter: { fieldName: 'eventName', inListFilter: { values: ['rp_detail_view','rp_content_view','rp_content_time','rp_video_start','rp_video_25','rp_video_50','rp_video_75','rp_video_100','rp_scroll','rp_buy_click','rp_cart_click'] } } }
+    { filter: { fieldName: 'eventName', inListFilter: { values: ['rp_detail_view','rp_tracker_v2','rp_content_view','rp_content_v2_view','rp_content_time','rp_content_3s','rp_content_5s','rp_content_click','rp_video_start','rp_video_25','rp_video_50','rp_video_75','rp_video_100','rp_scroll','rp_buy_click','rp_cart_click'] } } }
   ];
-  if (input.scope === 'meta') expressions.push(metaFilter());
-  else if (input.scope && input.scope !== 'all') throw failure(400, '유입 범위를 확인해 주세요.', 'GA4_SCOPE');
+  detailFilters(expressions, input);
   return { dateRanges: [{ startDate: input.since, endDate: input.until }],
     dimensions: ['eventName','customEvent:rp_content_id','customEvent:rp_content_type'].map(name => ({ name })),
     metrics: ['eventCount', ...(withTime ? ['customEvent:rp_visible_ms'] : [])].map(name => ({ name })),
@@ -94,8 +102,7 @@ function buildDetailPageRequests(input) {
   const location = '^https?://(?:(?:www|m)\\.)?wemamang\\.com/(?:product/[^?#]*\\?(?:[^#]*&)?product_no=' + config.productId +
     '(?:[&#].*)?|product/[^/?#]+/' + config.productId + '(?:[/#?].*)?)$';
   const expressions = [{ filter: { fieldName: 'pageLocation', stringFilter: { matchType: 'FULL_REGEXP', value: location, caseSensitive: false } } }];
-  if (input.scope === 'meta') expressions.push(metaFilter());
-  else if (input.scope && input.scope !== 'all') throw failure(400, '유입 범위를 확인해 주세요.', 'GA4_SCOPE');
+  detailFilters(expressions, input);
   const common = { dateRanges: [{ startDate: input.since, endDate: input.until }], dimensionFilter: { andGroup: { expressions } }, returnPropertyQuota: true };
   return {
     summary: { ...common, metrics: DETAIL_PAGE_METRICS.map(name => ({ name })) },
@@ -129,33 +136,41 @@ function assembleDetailPageReport(responses, context) {
 function assembleDetailReport(response, context, withTime) {
   const warnings = [], content = new Map(), scroll = {};
   const emptyCount = metricValues(response, null, ['eventCount'], warnings, '상세페이지').eventCount;
-  let views = emptyCount, buyClicks = emptyCount, cartClicks = emptyCount;
+  let views = emptyCount, buyClicks = emptyCount, cartClicks = emptyCount, trackerV2Views = emptyCount;
   const read = (row, name) => metricValues(response, row, [name], warnings, '상세페이지')[name];
   for (const row of responseRows(response)) {
     const event = dimensionValue(response, row, 'eventName'), id = dimensionValue(response, row, 'customEvent:rp_content_id'), type = dimensionValue(response, row, 'customEvent:rp_content_type');
     const count = read(row, 'eventCount');
     if (event === 'rp_detail_view') { views = count; continue; }
+    if (event === 'rp_tracker_v2') { trackerV2Views = count; continue; }
     if (event === 'rp_buy_click') { buyClicks = count; continue; }
     if (event === 'rp_cart_click') { cartClicks = count; continue; }
     if (event === 'rp_scroll') { scroll[id] = count; continue; }
     if (!['image','video','embed'].includes(type) || !/^(image_\d+_p\d+|video_\d+|embed_\d+)$/.test(id)) continue;
-    if (!content.has(id)) content.set(id, { id, type, views: emptyCount, visibleMs: withTime && !restrictions(response).has('customEvent:rp_visible_ms') ? 0 : null, starts: emptyCount, video25: emptyCount, video50: emptyCount, video75: emptyCount, video100: emptyCount });
+    if (!content.has(id)) content.set(id, { id, type, views: emptyCount, visibleMs: withTime && !restrictions(response).has('customEvent:rp_visible_ms') ? 0 : null, v2Views: null, threeSeconds: null, fiveSeconds: null, clicks: null, starts: emptyCount, video25: emptyCount, video50: emptyCount, video75: emptyCount, video100: emptyCount });
     const item = content.get(id);
     if (event === 'rp_content_view') item.views = count;
+    if (event === 'rp_content_v2_view') item.v2Views = count;
     if (event === 'rp_content_time' && withTime) item.visibleMs = read(row, 'customEvent:rp_visible_ms');
+    if (event === 'rp_content_3s') item.threeSeconds = count;
+    if (event === 'rp_content_5s') item.fiveSeconds = count;
+    if (event === 'rp_content_click') item.clicks = count;
     const key = { rp_video_start: 'starts', rp_video_25: 'video25', rp_video_50: 'video50', rp_video_75: 'video75', rp_video_100: 'video100' }[event];
     if (key) item[key] = count;
   }
   const rows = [...content.values()].sort((a,b) => a.id.localeCompare(b.id, 'en', { numeric: true })).map(item => ({ ...item,
     reachRate: views > 0 && item.views !== null ? item.views / views : null,
+    threeRate: item.v2Views > 0 && item.threeSeconds !== null ? item.threeSeconds / item.v2Views : null,
+    fiveRate: item.v2Views > 0 && item.fiveSeconds !== null ? item.fiveSeconds / item.v2Views : null,
     averageVisibleSeconds: item.views > 0 && item.visibleMs !== null ? item.visibleMs / item.views / 1000 : null,
     completionRate: item.starts > 0 && item.video100 !== null ? item.video100 / item.starts : null }));
   const meta = reportMetadata(response, warnings, '상세페이지');
   if (Number(response.rowCount) > (response.rows || []).length) warnings.push('GA4 응답이 5,000행을 초과해 일부 구간이 생략되었습니다. 기간을 줄여 조회하세요.');
   if (!withTime) warnings.push('rp_visible_ms 맞춤 측정항목을 등록하면 체류시간이 표시됩니다.');
+  warnings.push('3초·5초 열람률은 새 추적 코드로 수집한 구간 도달을 기준으로 합니다. 콘텐츠 클릭도 새 코드 설치 후 기록만 표시합니다. —는 기록이 없거나 확인할 수 없다는 뜻입니다.');
   if (rows.some(item => item.reachRate > 1)) warnings.push('일부 구간 도달률이 100%를 넘습니다. 중복 설치 또는 최근 GA4 처리 상태를 확인하세요.');
   warnings.push('최근 데이터와 맞춤 정의는 반영에 24~48시간이 걸릴 수 있습니다. 구매·장바구니 수치는 버튼 클릭 의향이며 결제 완료 건수가 아닙니다.');
-  return { ...context, state: rows.length || views > 0 ? 'ready' : views === null ? 'unavailable' : 'no_data', views, buyClicks, cartClicks, rows, scroll,
+  return { ...context, state: rows.length || views > 0 ? 'ready' : views === null ? 'unavailable' : 'no_data', views, trackerV2Views, buyClicks, cartClicks, rows, scroll,
     metadata: meta, warnings: [...new Set(warnings)], cached: false };
 }
 
@@ -588,12 +603,12 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     if (input.refresh !== undefined && typeof input.refresh !== 'boolean') throw failure(400, '새로고침 옵션을 확인해 주세요.', 'GA4_REFRESH');
     const settings = { ...detailSettings(), ...input }, body = buildDetailRequest(settings, false), pageRequests = buildDetailPageRequests(settings);
     const config = requireConfig(), identity = configurationIdentity(config);
-    const key = ['detail', identity, input.since, input.until, settings.productId, settings.contentVersion, settings.scope || 'all'].join('|');
+    const key = ['detail', identity, input.since, input.until, settings.productId, settings.contentVersion, settings.scope || 'all', settings.device || 'all'].join('|');
     const cached = reports.get(key);
     if (!input.refresh && cached && currentTime() - cached.savedAt < CACHE_MS) return { ...structuredClone(cached.value), cached: true };
     if (inFlight.has(key)) return structuredClone(await inFlight.get(key));
     const work = (async () => {
-      const context = { since: input.since, until: input.until, productId: settings.productId, contentVersion: settings.contentVersion, scope: settings.scope || 'all', fetchedAt: timestamp() };
+      const context = { since: input.since, until: input.until, productId: settings.productId, contentVersion: settings.contentVersion, scope: settings.scope || 'all', device: settings.device || 'all', fetchedAt: timestamp() };
       const pageWork = async () => {
         const names = ['summary', 'daily', 'events'];
         const responses = await Promise.all(names.map(name => runReport(config, pageRequests[name])));

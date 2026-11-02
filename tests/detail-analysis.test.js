@@ -13,6 +13,12 @@ test('detail queries isolate product, version and Meta sessions without inventin
   assert.match(json,/rp_product_id/);assert.match(json,/458/);assert.match(json,/rp_content_version/);assert.match(json,/sessionSource/);assert.match(json,/sessionMedium/);
   assert.equal(body.limit,'5000');assert.equal(body.dimensions.length,3);assert.ok(!json.includes('purchaseRevenue'));
   assert.throws(()=>buildDetailRequest({...DETAIL_DEFAULTS,...period,scope:'unsafe'}));
+  assert.throws(()=>buildDetailRequest({...DETAIL_DEFAULTS,...period,device:'unsafe'}));
+  for (const request of [buildDetailRequest({...DETAIL_DEFAULTS,...period,scope:'naver',device:'mobile'}),buildDetailPageRequests({...DETAIL_DEFAULTS,...period,scope:'naver',device:'mobile'}).summary]) {
+    const filters=request.dimensionFilter.andGroup.expressions;
+    assert.ok(filters.some(f=>f.filter?.fieldName==='sessionSource'));
+    assert.ok(filters.some(f=>f.filter?.fieldName==='deviceCategory'&&f.filter.stringFilter.value==='mobile'));
+  }
   assert.throws(()=>buildDetailRequest({...DETAIL_DEFAULTS,...period,until:'2027-10-25'}));
   assert.throws(()=>validateDetailSettings({...DETAIL_DEFAULTS,clarityProjectId:'../../token'}));
   assert.throws(()=>validateDetailSettings({...DETAIL_DEFAULTS,measurementId:'</script>'}));
@@ -34,6 +40,17 @@ test('missing time definition and restricted metrics remain unknown instead of f
     {schemaRestrictionResponse:{activeMetricRestrictions:[{metricName:'eventCount'},{metricName:'customEvent:rp_visible_ms'}]}}),period,true);
   assert.equal(restricted.views,null);assert.equal(restricted.buyClicks,null);assert.equal(restricted.rows[0].views,null);assert.equal(restricted.rows[0].completionRate,null);
   const thresholded=assembleDetailReport(report([],true,{subjectToThresholding:true}),period,true);assert.equal(thresholded.views,null);
+});
+test('new engagement rates use only the new tracker reach and missing events stay unknown',()=>{
+  const result=assembleDetailReport(report([
+    ['rp_detail_view','page','page',100],['rp_tracker_v2','page','page',20],
+    ['rp_content_view','image_001_p01','image',70],['rp_content_v2_view','image_001_p01','image',10],
+    ['rp_content_3s','image_001_p01','image',8],['rp_content_5s','image_001_p01','image',4],
+    ['rp_content_click','image_001_p01','image',3],['rp_content_view','image_002_p01','image',15]
+  ]),period,true);
+  assert.equal(result.trackerV2Views,20);assert.equal(result.rows[0].threeRate,.8);assert.equal(result.rows[0].fiveRate,.4);
+  assert.equal(result.rows[0].clicks,3);assert.equal(result.rows[1].clicks,null);assert.equal(result.rows[1].fiveRate,null);
+  assert.match(JSON.stringify(buildDetailRequest({...DETAIL_DEFAULTS,...period})),/rp_content_click/);
 });
 function pageResponses(metadata = {}) {
   const result = (dimensions, metrics, rows) => ({dimensionHeaders:dimensions.map(name=>({name})),metricHeaders:metrics.map(name=>({name})),metadata,

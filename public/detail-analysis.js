@@ -215,6 +215,9 @@
       var tr = document.createElement('tr'); mediaIdentity(cell(tr, ''), assetFor(r.id, report), r.id); cell(tr, num(r.views)); var reach = cell(tr, pct(r.reachRate));
       var bar = document.createElement('div'), span = document.createElement('span'); bar.className = 'detail-bar'; span.style.width = Math.max(0, Math.min(100, (r.reachRate || 0) * 100)) + '%'; bar.appendChild(span); reach.appendChild(bar);
       cell(tr, r.averageVisibleSeconds === null ? '—' : num(r.averageVisibleSeconds) + '초');
+      cell(tr, r.threeSeconds == null ? '—' : num(r.threeSeconds) + '회 (' + pct(r.threeRate) + ')');
+      cell(tr, r.fiveSeconds == null ? '—' : num(r.fiveSeconds) + '회 (' + pct(r.fiveRate) + ')');
+      cell(tr, num(r.clicks));
       [r.starts,r.video25,r.video50,r.video75].forEach(function (v) { cell(tr, r.type === 'image' ? '—' : num(v)); });
       cell(tr, r.type === 'image' ? '—' : pct(r.completionRate)); $('detail-content-body').appendChild(tr);
     });
@@ -224,7 +227,7 @@
     var current = ++sequence; $('detail-query').disabled = $('detail-refresh').disabled = true;
     notice('detail-status', '상세페이지 기본 데이터와 구간별 추적 이벤트를 불러오고 있습니다…');
     lastReport = null; $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
-    try { var report = await api('detail-report?' + new URLSearchParams({ since: $('detail-since').value, until: $('detail-until').value, scope: $('detail-scope').value, refresh: refresh ? '1' : '0' })); if (current === sequence) render(report); }
+    try { var report = await api('detail-report?' + new URLSearchParams({ since: $('detail-since').value, until: $('detail-until').value, scope: $('detail-scope').value, device: $('detail-device').value, refresh: refresh ? '1' : '0' })); if (current === sequence) render(report); }
     catch (error) { if (current === sequence) notice('detail-status', error.message, true); }
     finally { if (current === sequence) $('detail-query').disabled = $('detail-refresh').disabled = false; }
   }

@@ -67,7 +67,8 @@
     <section class="panel">
       <div class="detail-row"><form id="detail-report-form" class="detail-row">
         <label>시작일<input id="detail-since" type="date" required></label><label>종료일<input id="detail-until" type="date" required></label>
-        <label>유입 범위<select id="detail-scope"><option value="all">전체 유입</option><option value="meta">Meta 유료 유입</option></select></label>
+        <label>유입 범위<select id="detail-scope"><option value="all">전체 유입</option><option value="meta">Meta 유료 유입</option><option value="naver">네이버 유입</option></select></label>
+        <label>기기<select id="detail-device"><option value="all">전체 기기</option><option value="mobile">모바일</option><option value="desktop">PC</option><option value="tablet">태블릿</option></select></label>
         <button id="detail-query" class="primary" type="submit">기간 조회</button><button id="detail-refresh" type="button">새로 가져오기</button>
       </form></div>
       <p class="helper">오늘을 제외한 최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
@@ -87,8 +88,8 @@
       <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
       <section class="panel"><h2>상세영역 스크롤 도달률</h2><div id="detail-scroll" class="detail-scroll"></div></section>
       <section class="panel"><h2>이미지 · 영상 구간별 성과</h2><p>도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
-        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
-        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
+        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>3초 이상</th><th>5초 이상</th><th>클릭·터치</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
+        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 3초·5초는 조회별 누적 화면 노출 횟수이며, 클릭·터치는 반복 횟수입니다. 새 추적 코드를 자사몰에 적용한 뒤부터 수집되며 —는 기록이 없거나 확인할 수 없는 값입니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
       </section>
     </div>
     <details class="panel" id="detail-report-notes" hidden><summary>집계 안내</summary><ul id="detail-warnings"></ul><p>구간별 구매·장바구니 클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></details>

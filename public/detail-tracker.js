@@ -8,7 +8,7 @@
   var url = new URL(w.location.href);
   var product = url.searchParams.get('product_no') || (url.pathname.match(/\/product\/[^/]+\/(\d+)(?:\/|$)/) || [])[1];
   if (product !== String(c.productId)) return;
-  w.__roasDetailTracker = { version: '1', events: 0, content: 0, youtube: 'not_detected' };
+  w.__roasDetailTracker = { version: '2', events: 0, content: 0, youtube: 'not_detected' };
   var state = w.__roasDetailTracker;
   var root, parts = [], media = [], known = new WeakSet(), pageStarted = false, last = performance.now(), lastFlush = last, hidden = d.hidden;
   var marks = new Set(), observer, timer, stopped = false;
@@ -130,13 +130,15 @@
   function tick() {
     var now = performance.now(), delta = now - last; last = now;
     if (hidden || !enabled()) { media.forEach(function (m) { m.previous = null; }); return; }
-    if (!pageStarted) { startTags(); pageStarted = true; once('rp_detail_view'); }
+    if (!pageStarted) { startTags(); pageStarted = true; once('rp_detail_view'); once('rp_tracker_v2'); }
     // Ignore suspended-tab gaps instead of counting them as attention.
     if (delta > 1500) delta = 0;
     parts.forEach(function (p) {
       if (!onScreen(p)) return;
       p.time += delta; p.pending += delta;
-      if (!p.reached && p.time >= 1000) { p.reached = true; once('rp_content_view', p); }
+      if (!p.reached && p.time >= 1000) { p.reached = true; once('rp_content_view', p); once('rp_content_v2_view', p); }
+      if (p.time >= 3000) once('rp_content_3s', p);
+      if (p.time >= 5000) once('rp_content_5s', p);
     });
     var r = root.getBoundingClientRect();
     if (r.height > 0) [25, 50, 75, 100].forEach(function (n) {
@@ -154,6 +156,15 @@
     root.addEventListener('load', scan, true);
     timer = w.setInterval(tick, 500); tick();
     d.addEventListener('click', function (e) {
+      if (pageStarted && !hidden && enabled()) {
+        var target = e.target.closest('img,video');
+        if (target && root.contains(target)) {
+          var rect = target.getBoundingClientRect();
+          var position = rect.height > 0 ? (e.clientY - rect.top) / rect.height : -1;
+          var clicked = parts.find(function (p) { return p.el === target && position >= p.from && (position < p.to || p.to === 1 && position <= 1); });
+          if (clicked) emit('rp_content_click', clicked);
+        }
+      }
       var button = e.target.closest('a,button'); if (!button) return;
       var action = button.getAttribute('onclick') || '';
       if (/product_submit\(\s*1\s*,/.test(action) || button.matches('[data-roas-buy]')) once('rp_buy_click');
