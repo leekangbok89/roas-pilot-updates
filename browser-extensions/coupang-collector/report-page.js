@@ -65,7 +65,14 @@ async function step(m){
  if(!all)return {notSubmitted:true,needsInput:true,message:'전체 캠페인 선택 상태를 확인하지 못했습니다. 일부 캠페인을 전체 금액으로 저장하지 않도록 중단합니다.'};await wait(250);
  const keywords=[...document.querySelectorAll('label')].find(e=>visible(e)&&text(e).replace(/\s/g,'')==='클릭이발생한키워드만보고서에포함'),check=keywords?.querySelector('input[type="checkbox"]');if(check?.checked)keywords.click();
  const create=controls().find(e=>text(e)==='보고서 만들기');if(!create||create.disabled||create.getAttribute('aria-disabled')==='true')return {notSubmitted:true,needsInput:true,message:'보고서 만들기가 비활성 상태입니다. 기간·캠페인 설정을 확인해 주세요.'};
- create.click();await wait(500);if(/최대.*일|조회.*불가|기간.*초과|요청.*초과/.test(document.body.innerText))return {blocked:true,message:'쿠팡이 기간 또는 요청 한도를 안내했습니다. 수집 범위를 조정해야 합니다.'};
- return {requested:true,baselineCount:rows.length,message:'일별·전체 캠페인 보고서를 요청했습니다. 생성 완료를 기다립니다.'};
+ // Static guidance is not a rejected request. Only new messages can stop this run.
+ const before=new Set(document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(Boolean));
+ const alerts=()=>[...document.querySelectorAll('[role="alert"],[role="dialog"],.ant-message-notice,.ant-notification-notice,.ant-modal,.ant-alert')].filter(visible).map(text).filter(Boolean);
+ const priorAlerts=new Set(alerts());
+ create.click();await wait(500);
+ const fresh=[...alerts().filter(s=>!priorAlerts.has(s)),...document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(s=>s&&!before.has(s))];
+ const restriction=fresh.find(s=>/최대.*일|조회.*불가|기간.*초과|요청.*초과|한도.*초과/.test(s));
+ if(restriction)return {blocked:true,message:'쿠팡 안내: '+restriction.slice(0,200)+' · 수집을 중단했습니다.'};
+ return {requested:true,baselineCount:rows.length,message:'보고서 만들기를 누른 뒤 생성 상태를 확인하고 있습니다.'};
 }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id||m.kind!=='step')return;step(m).then(reply,e=>reply({needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});
