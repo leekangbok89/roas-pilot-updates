@@ -3,23 +3,24 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const source=fs.readFileSync(path.resolve(__dirname,'../browser-extensions/coupang-collector/worker.js'),'utf8');
 const copy=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
 function harness(options={}){
- let now=Date.parse('2026-11-03T01:00:00Z'),handler,files=options.files||[];
+ let now=Date.parse('2026-11-03T01:00:00Z'),handler,files=options.files||[],captured=options.captured;
  const Clock=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  let state={runId:'run-1',running:true,automatic:true,completed:0,receiverTab:10,reportTab:20,queue:[{type:'pa',since:'2026-11-02',until:'2026-11-02',submitted:true,confirmedAllCampaigns:true,baselineCount:0,baselineReports:[],startedAt:now-60000,waitStartedAt:now-60000,downloadRequestedAt:now-30000,phase:'download',...options.job}],...options.state};
- const calls={steps:[],workbooks:[],searches:[],fetches:[],reloads:[]},noop={addListener(){}};
+ const calls={steps:[],workbooks:[],searches:[],fetches:[],reloads:[],blobReads:[],releases:[]},noop={addListener(){}};
  const chrome={runtime:{id:'extension',getManifest:()=>({version:'0.2.7'}),onMessage:{addListener(fn){handler=fn;}},onInstalled:noop,onStartup:noop},storage:{local:{get:async()=>({collector:copy(state)}),set:async value=>{state=copy(value.collector);}}},alarms:{onAlarm:noop,create(){}},permissions:{contains:async()=>true},downloads:{onChanged:noop,search:async query=>{calls.searches.push(copy(query));return copy(query.id?files.filter(file=>file.id===query.id):files);}},tabs:{
-  get:async id=>({id,url:id===10?'http://127.0.0.1:3000/coupang-collector.html':'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa'}),reload:async id=>calls.reloads.push(id),
+  get:async id=>({id,url:id===10?'http://127.0.0.1:3000/coupang-collector.html':(options.reportUrl||'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa')}),reload:async id=>calls.reloads.push(id),
   sendMessage:async(id,message)=>{
    if(id===10&&message.kind==='ping')return {ok:true};if(id===10&&message.kind==='status')return {};
    if(id===10&&message.kind==='workbook'){calls.workbooks.push(copy(message));return options.ack||{ok:true,result:{dates:['2026-11-02']}};}
+   if(id===20&&message.kind==='read-report-file'){calls.blobReads.push(copy(message));return captured||{ok:false,code:'CAPTURE_MISSING'};}if(id===20&&message.kind==='release-report-file'){calls.releases.push(copy(message));return {ok:true};}
    if(id===20&&message.kind==='probe')return {adapterVersion:'0.2.7'};
    if(id===20&&message.kind==='step'){calls.steps.push(copy(message));if(options.stepError)throw Error(options.stepError);return options.step||{phase:'identifying',message:'기존 보고서 식별 확인 중',diagnostics:{rows:10,freshRows:0}};}
    throw Error('Unexpected message');
   }
  }};
- const ctx=vm.createContext({chrome,URL,Date:Clock,setTimeout,crypto:require('node:crypto').webcrypto,Uint8Array,AbortSignal,btoa:value=>Buffer.from(value,'binary').toString('base64'),fetch:async url=>{calls.fetches.push(url);let sent=false;return {ok:true,body:{getReader:()=>({read:async()=>sent?{done:true}:(sent=true,{done:false,value:new Uint8Array([80,75,3,4])})})}};}});
- vm.runInContext(source+'\nglobalThis.runTick=tick;globalThis.readStatus=controlStatus;globalThis.storeStatus=write;',ctx);
- return {tick:()=>ctx.runTick(),status:()=>ctx.readStatus(),state:()=>copy(state),calls,advance:ms=>{now+=ms;},setFiles:value=>{files=value;},mutate:fn=>{fn(state);},write:async message=>{const s=copy(state);s.message=message;await ctx.storeStatus(s);},send:message=>new Promise(resolve=>handler(message,{id:'extension',url:'http://127.0.0.1:3000/coupang-collector.html',tab:{id:10}},resolve))};
+ const ctx=vm.createContext({chrome,URL,Date:Clock,setTimeout,crypto:require('node:crypto').webcrypto,Uint8Array,AbortSignal,btoa:value=>Buffer.from(value,'binary').toString('base64'),atob:value=>Buffer.from(value,'base64').toString('binary'),fetch:async url=>{calls.fetches.push(url);let sent=false;return {ok:true,body:{getReader:()=>({read:async()=>sent?{done:true}:(sent=true,{done:false,value:new Uint8Array([80,75,3,4])})})}};}});
+ vm.runInContext(source+'\nglobalThis.runTick=tick;globalThis.readStatus=controlStatus;globalThis.storeStatus=write;globalThis.importFile=collectFile;',ctx);
+ return {tick:()=>ctx.runTick(),collect:id=>ctx.importFile(id),status:()=>ctx.readStatus(),state:()=>copy(state),calls,advance:ms=>{now+=ms;},setFiles:value=>{files=value;},setCaptured:value=>{captured=value;},mutate:fn=>{fn(state);},write:async message=>{const s=copy(state);s.message=message;await ctx.storeStatus(s);},send:message=>new Promise(resolve=>handler(message,{id:'extension',url:'http://127.0.0.1:3000/coupang-collector.html',tab:{id:10}},resolve))};
 }
 const download=(overrides={})=>({id:7,state:'complete',startTime:'2026-11-03T00:59:30Z',filename:'C:\\Downloads\\A00836776_pa_daily_campaign_20261102_20261102 (2).xlsx',finalUrl:'https://advertising.coupang.com/download?token=PRIVATE',...overrides});
 test('periodic reconciliation imports an exact completed download even when its completion event was missed',async()=>{
@@ -63,4 +64,25 @@ test('unknown submission outcomes and missing create responses stop instead of e
 });
 test('status events are bounded and expose only numeric report diagnostics',async()=>{
  const h=harness({job:{downloadRequestedAt:undefined},step:{phase:'creating',message:'보고서 생성 중',diagnostics:{rows:10,freshRows:1,url:'https://private.invalid/',token:'PRIVATE'}}});await h.tick();assert.deepEqual(copy((await h.status()).currentJob.diagnostics),{rows:10,freshRows:1});for(let i=0;i<65;i++)await h.write('확인 '+i);const status=await h.status();assert.equal(status.log.length,40);assert.match(status.log.at(-1).message,/확인 64/);assert.doesNotMatch(JSON.stringify(status.log),/PRIVATE|https?:/);
+});
+
+const blobDownload=(overrides={})=>download({finalUrl:'blob:https://advertising.coupang.com/SYNTHETIC-BLOB-PRIVATE',mime:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',...overrides});
+const blobBytes={ok:true,data:Buffer.from([80,75,3,4]).toString('base64'),bytes:4};
+test('same-origin captured blob bytes follow the exact Chrome file and save acknowledgement path without fetching a URL',async()=>{
+ const h=harness({files:[blobDownload()],captured:blobBytes,job:{captureId:'capture-1'}});await h.tick();assert.equal(h.state().completed,1);assert.equal(h.calls.fetches.length,0);assert.equal(h.calls.blobReads.length,1);assert.equal(h.calls.blobReads[0].captureId,'capture-1');assert.equal(h.calls.workbooks[0].data,blobBytes.data);assert.equal(h.calls.releases.length,1);assert.doesNotMatch(JSON.stringify((await h.status()).log),/SYNTHETIC-BLOB|PRIVATE|blob:https/);
+});
+test('expired pre-upgrade blob is ignored and only the same report download is retried with a new capture',async()=>{
+ const h=harness({files:[blobDownload()],captured:{ok:false,code:'CAPTURE_MISSING'},step:{phase:'download',downloading:true,message:'기존 보고서 다운로드 클릭'}});await h.tick();assert.equal(h.state().completed,0);assert.deepEqual(h.state().queue[0].ignoredDownloadIds,[7]);assert.equal(h.calls.steps.length,0);assert.equal(h.state().running,true);
+ await h.tick();assert.equal(h.calls.steps.length,1);assert.equal(h.calls.steps[0].allowCreate,false);assert.ok(h.state().queue[0].captureId);h.setCaptured(blobBytes);h.setFiles([blobDownload(),blobDownload({id:8,finalUrl:'blob:https://advertising.coupang.com/NEW-PRIVATE'})]);await h.tick();assert.equal(h.state().completed,1);assert.equal(h.calls.workbooks.length,1);
+});
+test('missing blob capture retries are bounded and never create another report',async()=>{
+ const h=harness({files:[blobDownload()],step:{phase:'download',downloading:true,message:'기존 보고서 다운로드 클릭'}});for(let index=0;index<3;index++){if(index)await h.tick();h.setFiles([blobDownload({id:7+index})]);await h.tick();assert.equal(h.state().completed,0);}assert.equal(h.state().running,false);assert.equal(h.calls.steps.length,2);assert.ok(h.calls.steps.every(m=>m.allowCreate===false));assert.match(h.state().message,/2회/);
+});
+test('blob source, current report tab, payload size and ZIP signature must all be valid before import',async()=>{
+ for(const options of [{files:[blobDownload({finalUrl:'blob:https://unrelated.example/SECRET'})],captured:blobBytes},{files:[blobDownload()],captured:blobBytes,reportUrl:'https://advertising.coupang.com/marketing-reporting/billboard/reports/nca'},{files:[blobDownload()],captured:{ok:true,data:'UEsDBA==',bytes:9*1024*1024}},{files:[blobDownload()],captured:{ok:true,data:Buffer.from('html').toString('base64'),bytes:4}},{files:[blobDownload()],captured:blobBytes,ack:{ok:false,error:'저장 실패'}}]){
+  const h=harness(options);if(options.reportUrl)await h.collect(7);else await h.tick();assert.equal(h.state().completed,0);assert.equal(h.state().running,false);assert.equal(h.calls.fetches.length,0);assert.equal(h.calls.releases.length,0);assert.doesNotMatch(JSON.stringify((await h.status()).log),/SECRET|SYNTHETIC-BLOB-PRIVATE/);
+ }
+});
+test('unsupported HTTPS download reports only the host, MIME and size instead of a signed file URL',async()=>{
+ const h=harness({files:[download({finalUrl:'https://new-report.example/report?token=PRIVATE',mime:'application/octet-stream',fileSize:1234})]});await h.tick();assert.equal(h.state().running,false);assert.equal(h.calls.fetches.length,0);assert.match(h.state().message,/new-report.example/);assert.match(h.state().message,/1234바이트/);assert.doesNotMatch(h.state().message,/PRIVATE|token=|https:\/\//);
 });

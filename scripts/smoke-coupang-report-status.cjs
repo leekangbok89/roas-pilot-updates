@@ -18,8 +18,8 @@ async function fixture(){
    const cell=document.createElement('td'),button=document.createElement('button');button.textContent='다운로드';button.onclick=()=>window.downloaded++;cell.append(button);tr.append(cell);document.querySelector('tbody').prepend(tr);return tr;
   };
  });
- await page.addScriptTag({content:'window.chrome={runtime:{id:"TEST",getManifest(){return {version:"0.2.7"};},onMessage:{addListener(fn){window.collectStep=m=>new Promise(resolve=>fn(m,{id:"TEST"},resolve));}}}};'});
- await page.addScriptTag({path:source});return page;
+ await page.addScriptTag({content:'window.chrome={runtime:{id:"TEST",getManifest(){return {version:"0.2.8"};},onMessage:{addListener(fn){window.collectStep=m=>new Promise(resolve=>fn(m,{id:"TEST"},resolve));}}}};'});
+ await page.addScriptTag({path:path.resolve(__dirname,'../browser-extensions/coupang-collector/download-bridge.js')});await page.addScriptTag({path:source});return page;
 }
 async function request(page){
  const result=await page.evaluate(job=>window.collectStep({kind:'step',allowCreate:true,job}),range);

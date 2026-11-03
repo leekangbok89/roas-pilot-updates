@@ -1,5 +1,18 @@
 /* Uses visible report controls only. No private API routes or credential access. */
-const REPORT_ADAPTER_VERSION='0.2.7';
+const REPORT_ADAPTER_VERSION='0.2.8';
+let activeBlobCapture=null;
+function blobCall(kind,fields){return new Promise((resolve,reject)=>{
+ const id=crypto.randomUUID(),origin=location.origin,timer=setTimeout(()=>{window.removeEventListener('message',listener);reject(Error('브라우저 임시 파일 연결 응답 시간 초과'));},kind==='read'?15000:3000);
+ function listener(event){const m=event.data;if(event.source!==window||event.origin!==origin||m?.source!=='ROAS_COUPANG_BLOB_RESPONSE'||m.id!==id||m.captureId!==fields.captureId||m.kind!==kind)return;clearTimeout(timer);window.removeEventListener('message',listener);resolve(m);}
+ window.addEventListener('message',listener);window.postMessage({source:'ROAS_COUPANG_BLOB_REQUEST',id,kind,...fields},origin==='null'?'*':origin);
+});}
+function captureFilename(filename,capture){const m=/^(A\d+)_(pa|nca)_(?:total|daily)_campaign_(\d{8})_(\d{8})(?:\s*\(\d+\))?\.xlsx$/i.exec(String(filename||''));return !!m&&m[2].toLowerCase()===capture.type&&m[3]===capture.since.replaceAll('-','')&&m[4]===capture.until.replaceAll('-','');}
+async function readCapturedFile(m){
+ if(!activeBlobCapture)return {ok:false,code:'CAPTURE_MISSING',error:'이전 다운로드의 임시 파일은 이 탭에 보관되지 않았습니다.'};
+ const c=activeBlobCapture;let url;try{url=new URL(m.url);}catch{}
+ if(m.captureId!==c.captureId||m.type!==c.type||m.since!==c.since||m.until!==c.until||!captureFilename(m.filename,c)||url?.protocol!=='blob:'||url.origin!==location.origin)return {ok:false,code:'INVALID_REPORT',error:'요청한 보고서와 임시 파일 정보가 다릅니다.'};
+ return blobCall('read',{...c,url:m.url,filename:m.filename});
+}
 const text=e=>(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
 const visible=e=>!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';
 const controls=()=>[...document.querySelectorAll('button,a,[role="button"],[role="combobox"]')].filter(visible);
@@ -170,12 +183,15 @@ function inspectReports(job){
  const ready=fresh.find(row=>/생성\s*완료/.test(text(row))),failed=fresh.some(row=>/생성\s*실패|요청\s*실패/.test(text(row))),pending=fresh.some(row=>/생성\s*중|요청\s*완료|대기/.test(text(row)));
  return {rows,fresh,ready,failed,pending,diagnostics:{matching:rows.length,fresh:fresh.length,ready:ready?1:0,pending:pending?1:0}};
 }
-function readyReport(state,job){
+async function readyReport(state,job){
  const {ready,diagnostics}=state;if(!ready)return null;
  const download=[...ready.querySelectorAll('a,button,[role="button"]')].find(e=>visible(e)&&/^(?:엑셀\s*)?다운로드$|^다운로드\s*\(/.test(text(e)));
  if(!download)return {phase:'ready',diagnostics,needsInput:true,message:'생성 완료 보고서의 다운로드 버튼을 찾지 못했습니다. 보고서 조회 열의 버튼을 확인해 주세요.'};
  if(!enabled(download))return {phase:'ready',diagnostics,message:'보고서는 생성 완료 · 다운로드 버튼 활성 대기 · '+job.since+' ~ '+job.until};
- download.click();return {phase:'download',diagnostics,downloading:true,message:'생성 완료 보고서의 다운로드를 눌렀습니다. Chrome 다운로드 시작과 저장을 확인합니다.'};
+ const capture={captureId:job.captureId||crypto.randomUUID(),type:job.type,since:job.since,until:job.until};
+ let armed;try{armed=await blobCall('arm',capture);}catch{}
+ if(!armed?.ok)return {phase:'ready',diagnostics,needsInput:true,message:'브라우저 임시 파일 연결이 준비되지 않았습니다. 확장프로그램과 쿠팡 보고서 탭을 새로고침한 뒤 이어 확인하세요.'};
+ activeBlobCapture=capture;download.click();return {phase:'download',diagnostics,captureId:capture.captureId,downloading:true,message:'생성 완료 보고서의 다운로드를 눌렀습니다. Chrome 다운로드 시작과 저장을 확인합니다.'};
 }
 async function step(m){
  const body=document.body.innerText;
@@ -183,11 +199,11 @@ async function step(m){
  if(document.querySelector('input[type="password"]')||/본인 인증|보안문자|사람인지 확인|로봇이 아닙니다/.test(body))return {blocked:true,message:'로그인·추가 인증을 직접 완료해 주세요. 인증을 자동으로 처리하지 않습니다.'};
  const job=m.job;
  if(!await firstReportPage())return {notSubmitted:m.allowCreate,needsInput:true,phase:'identifying',message:'보고서 목록의 1페이지로 이동하지 못했습니다. 쿠팡 보고서 목록에서 1페이지를 선택한 뒤 이어 확인하세요.'};
- let state=inspectReports(job),ready=readyReport(state,job);if(ready&&(ready.downloading||ready.needsInput))return ready;
+ let state=inspectReports(job),ready=await readyReport(state,job);if(ready&&(ready.downloading||ready.needsInput))return ready;
  if(state.failed)return {blocked:true,phase:'failed',diagnostics:state.diagnostics,message:'새로 요청한 보고서가 생성 실패로 표시됩니다. 쿠팡 보고서 화면의 실패 사유를 확인해 주세요.'};
  if(!m.allowCreate){
   const refresh=controls().find(e=>enabled(e)&&/^(목록 새로\s*고침|새로\s*고침|Refresh)$/i.test(text(e)));
-  if(refresh){const before=state.rows.map(text).join('|');refresh.click();for(let n=0;n<15;n++){await wait(100);if(matchingReports(job).map(text).join('|')!==before)break;}state=inspectReports(job);ready=readyReport(state,job);if(ready)return ready;}
+  if(refresh){const before=state.rows.map(text).join('|');refresh.click();for(let n=0;n<15;n++){await wait(100);if(matchingReports(job).map(text).join('|')!==before)break;}state=inspectReports(job);ready=await readyReport(state,job);if(ready)return ready;}
   if(state.failed)return {blocked:true,phase:'failed',diagnostics:state.diagnostics,message:'새로 요청한 보고서가 생성 실패로 표시됩니다. 쿠팡 보고서 화면의 실패 사유를 확인해 주세요.'};
   if(ready)return ready;
   return {phase:state.pending?'creating':'identifying',diagnostics:state.diagnostics,message:(state.pending?'새 보고서 생성 중':'새 보고서 식별 대기')+' · '+job.since+' ~ '+job.until+' · 같은 기간 '+state.rows.length+'개 / 새 보고서 '+state.fresh.length+'개 · '+(refresh?'목록 새로고침 완료':'목록 새로고침 버튼 확인 필요')+(state.rows.length&&!state.fresh.length?' · 기존 보고서와 구분될 새 보고서 정보 확인 필요':'')};
@@ -215,4 +231,4 @@ async function step(m){
  if(restriction)return {blocked:true,message:'쿠팡 안내: '+restriction.slice(0,200)+' · 수집을 중단했습니다.'};
  return {phase:'identifying',requested:true,baselineCount:baselineRows.length,baselineReports,message:'보고서 만들기 클릭 완료 · 새 보고서 접수·생성 상태 확인 대기'};
 }
-chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id)return;if(m.kind==='probe'){reply({adapterVersion:REPORT_ADAPTER_VERSION});return;}if(m.kind!=='step')return;step(m).then(result=>reply({...result,adapterVersion:REPORT_ADAPTER_VERSION}),e=>reply({adapterVersion:REPORT_ADAPTER_VERSION,needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id)return;if(m.kind==='probe'){reply({adapterVersion:REPORT_ADAPTER_VERSION});return;}if(m.kind==='read-report-file'){readCapturedFile(m).then(reply,e=>reply({ok:false,code:'CAPTURE_MISSING',error:String(e.message).slice(0,200)}));return true;}if(m.kind==='release-report-file'){if(activeBlobCapture?.captureId!==m.captureId){reply({ok:false});return;}blobCall('release',{captureId:m.captureId,url:m.url}).then(reply,()=>reply({ok:false}));activeBlobCapture=null;return true;}if(m.kind!=='step')return;step(m).then(result=>reply({...result,adapterVersion:REPORT_ADAPTER_VERSION}),e=>reply({adapterVersion:REPORT_ADAPTER_VERSION,needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});
