@@ -7,7 +7,29 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function input(el,value){if(el.readOnly||el.disabled)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));el.dispatchEvent(new Event('blur',{bubbles:true}));return true;}
 const normalDate=value=>{const m=/^(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})(?:\s*일|\.)?$/.exec(String(value||'').trim());return m?m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0'):null;};
 const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&!/disabled/i.test(String(e.className))&&!e.closest('[aria-disabled="true"],.ant-picker-cell-disabled,.ant-calendar-disabled-cell');
-function dateCells(){return [...document.querySelectorAll('td[title],[data-date],[role="gridcell"][aria-label],button[aria-label]')].filter(visible).map(e=>({e,date:normalDate(e.getAttribute('title'))||normalDate(e.getAttribute('data-date'))||normalDate(e.getAttribute('aria-label'))})).filter(x=>x.date);}
+function cellDate(value){
+ const s=String(value||'').trim(),plain=normalDate(s);if(plain)return plain;
+ const korean=/^(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)(?:\s*[([]?[일월화수목금토]요일[)\]]?)?$/.exec(s);if(korean)return normalDate(korean[1]);
+ const english=/^(?:Choose\s+)?(?:(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i.exec(s);
+ if(!english)return null;const month=['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(english[1].toLowerCase())+1;
+ return english[3]+'-'+String(month).padStart(2,'0')+'-'+english[2].padStart(2,'0');
+}
+function dateCells(){return [...document.querySelectorAll('td[title],td[aria-label],[data-date],[role="gridcell"][aria-label],button[aria-label],.react-datepicker__day[aria-label]')].filter(visible).map(e=>({e,date:cellDate(e.getAttribute('title'))||cellDate(e.getAttribute('data-date'))||cellDate(e.getAttribute('aria-label'))})).filter(x=>x.date);}
+async function waitForDates(timeout=1600){
+ for(let n=0;n<timeout/100;n++){if(dateCells().length)return true;await wait(100);}return !!dateCells().length;
+}
+async function openCalendar(el){
+ // HTMLElement.click() does not focus an input. Some range pickers open only
+ // on focus/mousedown, and their popup can render after the first animation.
+ el.scrollIntoView({block:'nearest'});el.focus();
+ if(await waitForDates(400))return true;
+ const mouse=(type)=>el.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window,button:0}));
+ mouse('mousedown');mouse('mouseup');el.click();
+ if(await waitForDates())return true;
+ const wrapper=el.closest('.ant-picker,.ant-calendar-picker,.ant-calendar-range-picker,.rc-picker,.react-datepicker__input-container');
+ if(wrapper&&wrapper!==el){wrapper.click();if(await waitForDates())return true;}
+ return false;
+}
 function monthButton(previous){
  const selector=previous?'.ant-picker-header-prev-btn,.ant-calendar-prev-month-btn,.rc-picker-header-prev-btn':'.ant-picker-header-next-btn,.ant-calendar-next-month-btn,.rc-picker-header-next-btn';
  const exact=[...document.querySelectorAll(selector)].filter(e=>visible(e)&&enabled(e));
@@ -18,7 +40,7 @@ function monthButton(previous){
 async function calendarInput(el,date){
  if(!el||el.disabled)return false;if(normalDate(el.value)===date)return true;
  if(!el.readOnly){el.focus();input(el,date);await wait(150);if(normalDate(el.value)===date)return true;}
- el.click();await wait(200);
+ if(!await openCalendar(el))return false;
  for(let n=0;n<26;n++){
   const cells=dateCells(),matches=cells.filter(x=>x.date===date&&enabled(x.e));
   const match=matches.find(x=>/in-view|in-month/.test(String(x.e.className)))||matches[0];
@@ -26,7 +48,8 @@ async function calendarInput(el,date){
   const dates=cells.map(x=>x.date).sort();if(!dates.length)return false;
   const previous=date<dates[0],next=date>dates.at(-1);if(!previous&&!next)return false;
   const button=monthButton(previous);if(!button)return false;
-  const before=dates.join();button.click();await wait(200);
+  const before=dates.join();button.click();
+  for(let attempt=0;attempt<16&&dateCells().map(x=>x.date).sort().join()===before;attempt++)await wait(100);
   if(dateCells().map(x=>x.date).sort().join()===before)return false;
  }
  return false;
