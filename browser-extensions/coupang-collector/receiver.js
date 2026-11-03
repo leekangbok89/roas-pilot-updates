@@ -11,7 +11,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
 // Only this local collection page may issue the three UI commands.
 window.addEventListener('message',async event=>{
  if(event.source!==window||event.origin!==location.origin||!/^http:\/\/(127\.0\.0\.1|localhost):3000$/.test(location.origin)||location.pathname!=='/coupang-collector.html')return;
- const m=event.data;if(m?.source!=='ROAS_COUPANG_PAGE'||typeof m.id!=='string'||!['start','stop','status'].includes(m.kind))return;
+ const m=event.data;if(m?.source!=='ROAS_COUPANG_PAGE'||typeof m.id!=='string'||!['start','stop','status','continue'].includes(m.kind))return;
  try{const result=await chrome.runtime.sendMessage({kind:m.kind,since:m.since,until:m.until,automatic:m.automatic});window.postMessage({source:'ROAS_COUPANG_CONTROL',id:m.id,...result},location.origin);}
  catch{window.postMessage({source:'ROAS_COUPANG_CONTROL',id:m.id,ok:false,error:'확장프로그램을 새로고침하고 이 화면을 다시 열어 주세요.'},location.origin);}
 });

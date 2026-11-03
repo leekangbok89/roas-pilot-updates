@@ -1,5 +1,5 @@
 /* Uses visible report controls only. No private API routes or credential access. */
-const REPORT_ADAPTER_VERSION='0.2.6';
+const REPORT_ADAPTER_VERSION='0.2.7';
 const text=e=>(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
 const visible=e=>!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';
 const controls=()=>[...document.querySelectorAll('button,a,[role="button"],[role="combobox"]')].filter(visible);
@@ -143,7 +143,8 @@ function reportKey(row){
  for(const name of ['data-report-id','data-request-id']){const value=row.getAttribute(name);if(value&&value.length<200)return name+':'+value;}
  const item=row.querySelector('[data-report-id],[data-request-id]');if(item)return 'report:'+(item.getAttribute('data-report-id')||item.getAttribute('data-request-id'));
  for(const link of row.querySelectorAll('a[href]')){try{const url=new URL(link.getAttribute('href'),location.href);for(const key of ['reportId','report_id','reportNo','requestId'])if(url.searchParams.get(key))return key+':'+url.searchParams.get(key);}catch{}}
- const rowKey=row.getAttribute('data-row-key');return rowKey&&rowKey.length<200?'row:'+rowKey:null;
+ // Small numeric keys are commonly visible row positions, not report IDs.
+ const rowKey=row.getAttribute('data-row-key');return rowKey&&rowKey.length<200&&!/^\d{1,2}$/.test(rowKey)?'row:'+rowKey:null;
 }
 function reportSignature(row){return text(row).replace(/생성\s*(완료|중|실패)|요청\s*완료|대기|(?:엑셀\s*)?다운로드(?:\s*\([^)]*\))?|자세히\s*보기|재시도/g,'').replace(/\s+/g,' ').trim().slice(0,1200);}
 function reportBaseline(rows){return rows.slice(0,100).map(row=>({key:reportKey(row),signature:reportSignature(row)}));}
@@ -151,22 +152,45 @@ function newReports(rows,job){
  if(!Array.isArray(job.baselineReports))return rows.length>(job.baselineCount??0)?rows:[];
  const oldKeys=new Set(job.baselineReports.map(r=>r.key).filter(Boolean)),counts=new Map();
  for(const r of job.baselineReports)counts.set(r.signature,(counts.get(r.signature)||0)+1);
- const seen=new Map();return rows.filter(row=>{const key=reportKey(row),sig=reportSignature(row),count=(seen.get(sig)||0)+1;seen.set(sig,count);return key&&!oldKeys.has(key)&&job.baselineReports.every(r=>r.key)||count>(counts.get(sig)||0);});
+ const seen=new Map();return rows.filter(row=>{const key=reportKey(row),sig=reportSignature(row),count=(seen.get(sig)||0)+1;seen.set(sig,count);if(key&&oldKeys.has(key))return false;return key&&!oldKeys.has(key)&&job.baselineReports.every(r=>r.key)||count>(counts.get(sig)||0);});
+}
+function reportRange(value){
+ const m=/(\d{4}[-./]\d{1,2}[-./]\d{1,2})\s*(?:[~～–—]|\s-\s|\bto\b)\s*(\d{4}[-./]\d{1,2}[-./]\d{1,2})/i.exec(String(value||''));return m?{since:normalDate(m[1]),until:normalDate(m[2])}:null;
+}
+function matchingReports(job){return [...new Set(document.querySelectorAll('tr,[role="row"],.ant-table-row'))].filter(e=>{if(!visible(e))return false;const range=reportRange(text(e));return range?.since===job.since&&range.until===job.until;});}
+async function firstReportPage(){
+ const pagers=[...document.querySelectorAll('.ant-pagination,.rc-pagination')].filter(visible);if(pagers.length!==1)return true;
+ const pager=pagers[0],first=pager.querySelector('.ant-pagination-item-1,.rc-pagination-item-1');if(!first||!visible(first))return true;
+ const active=()=>{const current=[...document.querySelectorAll('.ant-pagination-item-1,.rc-pagination-item-1')].find(visible);return current&&(current.matches('.ant-pagination-item-active,.rc-pagination-item-active,[aria-current="page"]')||!!current.querySelector('[aria-current="page"]'));};if(active())return true;
+ if(!enabled(first))return false;(first.querySelector('a,button')||first).click();
+ for(let n=0;n<20;n++){await wait(100);if(active()){await wait(400);for(let loading=0;loading<20;loading++){if(![...document.querySelectorAll('.ant-table-wrapper .ant-spin-spinning,.ant-table-wrapper [aria-busy="true"]')].some(visible))return true;await wait(100);}return false;}}return false;
+}
+function inspectReports(job){
+ const rows=matchingReports(job),fresh=job.confirmedAllCampaigns?newReports(rows,job):[];
+ const ready=fresh.find(row=>/생성\s*완료/.test(text(row))),failed=fresh.some(row=>/생성\s*실패|요청\s*실패/.test(text(row))),pending=fresh.some(row=>/생성\s*중|요청\s*완료|대기/.test(text(row)));
+ return {rows,fresh,ready,failed,pending,diagnostics:{matching:rows.length,fresh:fresh.length,ready:ready?1:0,pending:pending?1:0}};
+}
+function readyReport(state,job){
+ const {ready,diagnostics}=state;if(!ready)return null;
+ const download=[...ready.querySelectorAll('a,button,[role="button"]')].find(e=>visible(e)&&/^(?:엑셀\s*)?다운로드$|^다운로드\s*\(/.test(text(e)));
+ if(!download)return {phase:'ready',diagnostics,needsInput:true,message:'생성 완료 보고서의 다운로드 버튼을 찾지 못했습니다. 보고서 조회 열의 버튼을 확인해 주세요.'};
+ if(!enabled(download))return {phase:'ready',diagnostics,message:'보고서는 생성 완료 · 다운로드 버튼 활성 대기 · '+job.since+' ~ '+job.until};
+ download.click();return {phase:'download',diagnostics,downloading:true,message:'생성 완료 보고서의 다운로드를 눌렀습니다. Chrome 다운로드 시작과 저장을 확인합니다.'};
 }
 async function step(m){
  const body=document.body.innerText;
  if(/Access Denied|Request Header Or Cookie Too Large|permission to access/i.test(body))return {blocked:true,message:'쿠팡 접근 제한으로 중단했습니다.'};
  if(document.querySelector('input[type="password"]')||/본인 인증|보안문자|사람인지 확인|로봇이 아닙니다/.test(body))return {blocked:true,message:'로그인·추가 인증을 직접 완료해 주세요. 인증을 자동으로 처리하지 않습니다.'};
- const job=m.job,dateMatches=s=>{const compact=s.replace(/[.\/]/g,'-').replace(/\s/g,'');const match=/(\d{4}-\d{2}-\d{2})[~～–—](\d{4}-\d{2}-\d{2})/.exec(compact);return !!match&&match[1]===job.since&&match[2]===job.until;};
- const rows=[...document.querySelectorAll('tr')].filter(e=>visible(e)&&dateMatches(text(e)));
- const freshRows=job.confirmedAllCampaigns?newReports(rows,job):[],ready=freshRows.find(r=>/생성\s*완료/.test(text(r)));
- if(ready&&job.confirmedAllCampaigns){const download=[...ready.querySelectorAll('a,button,[role="button"]')].find(e=>visible(e)&&/^(?:엑셀\s*)?다운로드$|^다운로드\s*\(/.test(text(e)));
-  if(!download)return {needsInput:true,message:'생성 완료 보고서의 다운로드 버튼을 찾지 못했습니다. 보고서 조회 열의 버튼을 확인해 주세요.'};download.click();return {downloading:true,message:'생성 완료 보고서를 내려받고 저장 확인을 기다립니다.'};}
+ const job=m.job;
+ if(!await firstReportPage())return {notSubmitted:m.allowCreate,needsInput:true,phase:'identifying',message:'보고서 목록의 1페이지로 이동하지 못했습니다. 쿠팡 보고서 목록에서 1페이지를 선택한 뒤 이어 확인하세요.'};
+ let state=inspectReports(job),ready=readyReport(state,job);if(ready&&(ready.downloading||ready.needsInput))return ready;
+ if(state.failed)return {blocked:true,phase:'failed',diagnostics:state.diagnostics,message:'새로 요청한 보고서가 생성 실패로 표시됩니다. 쿠팡 보고서 화면의 실패 사유를 확인해 주세요.'};
  if(!m.allowCreate){
   const refresh=controls().find(e=>enabled(e)&&/^(목록 새로\s*고침|새로\s*고침|Refresh)$/i.test(text(e)));
-  if(refresh){refresh.click();await wait(200);}
-  const pending=freshRows.some(r=>/생성\s*중|요청\s*완료|대기/.test(text(r)));
-  return {message:(pending?'새 보고서 생성 중':'새 보고서 식별 대기')+' · '+job.since+' ~ '+job.until+' · 같은 기간 '+rows.length+'개 / 새 보고서 '+freshRows.length+'개 · '+(refresh?'목록 새로고침 완료':'목록 새로고침 버튼 확인 필요')};
+  if(refresh){const before=state.rows.map(text).join('|');refresh.click();for(let n=0;n<15;n++){await wait(100);if(matchingReports(job).map(text).join('|')!==before)break;}state=inspectReports(job);ready=readyReport(state,job);if(ready)return ready;}
+  if(state.failed)return {blocked:true,phase:'failed',diagnostics:state.diagnostics,message:'새로 요청한 보고서가 생성 실패로 표시됩니다. 쿠팡 보고서 화면의 실패 사유를 확인해 주세요.'};
+  if(ready)return ready;
+  return {phase:state.pending?'creating':'identifying',diagnostics:state.diagnostics,message:(state.pending?'새 보고서 생성 중':'새 보고서 식별 대기')+' · '+job.since+' ~ '+job.until+' · 같은 기간 '+state.rows.length+'개 / 새 보고서 '+state.fresh.length+'개 · '+(refresh?'목록 새로고침 완료':'목록 새로고침 버튼 확인 필요')+(state.rows.length&&!state.fresh.length?' · 기존 보고서와 구분될 새 보고서 정보 확인 필요':'')};
  }
  if(!radio('기간 설정'))return {notSubmitted:true,needsInput:true,message:'기간 설정 항목을 찾지 못했습니다.'};await wait(250);
  const [start,finish]=dateFields();
@@ -183,12 +207,12 @@ async function step(m){
  const before=new Set(document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(Boolean));
  const alerts=()=>[...document.querySelectorAll('[role="alert"],[role="dialog"],.ant-message-notice,.ant-notification-notice,.ant-modal,.ant-alert')].filter(visible).map(text).filter(Boolean);
  const priorAlerts=new Set(alerts());
- const baselineRows=[...document.querySelectorAll('tr')].filter(e=>visible(e)&&dateMatches(text(e)));
+ const baselineRows=matchingReports(job);
  const baselineReports=reportBaseline(baselineRows);
  create.click();await wait(500);
  const fresh=[...alerts().filter(s=>!priorAlerts.has(s)),...document.body.innerText.split(/\n+/).map(s=>s.trim()).filter(s=>s&&!before.has(s))];
  const restriction=fresh.find(s=>/최대.*일|조회.*불가|기간.*초과|요청.*초과|한도.*초과/.test(s));
  if(restriction)return {blocked:true,message:'쿠팡 안내: '+restriction.slice(0,200)+' · 수집을 중단했습니다.'};
- return {requested:true,baselineCount:baselineRows.length,baselineReports,message:'보고서 만들기를 누른 뒤 생성 상태를 확인하고 있습니다.'};
+ return {phase:'identifying',requested:true,baselineCount:baselineRows.length,baselineReports,message:'보고서 만들기 클릭 완료 · 새 보고서 접수·생성 상태 확인 대기'};
 }
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id)return;if(m.kind==='probe'){reply({adapterVersion:REPORT_ADAPTER_VERSION});return;}if(m.kind!=='step')return;step(m).then(result=>reply({...result,adapterVersion:REPORT_ADAPTER_VERSION}),e=>reply({adapterVersion:REPORT_ADAPTER_VERSION,needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});

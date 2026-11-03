@@ -44,7 +44,7 @@ async function fixture(mode){
   panel(2026,10,0);panel(2026,11,1);
   document.getElementById('create').onclick=()=>window.created++;
  },mode);
- await page.addScriptTag({content:'window.chrome={runtime:{id:"TEST",getManifest(){return {version:"0.2.6"};},onMessage:{addListener(fn){window.collectStep=m=>new Promise(resolve=>fn(m,{id:"TEST"},resolve));}}}};'});
+ await page.addScriptTag({content:'window.chrome={runtime:{id:"TEST",getManifest(){return {version:"0.2.7"};},onMessage:{addListener(fn){window.collectStep=m=>new Promise(resolve=>fn(m,{id:"TEST"},resolve));}}}};'});
  await page.addScriptTag({path:source});return page;
 }
 (async()=>{
