@@ -120,6 +120,7 @@ jobs:
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-collector.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-calendar.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-report-status.cjs
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-blob-download.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-naver-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-other-ad-costs-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-gfa-browser.cjs
