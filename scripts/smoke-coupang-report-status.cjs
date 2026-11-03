@@ -1,11 +1,11 @@
 'use strict';
-const assert=require('node:assert/strict'),path=require('node:path');
+const assert=require('node:assert/strict'),path=require('node:path'),http=require('node:http');
 const {chromium}=require(process.env.ROAS_PLAYWRIGHT_MODULE||'playwright');
 const source=path.resolve(__dirname,'../browser-extensions/coupang-collector/report-page.js');
-const range={since:'2026-10-26',until:'2026-11-01'};
-let browser;
+const range={type:'pa',since:'2026-10-26',until:'2026-11-01'};
+let browser,base;const server=http.createServer((req,res)=>{res.setHeader('content-type','text/html; charset=utf-8');res.end('<!doctype html><body>Local report fixture</body>');});
 async function fixture(){
- const page=await browser.newPage({viewport:{width:1300,height:1000}});
+ const page=await browser.newPage({viewport:{width:1300,height:1000}});await page.goto(base);
  await page.setContent('<label><input type="radio" checked>기간 설정</label><input placeholder="시작일" value="2026-10-26"><input placeholder="종료일" value="2026-11-01"><label><input type="radio" checked>일별</label><select><option value="all">전체 캠페인</option></select><button id="create">보고서 만들기</button><div class="ant-table-wrapper"><table><thead><tr><th>요청일</th><th>보고서 기간</th><th>캠페인</th><th>상태</th><th>보고서 조회</th></tr></thead><tbody></tbody></table><button id="refresh">목록 새로 고침</button></div>');
  await page.evaluate(()=>{
   window.created=0;window.downloaded=0;window.refreshes=0;
@@ -28,6 +28,7 @@ async function request(page){
 }
 const poll=(page,job)=>page.evaluate(job=>window.collectStep({kind:'step',allowCreate:false,job}),job);
 (async()=>{
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base='http://127.0.0.1:'+server.address().port;
  browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
  for(const disabled of ['native','aria']){
   const page=await fixture(),job=await request(page);
@@ -71,4 +72,4 @@ const poll=(page,job)=>page.evaluate(job=>window.collectStep({kind:'step',allowC
   await page.evaluate(()=>{document.querySelector('tbody .report-status').textContent='생성 완료';});result=await poll(page,job);assert.notEqual(result.downloading,true,'identical positional rows must not select an older report');assert.equal(await page.evaluate(()=>window.downloaded),0);await page.close();
  }
  console.log('PASS local report-status fixtures: disabled downloads, failure detection, date formats, refreshed state, first-page baseline and ambiguous/old-report rejection. Live Coupang account not exercised.');
-})().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();});
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();await new Promise(resolve=>server.close(resolve));});

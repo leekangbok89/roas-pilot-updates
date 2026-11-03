@@ -51,7 +51,7 @@ async function fixture(mode){
  browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
  for(const mode of ['inner-title','numeric','disabled','invalid','unrelated']){
   const page=await fixture(mode);
-  const result=await page.evaluate(()=>window.collectStep({kind:'step',allowCreate:true,job:{since:'2026-10-26',until:'2026-11-01'}}));
+  const result=await page.evaluate(()=>window.collectStep({kind:'step',allowCreate:true,job:{type:'pa',since:'2026-10-26',until:'2026-11-01'}}));
   if(mode==='inner-title'||mode==='numeric'){
    assert.equal(result.requested,true,mode+': '+JSON.stringify(result));
    assert.equal(await page.locator('input[placeholder="시작일"]').inputValue(),'2026-10-26',mode+' start');
