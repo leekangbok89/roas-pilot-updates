@@ -2,7 +2,19 @@
 (function(root) {
   'use strict';
   const clean = x => String(x ?? '').trim().replace(/\s+/g, '');
-  function day(x) { const s=String(x??'').trim().replace(/[./]/g,'-'); return /^\d{4}-\d\d-\d\d$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s?s:null; }
+  function day(x) {
+    let s=String(x??'').trim();
+    // Campaign exports store YYYYMMDD as general numeric cells, including
+    // 2.026103E7. Expand decimal notation exactly, without floating rounding
+    // or guessing that an unstyled number is an Excel date serial.
+    const m=s.length<=80?/^(\d+)(?:\.(\d+))?(?:e([+-]?\d{1,2}))?$/i.exec(s):null;
+    if(m){let digits=(m[1]+(m[2]||'')).replace(/^0+/,''),scale=Number(m[3]||0)-(m[2]?.length||0);
+      if(scale>=0){if(digits.length+scale!==8)return null;digits+='0'.repeat(scale);}
+      else {const remove=-scale;if(digits.length-remove!==8||!digits.endsWith('0'.repeat(remove)))return null;digits=digits.slice(0,-remove);}
+      s=digits.slice(0,4)+'-'+digits.slice(4,6)+'-'+digits.slice(6,8);
+    }else s=s.replace(/[./]/g,'-');
+    return /^\d{4}-\d\d-\d\d$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s?s:null;
+  }
   function number(x, required=false) {
     if (x===undefined||x===null||x===''||x==='-') { if(required)throw Error('필수 광고 지표가 비어 있습니다.');return null; }
     const s=String(x).replace(/,/g,'').trim(), n=Number(s);
@@ -26,20 +38,23 @@
     }
     if(found.length!==1)throw Error('광고 보고서 표를 하나만 포함해 주세요.');
     const {grid,h,start}=found[0],at=(r,k)=>r[h.indexOf(clean(k))];
+    const reportLevel=type==='pa'&&!['광고집행 옵션ID','광고전환매출발생 옵션ID','광고 노출 지면','키워드'].some(k=>h.includes(clean(k)))&&['과금 방식','광고 목표','판매방식','광고유형'].every(k=>h.includes(clean(k)))?'campaign':'product';
     const dateKey=['날짜','일자','보고서 날짜','기준일','Date'].find(k=>h.includes(clean(k)));
     if(since!==until&&!dateKey)throw Error('여러 날짜를 합산한 보고서는 일별로 나눌 수 없습니다. 기간 구분을 일별로 선택하세요.');
     const rows=[];
-    for(const r of grid.slice(start+1)){
+    for(let i=start+1;i<grid.length;i++){
+      const r=grid[i],physicalRow=grid.rowNumbers?.[i]||i+1;
       if(r.every(x=>x===undefined||x===''))continue;
       const date=dateKey?day(at(r,dateKey)):since;
-      if(!date||date<since||date>until)throw Error('행의 일자가 보고서 기간과 다릅니다.');
+      if(!date)throw Error('엑셀 '+physicalRow+'행 '+dateKey+' 날짜 형식을 읽지 못했습니다: '+String(at(r,dateKey)??'(빈 값)').replace(/\s+/g,' ').slice(0,60)+' · 파일 기간 '+since+' ~ '+until);
+      if(date<since||date>until)throw Error('엑셀 '+physicalRow+'행 '+dateKey+' 날짜 '+date+'가 파일 기간 '+since+' ~ '+until+'과 다릅니다.');
       const base={date,campaignId:identifier(at(r,'캠페인 ID')),campaignName:String(at(r,type==='pa'?'캠페인명':'캠페인 이름')??'').trim(),placement:String(at(r,'광고 노출 지면')??'').trim(),impressions:number(at(r,'노출수'),true),clicks:number(at(r,'클릭수'),true)};
       if(!base.campaignName||base.campaignName.length>300)throw Error('캠페인 이름을 확인하세요.');
       if(type==='pa')rows.push({...base,advertisedItemId:identifier(at(r,'광고집행 옵션ID'),false),convertedItemId:identifier(at(r,'광고전환매출발생 옵션ID'),false),keyword:String(at(r,'키워드')??'').slice(0,300),spend:number(at(r,'광고비'),true),orders1:number(at(r,'총 주문수(1일)'),true),quantity1:number(at(r,'총 판매수량(1일)'),true),sales1:number(at(r,'총 전환매출액(1일)'),true),orders14:number(at(r,'총 주문수(14일)'),true),quantity14:number(at(r,'총 판매수량(14일)'),true),sales14:number(at(r,'총 전환매출액(14일)'),true)});
       else rows.push({...base,spend:number(at(r,'집행 광고비'),true),engagements:number(at(r,'참여수'),true),newCustomers:number(at(r,'신규 구매 고객 수')),firstSales:number(at(r,'첫구매를 통한 광고 전환 매출')),repeatCustomers:number(at(r,'신규 구매 고객 중 재구매 고객 수')),repeatSales:number(at(r,'재구매를 통한 매출')),totalSales:number(at(r,'전체 매출'))});
     }
     if(!rows.length||rows.length>50000)throw Error('광고 보고서 행 수를 확인하세요.');
-    return {schema:'roas-coupang-ad-report-v1',vendorId:m[1],type,since,until,filename,rows};
+    return {schema:'roas-coupang-ad-report-v1',vendorId:m[1],type,...(type==='pa'?{reportLevel}:{}),since,until,filename,rows};
   }
   const api={parse,day,identifier}; if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CoupangAdReports=Object.freeze(api);
 })(typeof window==='undefined'?this:window);

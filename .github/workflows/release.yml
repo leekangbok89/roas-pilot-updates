@@ -106,6 +106,7 @@ jobs:
           else
             "$RUNNER_TEMP/roas-ui-tests/node_modules/.bin/playwright" install --with-deps chromium --only-shell
           fi
+          ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-coupang-campaign-import.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-profit-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-shell-browser.cjs
           ROAS_PLAYWRIGHT_MODULE="$RUNNER_TEMP/roas-ui-tests/node_modules/playwright" node scripts/smoke-ga4-browser.cjs

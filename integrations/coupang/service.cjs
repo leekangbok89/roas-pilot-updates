@@ -1318,6 +1318,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
   function importAdvertising(v) {
     const c=config();
     if(v?.schema!=='roas-coupang-ad-report-v1'||v.vendorId!==c.vendorId||!['pa','nca'].includes(v.type))throw fail(400,'보고서 형식·연결된 판매자·광고 유형을 확인하세요.');
+    const reportLevel=v.type==='pa'?(v.reportLevel??'product'):null;
+    if(v.type==='pa'&&!['product','campaign'].includes(reportLevel))throw fail(400,'매출성장 보고서 집계 단위를 확인하세요.');
     range(v.since,v.until,now());
     if(v.since<kstDay(now()-365*DAY)||!Array.isArray(v.rows)||!v.rows.length||v.rows.length>50000)throw fail(400,'최근 1년의 광고 보고서를 50,000행 이하로 나누세요.');
     if(typeof v.filename!=='string'||v.filename.length>250)throw fail(400,'광고 보고서 원본 파일명을 확인하세요.');
@@ -1330,8 +1332,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       for(const key of numeric){const value=r[key];if(value===null&&nullable.has(key)){row[key]=null;continue;}if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>1e12||counts.has(key)&&!Number.isInteger(value))throw fail(400,'광고 보고서 지표를 확인하세요: '+key);row[key]=value;}
       if(v.type==='pa'){
         for(const key of ['advertisedItemId','convertedItemId']){if(r[key]!==null&&!id(r[key]))throw fail(400,'광고 옵션 ID를 확인하세요.');row[key]=r[key]===null?null:String(r[key]);}
-        if(row.spend>0&&!row.advertisedItemId)throw fail(400,'광고비가 있는 행에 광고집행 옵션 ID가 필요합니다.');
         row.keyword=typeof r.keyword==='string'?r.keyword.slice(0,300):'';
+        if(reportLevel==='campaign'){
+          if(row.advertisedItemId!==null||row.convertedItemId!==null||row.keyword!==''||row.placement!=='')throw fail(400,'캠페인 집계 보고서에 상품·키워드·지면 행을 섞을 수 없습니다.');
+        }else if(row.spend>0&&!row.advertisedItemId)throw fail(400,'광고비가 있는 행에 광고집행 옵션 ID가 필요합니다.');
       }
       return row;
     });
@@ -1345,12 +1349,12 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     const importedAt=new Date(now()).toISOString(),dates=[...new Set(rows.map(r=>r.date))].sort(),writes=dates.map(date=>{
       const selected=rows.filter(r=>r.date===date),file=path.join(dir(c),'ad-reports',v.type,date+'.json');
-      return {file,content:JSON.stringify({schema:v.schema,vendorId:c.vendorId,type:v.type,date,filename:v.filename,importedAt,basis:'report-original-amount',fingerprint:hash(selected),rows:selected})};
+      return {file,content:JSON.stringify({schema:v.schema,vendorId:c.vendorId,type:v.type,...(v.type==='pa'?{reportLevel}:{}),date,filename:v.filename,importedAt,basis:'report-original-amount',fingerprint:hash(selected),rows:selected})};
     });
     const revisionFile=path.join(dir(c),'ad-reports','revision.json'),previousRevision=read(revisionFile,null);
     if(previousRevision&&(previousRevision.vendorId!==c.vendorId||!previousRevision.files||typeof previousRevision.files!=='object'||Array.isArray(previousRevision.files)))throw fail(500,'저장된 광고 보고서 변경 이력을 확인하세요.');
     const revisionFiles={...(previousRevision?.files||{})};
-    for(const write of writes){const report=JSON.parse(write.content);revisionFiles[v.type+':'+report.date]=hash({fingerprint:report.fingerprint,basis:report.basis});}
+    for(const write of writes){const report=JSON.parse(write.content);revisionFiles[v.type+':'+report.date]=hash({fingerprint:report.fingerprint,basis:report.basis,...(report.reportLevel?{reportLevel:report.reportLevel}:{})});}
     writes.push({file:revisionFile,content:JSON.stringify({vendorId:c.vendorId,files:revisionFiles})});
     const originals=writes.map(w=>fs.existsSync(w.file)?fs.readFileSync(w.file):null);let completed=0;
     try{for(const w of writes){atomic(w.file,w.content);completed++;}}catch(e){for(let i=completed-1;i>=0;i--){if(originals[i]===null)fs.unlinkSync(writes[i].file);else atomic(writes[i].file,originals[i]);}throw e;}
