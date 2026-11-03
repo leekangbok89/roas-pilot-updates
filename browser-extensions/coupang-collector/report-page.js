@@ -1,4 +1,5 @@
 /* Uses visible report controls only. No private API routes or credential access. */
+const REPORT_ADAPTER_VERSION='0.2.6';
 const text=e=>(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
 const visible=e=>!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden';
 const controls=()=>[...document.querySelectorAll('button,a,[role="button"],[role="combobox"]')].filter(visible);
@@ -6,7 +7,7 @@ function radio(label){const list=[...document.querySelectorAll('label')].filter(
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function input(el,value){if(el.readOnly||el.disabled)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));el.dispatchEvent(new Event('blur',{bubbles:true}));return true;}
 const normalDate=value=>{const m=/^(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})(?:\s*일|\.)?$/.exec(String(value||'').trim());return m?m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0'):null;};
-const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&!/disabled/i.test(String(e.className))&&!e.closest('[aria-disabled="true"],.ant-picker-cell-disabled,.ant-calendar-disabled-cell');
+const enabled=e=>!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&!/disabled/i.test(String(e.className))&&!e.closest('[aria-disabled="true"],.ant-picker-cell-disabled,.rc-picker-cell-disabled,.ant-calendar-disabled-cell');
 function cellDate(value){
  const s=String(value||'').trim(),plain=normalDate(s);if(plain)return plain;
  const korean=/^(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)(?:\s*[([]?[일월화수목금토]요일[)\]]?)?$/.exec(s);if(korean)return normalDate(korean[1]);
@@ -14,15 +15,54 @@ function cellDate(value){
  if(!english)return null;const month=['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(english[1].toLowerCase())+1;
  return english[3]+'-'+String(month).padStart(2,'0')+'-'+english[2].padStart(2,'0');
 }
-function dateCells(){return [...document.querySelectorAll('td[title],td[aria-label],[data-date],[role="gridcell"][aria-label],button[aria-label],.react-datepicker__day[aria-label]')].filter(visible).map(e=>({e,date:cellDate(e.getAttribute('title'))||cellDate(e.getAttribute('data-date'))||cellDate(e.getAttribute('aria-label'))})).filter(x=>x.date);}
+function datePanels(){
+ const panels=[...document.querySelectorAll('.ant-picker-date-panel,.rc-picker-date-panel,.ant-calendar-range-left,.ant-calendar-range-right,.ant-calendar-range-part,.ant-calendar,.react-datepicker__month-container')].filter(visible);
+ return panels.filter(panel=>!panels.some(other=>other!==panel&&panel.contains(other)));
+}
+// Numeric days are accepted only as one complete, consecutive calendar grid.
+// A month heading alone must never turn an arbitrary table into date buttons.
+function mapCalendarDays(year,month,days){
+ if(!Number.isInteger(year)||year<2000||year>2100||!Number.isInteger(month)||month<1||month>12||![28,35,42].includes(days.length)||days.some(d=>!Number.isInteger(d)||d<1||d>31))return null;
+ const candidates=[];
+ for(let at=0;at<7;at++){
+  if(days[at]!==1)continue;
+  const first=new Date(Date.UTC(year,month-1,1-at));if(![0,1].includes(first.getUTCDay()))continue;
+  const dates=days.map((_,i)=>new Date(first.getTime()+i*86400000));
+  if(!dates.every((date,i)=>date.getUTCDate()===days[i]))continue;
+  const lastDay=new Date(Date.UTC(year,month,0)).getUTCDate();
+  if(!dates.some(d=>d.getUTCMonth()===month-1&&d.getUTCFullYear()===year&&d.getUTCDate()===lastDay))continue;
+  candidates.push(dates.map(d=>d.toISOString().slice(0,10)));
+ }
+ return candidates.length===1?candidates[0]:null;
+}
+function panelMonth(panel){
+ const scope=panel.closest('.ant-picker-panel,.rc-picker-panel')||panel;
+ const year=scope.querySelector('.ant-calendar-year-select,.ant-picker-year-btn,.rc-picker-year-btn'),month=scope.querySelector('.ant-calendar-month-select,.ant-picker-month-btn,.rc-picker-month-btn');
+ const header=scope.querySelector('.ant-calendar-header,.ant-picker-header-view,.rc-picker-header-view,.react-datepicker__current-month');
+ const label=year&&month?text(year)+' '+text(month):header?text(header):'';
+ const m=/^(\d{4})\s*년?\s*(\d{1,2})\s*월?$/.exec(label.trim());return m?{year:Number(m[1]),month:Number(m[2])}:null;
+}
+function dateCells(){
+ const panels=datePanels(),selector='[title],[data-date],[aria-label]';
+ const explicit=[...new Set([...document.querySelectorAll('td[title],td[aria-label],td [title],td [aria-label],[data-date],[role="gridcell"][aria-label],[role="gridcell"] [title],button[aria-label],.react-datepicker__day[aria-label]'),...panels.flatMap(p=>[...p.querySelectorAll(selector)])])].filter(visible).map(e=>({e,date:cellDate(e.getAttribute('title'))||cellDate(e.getAttribute('data-date'))||cellDate(e.getAttribute('aria-label'))})).filter(x=>x.date);
+ for(const panel of panels){
+  // When explicit dates exist they remain authoritative for this panel.
+  if(explicit.some(x=>panel.contains(x.e)))continue;
+  const month=panelMonth(panel);if(!month)continue;
+  const tables=[...panel.querySelectorAll('table')].filter(visible);if(tables.length!==1)continue;
+  const rows=[...tables[0].querySelectorAll('tbody tr')];if(![4,5,6].includes(rows.length)||rows.some(r=>r.children.length!==7))continue;
+  const cells=rows.flatMap(r=>[...r.children]);if(cells.some(e=>e.tagName!=='TD'||!/^\d{1,2}$/.test(text(e))))continue;
+  const dates=mapCalendarDays(month.year,month.month,cells.map(e=>Number(text(e))));if(dates)cells.forEach((e,i)=>explicit.push({e:e.querySelector('.ant-calendar-date,.ant-picker-cell-inner,.rc-picker-cell-inner')||e,date:dates[i]}));
+ }
+ return explicit;
+}
 async function waitForDates(timeout=1600){
  for(let n=0;n<timeout/100;n++){if(dateCells().length)return true;await wait(100);}return !!dateCells().length;
 }
 async function openCalendar(el){
- // HTMLElement.click() does not focus an input. Some range pickers open only
- // on focus/mousedown, and their popup can render after the first animation.
+ // Always activate the requested endpoint, even when the start popup stayed open.
+ // HTMLElement.click() alone does not focus or send mousedown to range pickers.
  el.scrollIntoView({block:'nearest'});el.focus();
- if(await waitForDates(400))return true;
  const mouse=(type)=>el.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,view:window,button:0}));
  mouse('mousedown');mouse('mouseup');el.click();
  if(await waitForDates())return true;
@@ -37,14 +77,14 @@ function monthButton(previous){
  const matches=controls().filter(e=>{if(!enabled(e))return false;const label=[e.getAttribute('title'),e.getAttribute('aria-label'),text(e)].filter(Boolean).join(' ');return previous?/이전\s*(달|월)|지난달|prev(?:ious)?\s*month/i.test(label):/다음\s*(달|월)|next\s*month/i.test(label);});
  return previous?matches[0]:matches.at(-1);
 }
-async function calendarInput(el,date){
+async function calendarInput(el,date,deferValue=false){
  if(!el||el.disabled)return false;if(normalDate(el.value)===date)return true;
  if(!el.readOnly){el.focus();input(el,date);await wait(150);if(normalDate(el.value)===date)return true;}
  if(!await openCalendar(el))return false;
  for(let n=0;n<26;n++){
   const cells=dateCells(),matches=cells.filter(x=>x.date===date&&enabled(x.e));
-  const match=matches.find(x=>/in-view|in-month/.test(String(x.e.className)))||matches[0];
-  if(match){match.e.click();await wait(200);return true;}
+  const match=matches.find(x=>{const cell=x.e.closest('td,[role="gridcell"]')||x.e,classes=String(cell.className);return /in-view|in-month/.test(classes)||/ant-calendar-cell/.test(classes)&&!/last-month|next-month/.test(classes);})||matches[0];
+  if(match){match.e.click();for(let attempt=0;attempt<16;attempt++){await wait(100);if(normalDate(el.value)===date)return true;}return deferValue;}
   const dates=cells.map(x=>x.date).sort();if(!dates.length)return false;
   const previous=date<dates[0],next=date>dates.at(-1);if(!previous&&!next)return false;
   const button=monthButton(previous);if(!button)return false;
@@ -130,7 +170,9 @@ async function step(m){
  }
  if(!radio('기간 설정'))return {notSubmitted:true,needsInput:true,message:'기간 설정 항목을 찾지 못했습니다.'};await wait(250);
  const [start,finish]=dateFields();
- if(!start||!finish||!await calendarInput(start,job.since)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'쿠팡 보고서의 범위 달력을 선택하지 못했습니다. 입력칸 '+[start,finish].filter(Boolean).length+'/2 · 달력 날짜 '+dateCells().length+'개. 쿠팡 보고서 달력이 펼쳐진 화면을 확인해 주세요.'};
+ if(!start||!finish||!await calendarInput(start,job.since,true)||!await calendarInput(finish,job.until))return {notSubmitted:true,needsInput:true,message:'범위 달력 선택 중단 · 보고서 연결 '+REPORT_ADAPTER_VERSION+' · 입력칸 '+[start,finish].filter(Boolean).length+'/2 · 열린 달력 '+datePanels().length+'개 · 인식 날짜 '+dateCells().length+'개. 달력이 펼쳐진 화면을 확인해 주세요.'};
+ // Some range controls commit both values only after the second date is chosen.
+ for(let attempt=0;attempt<16&&(normalDate(start.value)!==job.since||normalDate(finish.value)!==job.until);attempt++)await wait(100);
  if(normalDate(start.value)!==job.since||normalDate(finish.value)!==job.until)return {notSubmitted:true,needsInput:true,message:'화면에 반영된 시작일·종료일이 요청 기간과 다릅니다. 조회하지 않았습니다.'};
  if(!radio('일별'))return {notSubmitted:true,needsInput:true,message:'기간 구분 일별을 찾지 못했습니다.'};await wait(250);
  const all=await selectAllCampaigns();
@@ -149,4 +191,4 @@ async function step(m){
  if(restriction)return {blocked:true,message:'쿠팡 안내: '+restriction.slice(0,200)+' · 수집을 중단했습니다.'};
  return {requested:true,baselineCount:baselineRows.length,baselineReports,message:'보고서 만들기를 누른 뒤 생성 상태를 확인하고 있습니다.'};
 }
-chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id||m.kind!=='step')return;step(m).then(reply,e=>reply({needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id)return;if(m.kind==='probe'){reply({adapterVersion:REPORT_ADAPTER_VERSION});return;}if(m.kind!=='step')return;step(m).then(result=>reply({...result,adapterVersion:REPORT_ADAPTER_VERSION}),e=>reply({adapterVersion:REPORT_ADAPTER_VERSION,needsInput:true,message:'화면 확인 실패: '+String(e.message).slice(0,200)}));return true;});

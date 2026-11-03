@@ -1,6 +1,7 @@
 'use strict';
 const REPORTS={pa:'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa',nca:'https://advertising.coupang.com/marketing-reporting/billboard/reports/nca'};
 const LOCAL='http://127.0.0.1:3000/coupang-collector.html';let working=false,receiving=false;
+const extensionVersion=()=>chrome.runtime.getManifest?.().version||'버전 확인 불가';
 const date=n=>new Date(n).toISOString().slice(0,10),kst=()=>date(Date.now()+9*3600000),shift=(d,n)=>date(Date.parse(d)+n*86400000);
 function valid(d){return /^\d{4}-\d\d-\d\d$/.test(d||'')&&Number.isFinite(Date.parse(d))&&date(Date.parse(d))===d;}
 function plan(since,until){if(!valid(since)||!valid(until)||since>until||until>=kst()||since<shift(kst(),-365))throw Error('어제까지 최근 1년의 기간을 선택하세요.');const jobs=[];for(let d=since;d<=until;){const end=shift(d,6)<until?shift(d,6):until;for(const type of ['pa','nca'])jobs.push({type,since:d,until:end});d=shift(end,1);}return jobs;}
@@ -22,6 +23,12 @@ async function tick(){if(working)return;working=true;try{
  const path=new URL(tab.url).pathname;if(path!==new URL(REPORTS[job.type]).pathname){await chrome.tabs.update(tab.id,{url:REPORTS[job.type]});s.message='보고서 화면을 여는 중';await write(s);return;}
  if(job.startedAt&&Date.now()-job.startedAt>15*60000){s.running=false;s.automatic=false;s.message='보고서 생성·저장 확인 시간 초과. 생성 상태와 수집 로그를 확인하세요.';await write(s);return;}
  if(job.downloadRequestedAt){s.message='보고서 다운로드·로컬 저장 확인 대기';await write(s);return;}
+ let adapter;try{adapter=await chrome.tabs.sendMessage(tab.id,{kind:'probe'});}catch{}
+ s.reportVersion=adapter?.adapterVersion||null;
+ if(s.reportVersion!==extensionVersion()){
+  if(!job.submitted&&!job.adapterReloaded){job.adapterReloaded=true;s.message='쿠팡 보고서 탭의 이전 연결 코드를 새로고침합니다. Chrome 연결 '+extensionVersion();await write(s);await chrome.tabs.reload(tab.id);return;}
+  s.running=false;s.automatic=false;s.message='Chrome 연결 '+extensionVersion()+' · 보고서 연결 '+(s.reportVersion||'확인 불가')+'. 확장프로그램과 쿠팡 보고서 탭을 새로고침한 뒤 다시 시작하세요.';await write(s);return;
+ }
  job.startedAt ||= Date.now();
  // Store the intent before submitting so a worker restart cannot submit twice.
  const submitting=!job.submitted;job.submitted=true;await write(s);
@@ -52,7 +59,7 @@ chrome.downloads.onChanged.addListener(d=>{if(d.state?.current==='complete')coll
 chrome.alarms.onAlarm.addListener(async a=>{if(a.name==='roas-coupang-tick')tick();if(a.name==='roas-coupang-daily'){const s=await read();if(s?.automatic&&!s.running&&!s.permissionHost){s.queue=plan(shift(kst(),-7),shift(kst(),-1));s.completed=0;s.runId=crypto.randomUUID();s.running=true;await write(s,true);tick();}}});
 chrome.runtime.onInstalled.addListener(()=>{chrome.alarms.create('roas-coupang-tick',{periodInMinutes:1});chrome.alarms.create('roas-coupang-daily',{periodInMinutes:1440});});
 chrome.runtime.onStartup?.addListener(()=>{chrome.alarms.create('roas-coupang-tick',{periodInMinutes:1});chrome.alarms.create('roas-coupang-daily',{periodInMinutes:1440});tick();});
-async function controlStatus(){const s=await read();return s?{running:s.running===true,automatic:s.automatic===true,completed:s.completed||0,total:s.queue?.length||0,message:s.message||'대기',permissionHost:s.permissionHost||null}:{running:false,completed:0,total:0,message:'수집 대기'};}
+async function controlStatus(){const s=await read(),versions={extensionVersion:extensionVersion(),reportVersion:s?.reportVersion||null};return s?{...versions,running:s.running===true,automatic:s.automatic===true,completed:s.completed||0,total:s.queue?.length||0,message:s.message||'대기',permissionHost:s.permissionHost||null}:{...versions,running:false,completed:0,total:0,message:'수집 대기'};}
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
  const local=sender.tab&&/^http:\/\/(127\.0\.0\.1|localhost):3000\/coupang-collector\.html(?:[?#]|$)/.test(sender.url||'');
  if(sender.id!==chrome.runtime.id||sender.tab&&!local||local&&!['start','stop','status'].includes(m.kind))return;
