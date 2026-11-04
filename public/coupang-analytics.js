@@ -306,7 +306,7 @@
       const card = element('div',undefined,'ca-card'); card.append(element('small',label),element('strong',won(totals[key]))); cards.append(card);
     }
     panel.append(cards);
-    const label = coverage.profitScope === 'file-sales-minus-account-nca' ? '가져온 전체 파일 매출의 이익 − 계정 전체 신규구매 광고비. 파일이 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'api-scope-minus-account-nca' ? 'API 조회 범위의 추정 이익 − 계정 전체 신규구매 광고비. 조회 범위가 계정 전체 매출인지는 확인되지 않았습니다.' : '기존에 확인한 신규구매 광고비·비용 장부를 우선 적용하며 같은 광고비를 다시 차감하지 않습니다.';
+    const label = coverage.profitScope === 'reference-sales-minus-account-nca' ? '확인한 일별 순이익 − 계정 전체 신규구매 광고비. 기준표가 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'mixed-sales-minus-account-nca' ? '날짜별 확인 자료 또는 API 조회 범위의 이익 − 계정 전체 신규구매 광고비. 날짜별 자료 기준은 계산 근거에서 확인하세요.' : coverage.profitScope === 'file-sales-minus-account-nca' ? '가져온 전체 파일 매출의 이익 − 계정 전체 신규구매 광고비. 파일이 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'api-scope-minus-account-nca' ? 'API 조회 범위의 추정 이익 − 계정 전체 신규구매 광고비. 조회 범위가 계정 전체 매출인지는 확인되지 않았습니다.' : '기존에 확인한 신규구매 광고비·비용 장부를 우선 적용하며 같은 광고비를 다시 차감하지 않습니다.';
     const note = element('p',label + ' 신규구매 보고서 ' + (coverage.collectedDays || 0) + '/' + (coverage.totalDays || report.daily.length) + '일 · 자동 반영 ' + (coverage.appliedDays || 0) + '일. 상품 그룹과 검색 필터는 이 전체 합계를 변경하지 않습니다.','helper');
     if (!isNumber(totals.netProfit)) note.append(document.createTextNode(' 비용 또는 집계 범위가 확인되지 않은 날짜가 있어 전체 기간 이익은 —로 표시합니다.'));
     if (coverage.differenceDays) note.append(document.createTextNode(' 기존 입력과 수집 보고서의 신규구매 광고비가 다른 날짜가 '+coverage.differenceDays+'일 있습니다. 기존 확인 금액을 우선 적용했습니다.'));

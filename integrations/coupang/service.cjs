@@ -1098,6 +1098,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
     summary.adReturnOnSpend = Number.isFinite(summary.adNetProfit) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adNetProfit / summary.advertising * 100 : null;
     const acquisitionDays = daily.map(day => day.acquisitionCoverage);
+    const acquisitionProfitScopes = [...new Set(acquisitionDays.filter(day => day.applied).map(day => day.profitScope))];
     summary.acquisitionCoverage = { accountScopeVerified: false, totalDays: days.length,
       collectedDays: acquisitionDays.filter(day => day.collected).length,
       appliedDays: acquisitionDays.filter(day => day.applied).length,
@@ -1105,7 +1106,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       ledgerDays: acquisitionDays.filter(day => day.source === 'confirmed-ledger').length,
       differenceDays: acquisitionDays.filter(day => Number.isFinite(day.difference) && day.difference !== 0).length,
       availableAccountSpend: acquisitionDays.some(day => Number.isFinite(day.accountSpend)) ? acquisitionDays.reduce((total, day) => total + (Number.isFinite(day.accountSpend) ? day.accountSpend : 0), 0) : null,
-      profitScope: acquisitionDays.some(day => day.applied) ? 'file-sales-minus-account-nca' : 'selected-scope',
+      profitScope: acquisitionProfitScopes.length === 1 ? acquisitionProfitScopes[0] : acquisitionProfitScopes.length > 1 ? 'mixed-sales-minus-account-nca' : 'selected-scope',
       reasons: [...new Set(acquisitionDays.map(day => day.reason).filter(Boolean))] };
     if (view) for (const item of itemTotals.values()) {
       item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
