@@ -86,6 +86,20 @@ function xlsx(){
  await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
  assert.match(await page.locator('#combined-kpis').textContent(),/2,793,000원/);
  assert.match(await page.locator('#combined-kpis').textContent(),/399%/);
+ // Partial ad periods average spend only; direct conversion keeps its daily source values.
+ await page.locator('#report-from').evaluate(el=>{el.value='2026-10-02';el.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.locator('#report-load').click();await page.waitForFunction(()=>document.querySelector('#report-load').disabled===false);
+ assert.match(await page.locator('[data-metric="spend"]').textContent(),/GFA 광고비 \(추정\).*600,000원/);
+ assert.match(await page.locator('[data-metric="lastRevenue"]').textContent(),/2,394,000원/);
+ assert.match(await page.locator('[data-metric="lastRoas"]').textContent(),/직접 GFA ROAS \(추정\).*399%/);
+ assert.match(await page.locator('[data-metric="purchases"]').textContent(),/미확인/);
+ assert.match(await page.locator('#report-status').textContent(),/일평균 배분 추정/);
+ assert.match(await page.locator('#lastRoas').textContent(),/399% \(추정\)/,'manual comparison outputs must use selected-period spend');
+ assert.match(await page.locator('#report-campaigns').textContent(),/600,000원\s*추정/);
+ await page.reload();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled&&document.querySelector('#combined-kpis [data-metric="spend"]'));
+ await page.locator('#report-from').evaluate(el=>{el.value='2026-10-01';});await page.locator('#report-to').evaluate(el=>{el.value='2026-10-07';});await page.locator('#report-load').click();await page.waitForFunction(()=>!document.querySelector('#report-load').disabled);
+ assert.match(await page.locator('[data-metric="spend"]').textContent(),/700,000원/,'saved period totals survive estimation and reload');
+ assert.doesNotMatch(await page.locator('[data-metric="spend"]').textContent(),/추정/);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no outer overflow on mobile');
  await page.goto(base+'/visual-overview.html');
  await page.evaluate(()=>{document.querySelector('#since').value='2026-10-01';document.querySelector('#until').value='2026-10-07';});await page.locator('#reload').click();await page.waitForFunction(()=>!document.querySelector('#reload').disabled);
@@ -96,5 +110,9 @@ function xlsx(){
  assert.match(await page.locator('[data-summary-key="gfaDirectRevenue"] strong').textContent(),/2,793,000원/);
  assert.match(await page.locator('[data-summary-key="gfaIndirectRoas"] strong').textContent(),/399/);
  await page.reload();await page.waitForFunction(()=>!document.querySelector('#reload').disabled);assert.equal(await page.locator('[data-summary-key="gfaDirectRevenue"]').count(),1,'GFA metric choice persists');
+ await page.evaluate(()=>{document.querySelector('#since').value='2026-10-02';document.querySelector('#until').value='2026-10-07';});await page.locator('#reload').click();await page.waitForFunction(()=>!document.querySelector('#reload').disabled);
+ await page.locator('#summary-edit').click();await page.locator('#summary-choice-1').selectOption('gfaDirectRoas');await page.locator('#summary-save').click();
+ assert.match(await page.locator('[data-summary-key="gfaDirectRevenue"] strong').textContent(),/2,394,000원/);
+ assert.match(await page.locator('[data-summary-key="gfaDirectRoas"]').textContent(),/추정 ROAS/,'overview also identifies the estimated denominator');
  assert.deepEqual(errors,[]);console.log('PASS: XLSX decompression, preview, GFA selection, source comparison, replace, cross-browser persistence, partial dates and legacy asset fallback.');
 })().catch(e=>{console.error(e.stack);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill();await new Promise(resolve=>child.once('exit',resolve));}fs.rmSync(temp,{recursive:true,force:true});});

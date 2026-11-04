@@ -24,3 +24,10 @@ test('overview never invents daily GFA results from weekly totals; empty, incomp
  assert.equal(metric(zeros,'gfaDirectRoas','2026-10-01','2026-10-07').value,0);
  assert.equal(metric(entries,'gfaDirectRevenue','2026-10-01','2026-10-08').value,null);
 });
+test('overview daily direct ROAS uses averaged spend with an estimate label and actual daily sales',()=>{
+ const daily=JSON.parse(JSON.stringify(entries));daily[1].rows=Array.from({length:7},(_,i)=>({since:'2026-10-0'+(i+1),until:'2026-10-0'+(i+1),gfa:true,visits:10,orders:i===6?1:0,sales:i===6?399000:0}));
+ const result=metric(daily,'gfaDirectRoas','2026-10-07','2026-10-07');assert.ok(Math.abs(result.value-399000/(100000/7)*100)<1e-9);assert.equal(result.estimated,true);assert.match(result.detail,/추정 ROAS.*일평균/);
+ const revenue=metric(daily,'gfaDirectRevenue','2026-10-07','2026-10-07');assert.equal(revenue.value,399000);assert.equal(revenue.estimated,false);
+ assert.equal(metric(daily,'gfaIndirectPurchases','2026-10-07','2026-10-07').value,null);
+ const full=metric(daily,'gfaDirectRoas','2026-10-01','2026-10-07');assert.equal(full.value,399);assert.equal(full.estimated,false);
+});
