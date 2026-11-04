@@ -3,7 +3,8 @@
   const $ = id => document.getElementById(id);
   const channels = { growth: '로켓그로스', seller: '판매자배송' };
   const costFields = [['unitCost', 'cpm-unit-cost'], ['commissionRate', 'cpm-commission'], ['inboundFee', 'cpm-inbound'], ['deliveryFee', 'cpm-delivery']];
-  let workspace = null, busy = false, expanded = new Set(), selected = new Set(), editing = null, renaming = null, deleting = null;
+  const bulkFields = [['unitCost', '개당 원가'], ['commissionRate', '수수료율'], ['inboundFee', '개당 입출고 요금'], ['deliveryFee', '개당 배송비'], ['costSince', '원가 적용 시작일']];
+  let workspace = null, busy = false, expanded = new Set(), selected = new Set(), editing = null, bulkEditing = null, renaming = null, deleting = null;
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
   const known = value => typeof value === 'number' && Number.isFinite(value);
   const money = value => known(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : '미등록';
@@ -66,7 +67,10 @@
       title.title = group.fullName || group.name; title.append(toggle, node('strong', window.CoupangProductNames?.groupLabel(group.options) || group.name)); name.append(title, node('small', (group.id.startsWith('option:') ? '상품 ID 미등록' : '상품 ID ' + group.id) + ' · ' + group.options.length + '개 옵션'));
       window.CoupangThumbnails?.decorate(name, group.id.startsWith('option:') ? { itemId: group.options[0].itemId, name: group.name } : { productId: group.id, name: group.name });
       const channel = node('td', [...new Set(group.options.map(p => channels[p.channel] || '미분류'))].join(' / ')), detail = node('td', '옵션을 펼쳐 비용 확인'); detail.colSpan = 6;
-      tr.append(choose, name, channel, detail, node('td', '')); rows.push(tr);
+      const manage = node('td'), bulk = node('button', '원가 일괄 적용', 'cpm-bulk-product'); bulk.type = 'button'; bulk.dataset.productId = group.id;
+      bulk.setAttribute('aria-label', group.name + ' 전체 옵션 원가 일괄 적용');
+      bulk.addEventListener('click', () => openBulkEditor((workspace?.products || []).filter(p => productId(p) === group.id), { kind: 'product', name: group.name })); manage.append(bulk);
+      tr.append(choose, name, channel, detail, manage); rows.push(tr);
       if (!expanded.has(group.id)) continue;
       for (const p of group.options) {
         const option = node('tr', undefined, 'cpm-option-row'), select = node('td'), optionName = node('td', undefined, 'ca-name'); select.append(checkBox([p.itemId], (p.optionName || p.name) + ' 선택'));
@@ -87,6 +91,8 @@
     const hasGroup = !!$('cpm-assign').value;
     for (const id of ['cpm-add-members', 'cpm-remove-members']) $(id).disabled = busy || !selected.size || !hasGroup;
     $('cpm-clear-selection').disabled = busy || !selected.size;
+    $('cpm-bulk-selected').disabled = busy || !selected.size;
+    document.querySelectorAll('.cpm-bulk-product').forEach(button => { button.disabled = busy || !workspace?.configured; });
     $('cpm-create').disabled = busy || !workspace?.configured || (workspace.groups || []).length >= 100;
   }
   function cloneGroups() { return (workspace?.groups || []).map(g => ({ id: g.id, name: g.name, itemIds: [...g.itemIds] })); }
@@ -109,6 +115,66 @@
     for (const [key, id] of costFields) $(id).value = known(p[key]) ? p[key] : '';
     $('cpm-cost-since').value = p.costSince || ''; $('cpm-edit-error').textContent = ''; $('cpm-editor').showModal(); $('cpm-unit-cost').focus();
   }
+  function bulkValue(key, value) {
+    if (key === 'costSince') return value || '시작일 미지정';
+    return key === 'commissionRate' ? known(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '%' : '미등록' : money(value);
+  }
+  function readBulkChanges() {
+    const changes = {};
+    for (const [key, label] of bulkFields) {
+      if (!$('cpm-bulk-use-' + key).checked) continue;
+      const raw = $('cpm-bulk-' + key).value;
+      if (key === 'costSince') {
+        if (raw && (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || !Number.isFinite(Date.parse(raw)) || new Date(raw).toISOString().slice(0, 10) !== raw || raw > $('cpm-bulk-costSince').max)) throw Error('원가 적용 시작일을 확인하세요. 미래 날짜는 사용할 수 없습니다.');
+        changes[key] = raw || null;
+      } else {
+        if (!raw.trim()) throw Error(label + ' 값을 입력하세요. 빈칸은 일괄 적용하지 않습니다.');
+        const value = Number(raw), limit = key === 'commissionRate' ? 100 : 1e12;
+        if (!known(value) || value < 0 || value > limit) throw Error(label + (key === 'commissionRate' ? '은 0~100%로' : '은 0 이상의 금액으로') + ' 입력하세요.');
+        changes[key] = value;
+      }
+    }
+    if (!Object.keys(changes).length) throw Error('적용할 비용 항목을 하나 이상 선택하세요.');
+    return changes;
+  }
+  function renderBulkPreview() {
+    if (!bulkEditing) return;
+    for (const [key] of bulkFields) { const enabled = $('cpm-bulk-use-' + key).checked; $('cpm-bulk-' + key).disabled = busy || !enabled; $('cpm-bulk-' + key).required = enabled && key !== 'costSince'; }
+    let changes, error = '';
+    try { changes = readBulkChanges(); } catch (reason) { error = reason.message; }
+    $('cpm-bulk-status').textContent = error || '선택한 항목만 아래 대상에 적용합니다.';
+    $('cpm-bulk-save').disabled = busy || !!error;
+    const selectedFields = bulkFields.filter(([key]) => $('cpm-bulk-use-' + key).checked), table = node('table', undefined, 'ca-table'), head = node('thead'), body = node('tbody'), titles = node('tr');
+    for (const title of ['대상 옵션 / 배송 방식', '변경 전 → 변경 후']) titles.append(node('th', title)); head.append(titles);
+    for (const product of bulkEditing.products) {
+      const tr = node('tr'), identity = node('td'), values = node('td');
+      identity.append(node('strong', productName(product) + ' · ' + (product.optionName || product.name)), node('small', '옵션 ID ' + product.itemId + ' · ' + (channels[product.channel] || '미분류')));
+      for (const [key, label] of selectedFields) {
+        const after = changes && Object.hasOwn(changes, key) ? bulkValue(key, changes[key]) : '입력 필요';
+        values.append(node('div', label + ': ' + bulkValue(key, product[key]) + ' → ' + after));
+      }
+      if (!selectedFields.length) values.append(node('span', '적용 항목 없음'));
+      tr.append(identity, values); body.append(tr);
+    }
+    table.append(head, body); $('cpm-bulk-preview').replaceChildren(table);
+    const first = bulkEditing.products[0], rate = $('cpm-bulk-use-commissionRate').checked ? changes?.commissionRate : first.commissionRate;
+    const example = $('cpm-bulk-fee-example'); example.hidden = !known(first.salePrice) || !known(rate);
+    example.textContent = example.hidden ? '' : '첫 옵션의 등록 판매가 기준 수수료 예: ' + money(first.salePrice) + ' × ' + bulkValue('commissionRate', rate) + ' = ' + money(first.salePrice * rate / 100) + '. 원가를 바꿔도 수수료율은 자동 변경되지 않습니다.';
+  }
+  function openBulkEditor(products, context) {
+    if (busy || !workspace?.configured || !products.length) return;
+    bulkEditing = { itemIds: products.map(p => p.itemId), products: products.map(p => ({ ...p })), scopeKey: workspace.scopeKey, revision: workspace.revision };
+    $('cpm-bulk-title').textContent = context.kind === 'product' ? '상품 전체 옵션 비용 수정' : '선택 옵션 비용 수정';
+    $('cpm-bulk-scope').textContent = (context.kind === 'product' ? context.name + ' · 검색·배송 필터와 관계없이 이 상품의 전체 ' : '현재 선택한 ') + products.length.toLocaleString('ko-KR') + '개 옵션에 적용합니다.';
+    const deliveryTypes = new Set(products.map(p => p.channel || 'unknown'));
+    $('cpm-bulk-mixed').hidden = deliveryTypes.size < 2;
+    for (const [key] of bulkFields) {
+      $('cpm-bulk-use-' + key).checked = key === 'unitCost';
+      const value = products[0][key] ?? null, common = products.every(p => (p[key] ?? null) === value);
+      $('cpm-bulk-' + key).value = common && (key === 'costSince' ? !!value : known(value)) ? value : '';
+    }
+    $('cpm-bulk-error').textContent = ''; renderBulkPreview(); $('cpm-bulk-editor').showModal(); $('cpm-bulk-unitCost').focus();
+  }
   async function reload() {
     await work(async () => { const data = await request('workspace'); selected.clear(); accept(data); message(data.configured ? '저장된 상품과 그룹을 읽었습니다. 상품 관리에서는 집계 대상이 바뀌지 않습니다.' : '먼저 자료·연결 관리에서 쿠팡 키를 연결하고 상품을 등록해 주세요.'); });
   }
@@ -122,6 +188,17 @@
   });
   $('cpm-edit-cancel').addEventListener('click', () => { if (!busy) $('cpm-editor').close(); });
   $('cpm-editor').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  $('cpm-bulk-selected').addEventListener('click', () => openBulkEditor((workspace?.products || []).filter(p => selected.has(p.itemId)), { kind: 'selected' }));
+  for (const [key] of bulkFields) { $('cpm-bulk-use-' + key).addEventListener('change', renderBulkPreview); $('cpm-bulk-' + key).addEventListener('input', renderBulkPreview); }
+  $('cpm-bulk-form').addEventListener('submit', event => {
+    event.preventDefault(); if (busy || !bulkEditing) return;
+    let changes; try { changes = readBulkChanges(); } catch (error) { $('cpm-bulk-error').textContent = error.message; return; }
+    const target = bulkEditing, payload = { scopeKey: target.scopeKey, revision: target.revision, itemIds: [...target.itemIds], changes };
+    work(async () => { accept(await request('products-update', payload)); $('cpm-bulk-editor').close(); bulkEditing = null; message(target.itemIds.length.toLocaleString('ko-KR') + '개 옵션의 ' + bulkFields.filter(([key]) => Object.hasOwn(changes, key)).map(([, label]) => label).join('·') + '을 저장했습니다. 매출 분석에서 다시 조회하면 예상 이익에 반영됩니다.'); }, 'cpm-bulk-error');
+  });
+  $('cpm-bulk-cancel').addEventListener('click', () => { if (!busy) { $('cpm-bulk-editor').close(); bulkEditing = null; } });
+  $('cpm-bulk-editor').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  $('cpm-bulk-editor').addEventListener('close', () => { if (!$('cpm-bulk-editor').open) bulkEditing = null; });
   $('cpm-create-group').addEventListener('submit', event => { event.preventDefault(); if (!workspace?.configured) return; const name = $('cpm-group-name').value.trim(); if (!name) return; const id = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); work(async () => { await saveGroups([...cloneGroups(), { id, name, itemIds: [] }]); $('cpm-group-name').value = ''; $('cpm-assign').value = id; updateSelection(); message('그룹을 만들었습니다. 옵션을 선택한 뒤 그룹에 추가하세요.'); }); });
   $('cpm-rename-form').addEventListener('submit', event => { event.preventDefault(); const name = $('cpm-rename-name').value.trim(); if (!name || !renaming) return; work(async () => { await saveGroups(cloneGroups().map(g => g.id === renaming ? { ...g, name } : g)); $('cpm-rename-dialog').close(); renaming = null; message('그룹 이름을 저장했습니다.'); }, 'cpm-rename-error'); });
   $('cpm-rename-cancel').addEventListener('click', () => { if (!busy) $('cpm-rename-dialog').close(); }); $('cpm-rename-dialog').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
@@ -131,7 +208,7 @@
   $('cpm-search').addEventListener('input', renderTable); for (const id of ['cpm-channel', 'cpm-group', 'cpm-missing']) $(id).addEventListener('change', renderTable);
   $('cpm-expand').addEventListener('click', () => { const groups = groupedProducts(), collapse = groups.every(g => expanded.has(g.id)); for (const g of groups) if (collapse) expanded.delete(g.id); else expanded.add(g.id); renderTable(); });
   $('cpm-reload').addEventListener('click', reload);
-  window.addEventListener('coupang-product-metadata', event => { if (workspace && !busy && !selected.size && !$('cpm-editor').open && !$('cpm-rename-dialog').open && !$('cpm-group-name').value.trim() && event.detail?.vendorKey === workspace.vendorKey && event.detail?.scopeKey === workspace.scopeKey) reload(); });
+  window.addEventListener('coupang-product-metadata', event => { if (workspace && !busy && !selected.size && !$('cpm-editor').open && !$('cpm-bulk-editor').open && !$('cpm-rename-dialog').open && !$('cpm-group-name').value.trim() && event.detail?.vendorKey === workspace.vendorKey && event.detail?.scopeKey === workspace.scopeKey) reload(); });
   const initialQuery = new URLSearchParams(location.search);
   if (['all', 'growth', 'seller'].includes(initialQuery.get('channel'))) $('cpm-channel').value = initialQuery.get('channel');
   function syncAnalysisLinks() {
@@ -146,5 +223,6 @@
 
   const dateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   $('cpm-cost-since').max = ['year', 'month', 'day'].map(key => dateParts.find(p => p.type === key).value).join('-');
+  $('cpm-bulk-costSince').max = $('cpm-cost-since').max;
   reload();
 })();
