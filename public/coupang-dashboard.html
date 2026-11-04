@@ -68,13 +68,13 @@
       <section class="panel ca-daily-panel" aria-labelledby="ca-daily-title">
         <div class="ca-panel-head"><h2 id="ca-daily-title">일일 매출 보고서</h2><div class="ca-toolbar"><button id="ca-daily-details" type="button" aria-pressed="false">세부 항목</button><button id="ca-reference-import" type="button">기준자료 반영</button><button id="ca-daily-export" type="button">CSV 다운로드</button></div></div>
         <div class="ca-scroll" tabindex="0" aria-label="일일 매출 보고서 가로 스크롤"><table class="ca-table ca-daily-table"><thead id="ca-daily-head"></thead><tbody id="ca-daily-body"><tr><td class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>
-        <p id="ca-daily-note" class="helper">전체 광고비 반영 순이익 = 이익금 − 매출성장 광고비 − 신규구매 광고비. 기타비용은 이익금에 이미 반영되어 있습니다.</p>
+        <p id="ca-daily-note" class="helper">신규구매 광고비 차감 순이익 = 이익금 − 매출성장 광고비 − 신규구매 광고비. 기타비용은 이익금에 이미 반영되어 있습니다.</p>
         <details id="ca-calculation" class="ca-calculation">
           <summary>계산 근거</summary>
           <div class="ca-calculation-content">
             <label class="ca-calculation-picker">확인 날짜<select id="ca-calculation-date" aria-label="계산 근거 확인 날짜" disabled></select></label>
             <div id="ca-calculation-body"><p class="helper">저장 자료를 조회하면 날짜별 계산 근거를 확인할 수 있습니다.</p></div>
-            <p class="helper ca-calculation-formula">등록 비용 기준 이익금은 옵션별 매출에서 상품원가·수수료·입출고·배송비를 차감해 계산합니다. 옵션별 이익금을 1원 단위로 반올림한 뒤 하루 합산합니다. 매출성장 차감 순이익 = 이익금 − 매출성장 광고비. 전체 광고비 반영 순이익은 여기서 신규구매 광고비를 한 번 더 차감합니다. 기타비용은 이익금에서 다시 차감하지 않습니다.</p>
+            <p class="helper ca-calculation-formula">등록 비용 기준 이익금은 옵션별 매출에서 상품원가·수수료·입출고·배송비를 차감해 계산합니다. 옵션별 이익금을 1원 단위로 반올림한 뒤 하루 합산합니다. 순이익 = 이익금 − 매출성장 광고비. 신규구매 광고비 차감 순이익은 여기서 신규구매 광고비를 한 번 더 차감합니다. 기타비용은 이익금에서 다시 차감하지 않습니다.</p>
             <p id="ca-calculation-rounding" class="helper">원가·수수료·물류비 구성값은 중간에 반올림하지 않습니다. 기타비용은 날짜별 구성값 합계를 1원 단위로 반올림하며, 기간 합계는 각 날짜의 표시값을 더합니다. 원본 이익금은 별도로 보존합니다.</p>
           </div>
         </details>
@@ -86,8 +86,8 @@
     </section>
 
     <details id="ca-import" class="panel ca-import-panel">
-      <summary>기존 손익 파일 비교·보정 · 선택사항</summary>
-      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 광고 판매량·이익금·광고비·순이익을 일별로 확인한 뒤 저장합니다. 원가 설정이 포함된 파일은 한 번 저장하면 이후 자동 수집한 주문 계산에도 적용합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
+      <summary>기준표 매출·순이익 반영 / 손익 파일 가져오기</summary>
+      <p class="helper">셀하의 하루 단위 <strong>손익 결과.xlsx</strong> 여러 개 또는 준비한 <strong>손익 설정.json</strong> 하나를 선택하세요. 일별 확인 합계가 담긴 JSON은 기준표의 매출·이익금·매출성장 광고비·기타비용을 그대로 반영합니다. 같은 판매자·상품·배송 범위인지 확인한 뒤 저장하세요. 순이익은 이익금 − 매출성장 광고비이며 신규구매 광고비는 여기서 한 번 더 차감합니다. 원가 설정이 포함된 파일은 이후 자동 수집한 주문 계산에도 적용합니다. 여러 날짜의 합계만 담긴 엑셀은 하루씩 내려받아 주세요.</p>
       <fieldset>
         <div class="ca-toolbar ca-import-toolbar"><label class="ca-file-label">손익 결과 파일<input id="ca-file" type="file" accept=".xlsx,.json" multiple aria-label="셀하 손익 엑셀 또는 쿠팡 손익 설정 파일"></label><button id="ca-preview" type="button">파일 확인</button></div>
         <label class="ca-checkbox-label"><input id="ca-include-products" type="checkbox" checked>파일의 모든 옵션을 쿠팡 집계에 포함</label>
@@ -102,6 +102,6 @@
       </fieldset>
     </details>
     <p class="helper"><a href="/coupang-collector.html">광고 자동 수집 연결·저장 현황 ↗</a></p>
-    <div class="ca-method-note"><strong>금액 읽는 방법</strong><p>셀하 이익금에는 원가·수수료 등 광고 외 비용이 이미 반영되어 있습니다. 매출성장 차감 순이익은 이익금에서 매출성장 광고비를 뺀 값입니다. 전체 광고비 반영 순이익은 여기서 신규구매 고객 확보 광고비를 한 번 더 차감합니다. 자동 수집한 신규구매 보고서를 저장하면 날짜별 계산에 바로 반영합니다. 계정 전체 보고서 비용은 전체 배송 조회에서 현재 선택 상품의 이익에 전액 반영하며 상품·배송 방식별로 배분하지 않습니다. 보고서 금액에 임의 부가세 보정을 하지 않습니다.</p><p>주문은 날짜별로 저장하고 등록한 원가·수수료율·입출고·배송비를 적용해 광고비 차감 전 예상 이익을 계산합니다. 원가나 요금이 빠지면 계산 대기 사유를 표시합니다. API 주문금액은 반품·정산 미확정 자료입니다. 매출·판매량은 수집분을 먼저 표시하며 일부 미수집 여부를 함께 알립니다. 수집하지 않은 값은 <strong>—</strong>로 표시합니다. 재고는 현재 연결 자료에서 제공하지 않습니다.</p></div>
+    <div class="ca-method-note"><strong>금액 읽는 방법</strong><p>셀하 이익금에는 원가·수수료 등 광고 외 비용이 이미 반영되어 있습니다. 순이익은 이익금에서 매출성장 광고비를 뺀 값입니다. 신규구매 광고비 차감 순이익은 여기서 신규구매 고객 확보 광고비를 한 번 더 차감합니다. 자동 수집한 신규구매 보고서를 저장하면 날짜별 계산에 바로 반영합니다. 계정 전체 보고서 비용은 전체 배송 조회에서 현재 선택 상품의 이익에 전액 반영하며 상품·배송 방식별로 배분하지 않습니다. 보고서 금액에 임의 부가세 보정을 하지 않습니다.</p><p>주문은 날짜별로 저장하고 등록한 원가·수수료율·입출고·배송비를 적용해 광고비 차감 전 예상 이익을 계산합니다. 원가나 요금이 빠지면 계산 대기 사유를 표시합니다. API 주문금액은 반품·정산 미확정 자료입니다. 매출·판매량은 수집분을 먼저 표시하며 일부 미수집 여부를 함께 알립니다. 수집하지 않은 값은 <strong>—</strong>로 표시합니다. 재고는 현재 연결 자료에서 제공하지 않습니다.</p></div>
   </main>
 </body></html>

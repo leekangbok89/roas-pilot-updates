@@ -38,7 +38,7 @@ async function main() {
     if (req.method() === 'POST') posts.push({ endpoint, body: req.postDataJSON() });
     let json = {};
     if (endpoint === 'status') json = { configured: true, automatic: { enabled: false }, products: [] };
-    if (endpoint === 'analytics') json = { since: url.searchParams.get('since'), until: url.searchParams.get('until'), summary, dailyReportSummary, daily, items: [], productDaily: [], coverage: { totalDays: 3 }, importedDates: [] };
+    if (endpoint === 'analytics') json = { since: url.searchParams.get('since'), until: url.searchParams.get('until'), channel: url.searchParams.get('channel') || 'all', summary, dailyReportSummary, daily, items: [], productDaily: [], coverage: { totalDays: 3 }, importedDates: [] };
     if (endpoint === 'sales-import-batch') json = { reports: [{ date: '2026-10-25' }], dailyTotals: 2 };
     await route.fulfill({ json });
   });
@@ -59,7 +59,7 @@ async function main() {
     fs.mkdirSync(process.env.ROAS_GROWTH_SCREENSHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(process.env.ROAS_GROWTH_SCREENSHOT_DIR, 'growth-dashboard.png'), fullPage: false });
   }
-  assert.deepEqual(await page.locator('#ca-daily-head th').allTextContents(), ['일자 ↓', '매출', '이익금', '매출성장 광고비', '기타비용', '매출성장 차감 순이익', '신규구매 광고비', '전체 광고비 반영 순이익']);
+  assert.deepEqual(await page.locator('#ca-daily-head th').allTextContents(), ['일자 ↓', '매출', '이익금', '매출성장 광고비', '기타비용', '순이익', '신규구매 광고비', '신규구매 광고비 차감 순이익']);
   assert.deepEqual(await page.locator('#ca-daily-body tr').first().locator('td').allTextContents(), ['합계', '250,000원수집분', '136,000원예상수집분', '30,000원수집분', '48,000원수집분', '106,000원예상수집분', '3,000원수집분', '103,000원예상수집분']);
   const unknown = await page.locator('#ca-daily-body tr').nth(1).locator('td').allTextContents();
   assert.deepEqual(unknown, ['2026-10-27', '—', '—', '자료 없음', '—', '—', '자료 없음', '—']);
@@ -85,7 +85,7 @@ async function main() {
   await page.locator('.growth-supplemental > summary').click();
   assert.match(await page.locator('.ca-card-netProfit').innerText(), /103,000원/);
   await page.locator('.growth-supplemental > summary').click();
-  assert.match(await page.locator('#ca-legend').innerText(), /전체 광고비 반영 순이익/);
+  assert.match(await page.locator('#ca-legend').innerText(), /신규구매 광고비 차감 순이익/);
   await page.locator('#ca-calculation-date').selectOption('2026-10-25');
   assert.match(await page.locator('#ca-calculation-body').innerText(), /역산하거나 배분하지 않습니다/);
   await page.locator('#ca-calculation-date').selectOption('2026-10-27');
@@ -94,19 +94,52 @@ async function main() {
   const download = await downloadPromise, stream = await download.createReadStream();
   let csv = ''; for await (const chunk of stream) csv += chunk;
   assert.match(csv, /합계/);
-  assert.match(csv, /106000/); assert.match(csv, /103000/); assert.match(csv, /신규구매 광고비/); assert.match(csv, /전체 광고비 반영 순이익/); assert.match(csv, /2026-10-27/);
+  assert.match(csv, /106000/); assert.match(csv, /103000/); assert.match(csv, /신규구매 광고비/); assert.match(csv, /신규구매 광고비 차감 순이익/); assert.match(csv, /2026-10-27/);
   const settings = { schema: 'roas-coupang-sales-v1', reports: [], dailyTotals: daily.slice(0, 2).map(({ date, sales, profitBeforeAds, advertising, otherCosts }) => ({ date, sales, profitBeforeAds, advertising, otherCosts })), catalog: { products: [{ itemId: '123', name: '예시 상품', unitCost: 3000, commissionRate: 10, inboundFee: 100, deliveryFee: 200 }] } };
   await page.locator('#ca-reference-import').click();
   assert.equal(await page.locator('#ca-import').evaluate(node => node.open), true);
+  // Reference sales must be compared with the displayed canonical daily value,
+  // with unknown days and narrower shipping scopes kept explicitly unknown.
+  daily[0].sales = 90000;
+  daily[1].sales = null; daily[1].available = { sales: 150000 };
+  async function reloadForComparison(channel) {
+    const loaded = page.waitForResponse(response => new URL(response.url()).pathname === '/api/coupang/analytics');
+    await page.locator('#ca-channel').selectOption(channel); await loaded;
+    await page.locator('#ca-query [type="submit"]:not(:disabled)').waitFor();
+  }
+  const comparisonSettings = { schema: 'roas-coupang-sales-v1', reports: [], dailyTotals: [
+    { date: '2026-10-24', sales: 50000, profitBeforeAds: 25000, advertising: 5000, otherCosts: 10000 },
+    { ...settings.dailyTotals[0], sales: 110000 },
+    { ...settings.dailyTotals[1], sales: 140000 },
+    { date: '2026-10-27', sales: 0, profitBeforeAds: 0, advertising: 0, otherCosts: 0 }
+  ] };
+  async function previewSettings(value) {
+    await page.locator('#ca-file').setInputFiles({ name: 'synthetic-reference.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)) });
+    await page.locator('#ca-preview').click(); await page.locator('#ca-save:not(:disabled)').waitFor();
+  }
+  await reloadForComparison('all'); await previewSettings(comparisonSettings);
+  const comparison = page.locator('#ca-import-preview table.ca-reference-sales-comparison');
+  assert.deepEqual(await comparison.locator('thead th').allTextContents(), ['일자', '현재 저장 매출', '기준표 매출', '차이 · 기준표 − 현재']);
+  assert.deepEqual(await comparison.locator('tbody tr').nth(0).locator('td').allTextContents(), ['2026-10-24', '현재 조회 범위 밖', '50,000원', '—']);
+  assert.deepEqual(await comparison.locator('tbody tr').nth(1).locator('td').allTextContents(), ['2026-10-25', '100,000원', '110,000원', '+10,000원'], 'Comparison uses dailyReport.sales rather than the raw 90,000 source field');
+  assert.deepEqual(await comparison.locator('tbody tr').nth(2).locator('td').allTextContents(), ['2026-10-26', '150,000원 · 수집분', '140,000원', '-10,000원']);
+  assert.deepEqual(await comparison.locator('tbody tr').nth(3).locator('td').allTextContents(), ['2026-10-27', '—', '0원', '—'], 'An uncollected current date must not be treated as zero');
+  assert.equal(posts.length, 0, 'Previewing a reference never saves it');
+  await reloadForComparison('growth'); await previewSettings(comparisonSettings);
+  for (const row of await comparison.locator('tbody tr').all()) {
+    const cells = await row.locator('td').allTextContents(); assert.equal(cells[1], '전체 배송 조회 필요'); assert.equal(cells[3], '—');
+  }
+  await reloadForComparison('all');
   await page.locator('#ca-file').setInputFiles({ name: 'synthetic-settings.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(settings)) });
   await page.locator('#ca-preview').click(); await page.locator('#ca-save:not(:disabled)').waitFor();
   assert.match(await page.locator('#ca-import-preview').innerText(), /106,000원/);
+  assert.deepEqual(await comparison.locator('tbody tr').nth(0).locator('td').allTextContents(), ['2026-10-25', '100,000원', '100,000원', '0원']);
   await page.locator('#ca-save').click();
   await page.waitForFunction(() => document.getElementById('ca-import-status').textContent.includes('저장 완료'));
   assert.deepEqual(posts.map(p => p.endpoint), ['sales-import-batch'], 'catalogue costs and daily totals are saved atomically in one request');
   assert.equal(posts[0].body.products.length, 1); assert.equal(posts[0].body.products[0].unitCost, 3000);
   assert.equal(posts[0].body.dailyTotals.length, 2); assert.equal(posts[0].body.reports.length, 0);
   assert.deepEqual(errors, []);
-  console.log('PASS canonical daily report, calculation evidence, missing ads, side-by-side layout, contained desktop/mobile scrolling, eight columns, NCA deduction and sources, known subtotals, details, CSV and combined settings import');
+  console.log('PASS canonical daily report, calculation evidence, missing ads, side-by-side layout, contained desktop/mobile scrolling, eight columns, NCA deduction and sources, known subtotals, details, CSV, canonical reference sales comparisons with scope/partial/missing handling and combined settings import');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await browser?.close(); await new Promise(resolve => server.close(resolve)); });

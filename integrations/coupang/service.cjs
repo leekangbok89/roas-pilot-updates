@@ -1146,7 +1146,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     day.acquisitionCoverage = coverage;
     const ledgerIncluded = day.source !== 'reconciled' && day.channels.some(part => part.source === 'ledger');
     const apiScope = !scope.group && day.channels.every(part => part.source === 'api');
-    const eligibleScope = channel === 'all' && !scope.group && (scope.fileScoped && scope.fullFile && !scope.fileSelectionChanged || apiScope);
+    const referenceScope = day.source === 'reconciled' && day.dailyTotalsApplied === true && day.dailyTotals?.verified === true && day.dailyTotals.channel === 'all';
+    const eligibleScope = channel === 'all' && !scope.group && (referenceScope || scope.fileScoped && scope.fullFile && !scope.fileSelectionChanged || apiScope);
     if (channel !== 'all') {
       if (reports.nca) {
         coverage.reason = '저장된 신규구매 광고비는 계정 전체 금액입니다. 배송 방식별로 배분하지 않아 이 조회에는 적용하지 않았습니다.';
@@ -1176,8 +1177,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     } else {
       day.acquisitionAdvertising = accountSpend; day.advertisingSources.nca = reports.nca;
       coverage.applied = true; coverage.source = 'nca-report';
-      coverage.profitScope = apiScope ? 'api-scope-minus-account-nca' : 'file-sales-minus-account-nca';
-      coverage.reason = (apiScope ? '현재 선택 상품의 API 매출 추정 이익' : '가져온 전체 파일 매출의 이익') + '에서 계정 전체 신규구매 광고비를 한 번 차감했습니다. 이 매출이 계정 전체 범위인지는 확인되지 않았습니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.';
+      coverage.profitScope = referenceScope ? 'reference-sales-minus-account-nca' : apiScope ? 'api-scope-minus-account-nca' : 'file-sales-minus-account-nca';
+      coverage.reason = (referenceScope ? '현재 집계 상품의 확인한 일별 순이익' : apiScope ? '현재 선택 상품의 API 매출 추정 이익' : '가져온 전체 파일 매출의 이익') + '에서 계정 전체 신규구매 광고비를 한 번 차감했습니다. 이 매출이 계정 전체 범위인지는 확인되지 않았습니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.';
     }
     day.advertisingReasons.push(coverage.reason);
   }
