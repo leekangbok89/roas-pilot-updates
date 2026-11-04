@@ -31,9 +31,11 @@ const pass=label=>{checks++;console.log('PASS '+label);};
     pass('product tracking, tall-image sections, offscreen exclusion and duplicate-install guard');
     await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.testHidden===true});window.testHidden=true;document.dispatchEvent(new Event('visibilitychange'));});
     const before=(await events()).filter(e=>e[1]==='rp_content_time').reduce((s,e)=>s+e[2].rp_visible_ms,0);
-    await page.clock.runFor(20000);await page.evaluate(()=>{window.testHidden=false;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('pagehide'));});
+    // Flush while still hidden so this assertion measures only hidden time.
+    // Restoring visibility before pagehide can legitimately add a millisecond.
+    await page.clock.runFor(20000);await page.evaluate(()=>window.dispatchEvent(new Event('pagehide')));
     const after=(await events()).filter(e=>e[1]==='rp_content_time').reduce((s,e)=>s+e[2].rp_visible_ms,0);assert.equal(after,before);
-    await page.evaluate(()=>window.dispatchEvent(new Event('pageshow')));await page.clock.runFor(1500);
+    await page.evaluate(()=>{window.testHidden=false;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('pageshow'));});await page.clock.runFor(1500);
     await page.evaluate(()=>{document.querySelector('[data-roas-buy]').click();document.querySelector('[data-roas-buy]').click();document.querySelector('[data-roas-cart]').click();window.dispatchEvent(new Event('pagehide'));window.dispatchEvent(new Event('pagehide'));});
     data=await events();assert.equal(data.filter(e=>e[1]==='rp_buy_click').length,1);assert.equal(data.filter(e=>e[1]==='rp_cart_click').length,1);
     assert.ok(data.filter(e=>e[1]==='rp_content_time').reduce((s,e)=>s+e[2].rp_visible_ms,0)<10000);
