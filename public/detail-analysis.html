@@ -51,6 +51,8 @@
     .image-preview-message:empty{display:none!important}
     #image-check-list:empty{display:none}#image-check-list li{overflow-wrap:anywhere}
     .content-preview a.image-part-preview img[hidden]{display:none}
+    .image-preview-holder{flex:none;width:110px}.image-original-upload{display:block;cursor:pointer;text-decoration:underline;font-size:12px!important;white-space:normal}.image-original-upload input{display:none}.image-original-status{white-space:normal}
+    #catalog-layout-status:empty{display:none}
   </style>
 </head>
 <body data-app-page="detail">
@@ -84,7 +86,7 @@
     </section>
       <section class="panel" id="detail-content-results"><h2>이미지 · 영상 구간별 성과</h2>
         <div class="detail-actions"><button id="image-check-retry" type="button" disabled>전체 이미지 다시 확인</button><span id="image-check-status" role="status" aria-live="polite">콘텐츠 목록 확인 중…</span></div>
-        <ul id="image-check-list"></ul><p>실제 상세페이지의 콘텐츠 배치 순서로 표시합니다. 긴 이미지는 각 행에 해당 구간만 미리보기로 표시합니다. 도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
+        <p class="helper">외부 원본이 흰 선·임시 이미지로 보이면 해당 파일과 같은 정상 이미지를 ‘원본 이미지 등록 / 변경’에서 선택하세요. 등록은 미리보기만 복구하며 통계나 자사몰 파일은 변경하지 않습니다.</p><ul id="image-check-list"></ul><p id="catalog-layout-status" role="status" class="helper"></p><p>실제 상세페이지의 콘텐츠 배치 순서로 표시합니다. 긴 이미지는 각 행에 해당 구간만 미리보기로 표시합니다. 도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
         <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>3초 이상</th><th>5초 이상</th><th>클릭·터치</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
         <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 3초·5초는 조회별 누적 화면 노출 횟수이며, 클릭·터치는 반복 횟수입니다. 새 추적 코드를 자사몰에 적용한 뒤부터 수집되며 —는 기록이 없거나 확인할 수 없는 값입니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
       </section>

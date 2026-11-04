@@ -62,6 +62,22 @@ function parseDetailMedia(html) {
   return items;
 }
 
+function reconcileDetailCatalog(previous, current) {
+  const oldItems = previous?.items || [], items = current.items || [];
+  const key = item => JSON.stringify([item.type, item.url]);
+  const saved = new Map(oldItems.map(item => [item.id, item]));
+  const changedIds = oldItems.filter(item => items.some(next => next.id === item.id && key(next) !== key(item))).map(item => item.id);
+  const same = JSON.stringify(oldItems.map(item => [item.id,key(item)])) === JSON.stringify(items.map(item => [item.id,key(item)]));
+  let cursor = 0;
+  for (const item of items) if (cursor < oldItems.length && key(item) === key(oldItems[cursor])) cursor++;
+  const insertionsOnly = oldItems.length > 0 && items.length > oldItems.length && cursor === oldItems.length;
+  const supplementalItems = insertionsOnly ? items.filter(item => !saved.has(item.id) && item.url && oldItems.some(old => key(old) === key(item))).map(item => {
+    const old = oldItems.find(old => key(old) === key(item));
+    return {...item, name:old.name || '', sourceId:old.id, ...(old.imagePreview ? {imagePreview:old.imagePreview} : {})};
+  }) : [];
+  return {state:same ? 'matching' : insertionsOnly ? 'insertions' : 'changed', savedCount:oldItems.length, currentCount:items.length, changedIds, supplementalItems};
+}
+
 function validateDetailSettings(input = {}) {
   const value = { productId: String(input.productId || ''), contentVersion: String(input.contentVersion || '').trim(),
     measurementId: String(input.measurementId || '').trim(), clarityProjectId: String(input.clarityProjectId || '').trim(), rootSelector: '#prdDetail', requireConsent: input.requireConsent === true };
@@ -668,7 +684,7 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     if (input === undefined) return previous || { productId:context.productId, contentVersion:context.contentVersion, items:[], importedAt:null };
     if (input.productId !== context.productId || input.contentVersion !== context.contentVersion) throw failure(409,'상품 또는 상세 버전이 변경됐습니다. 새로고침 후 다시 시도하세요.','DETAIL_CATALOG_CHANGED');
     let value;
-    if (input.action === 'import') {
+    if (input.action === 'import' || input.action === 'inspect') {
       const response = await request('https://wemamang.com/product/detail.html?product_no=' + context.productId, { headers:{'User-Agent':'ROAS-Pilot-Content-Catalog/1.0'} }, '상세 콘텐츠 목록');
       if (!response.ok) throw failure(502,'상세페이지를 불러오지 못했습니다.','DETAIL_CATALOG_FETCH');
       let html = '', bytes = 0;
@@ -678,6 +694,8 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
         html = Buffer.concat(chunks).toString('utf8');
       } else { html = await response.text(); if (Buffer.byteLength(html) > 3*1024*1024) throw failure(413,'상세페이지 크기가 너무 큽니다.','DETAIL_CATALOG_SIZE'); }
       const items = parseDetailMedia(html);
+      if (catalogContext().key !== context.key) throw failure(409,'조회 중 상품·버전이 변경됐습니다.','DETAIL_CATALOG_CHANGED');
+      if (input.action === 'inspect') { const current = {productId:context.productId,contentVersion:context.contentVersion,items}; return {...current,...reconcileDetailCatalog(previous,current)}; }
       const signature = list => JSON.stringify(list.map(item=>[item.id,item.url]));
       if (previous && signature(previous.items) !== signature(items)) throw failure(409,'현재 페이지의 순서·파일이 저장된 목록과 다릅니다. 기존 통계를 보존하려면 상세 버전을 변경하고 자사몰 설치코드도 교체한 후 불러오세요.','DETAIL_CATALOG_VERSION');
       value = {productId:context.productId,contentVersion:context.contentVersion,importedAt:timestamp(),items};
@@ -690,6 +708,15 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
       const bytes = Buffer.from(data.split(',')[1],'base64');
       if (bytes.length < 4 || bytes.length > 63000 || bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) throw failure(400,'썸네일 JPEG 파일을 확인하세요.','DETAIL_THUMBNAIL');
       item.thumbnail = data;
+    } else if (input.action === 'image-preview') {
+      if (!previous) throw failure(400,'먼저 콘텐츠 목록을 불러오세요.','DETAIL_IMAGE_PREVIEW');
+      value = structuredClone(previous);
+      const item = value.items.find(item => item.id === input.id && item.type === 'image' && item.url === input.url);
+      const data = input.data, width = input.width, height = input.height;
+      if (!item || !Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 200 || height < 100 || width > 100000 || height > 100000 || typeof data !== 'string' || data.length > 85000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(data)) throw failure(400,'연결된 이미지와 원본 크기, JPEG 미리보기를 확인하세요.','DETAIL_IMAGE_PREVIEW');
+      const bytes = Buffer.from(data.split(',')[1],'base64');
+      if (bytes.length < 4 || bytes.length > 63000 || bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) throw failure(400,'미리보기 JPEG 파일을 확인하세요.','DETAIL_IMAGE_PREVIEW');
+      item.imagePreview = {data,width,height,url:item.url};
     } else if (input.action === 'rename') {
       if (!previous || !Array.isArray(input.names) || input.names.length > 500) throw failure(400,'저장할 콘텐츠 이름을 확인하세요.','DETAIL_CATALOG_NAMES');
       value = structuredClone(previous);
@@ -702,7 +729,7 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     if (catalogContext().key !== context.key) throw failure(409,'조회 중 상품·버전이 변경됐습니다.','DETAIL_CATALOG_CHANGED');
     const latest = catalogStore();
     if (input.action === 'import' && latest.versions[context.key] && JSON.stringify(latest.versions[context.key].items.map(item=>[item.id,item.url])) !== JSON.stringify(value.items.map(item=>[item.id,item.url]))) throw failure(409,'불러오는 동안 콘텐츠 목록이 변경됐습니다. 다시 확인하세요.','DETAIL_CATALOG_CHANGED');
-    if (input.action === 'import') for (const item of value.items) { const old = latest.versions[context.key]?.items.find(old=>old.id===item.id); item.name = old?.name || ''; if (old?.thumbnail) item.thumbnail = old.thumbnail; }
+    if (input.action === 'import') for (const item of value.items) { const old = latest.versions[context.key]?.items.find(old=>old.id===item.id); item.name = old?.name || ''; if (old?.thumbnail) item.thumbnail = old.thumbnail; if (old?.imagePreview && old.url === item.url) item.imagePreview = old.imagePreview; }
     latest.versions[context.key] = value; catalogWrite(latest); return value;
   }
   return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport, detailCatalog };
@@ -710,4 +737,4 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
 
 module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS,
   validateDetailSettings, buildDetailRequest, assembleDetailReport, buildDetailPageRequests, assembleDetailPageReport, DETAIL_PAGE_METRICS,
-  DETAIL_DIMENSIONS, DETAIL_DEFAULTS, parseDetailMedia, detailMediaUrl };
+  DETAIL_DIMENSIONS, DETAIL_DEFAULTS, parseDetailMedia, detailMediaUrl, reconcileDetailCatalog };

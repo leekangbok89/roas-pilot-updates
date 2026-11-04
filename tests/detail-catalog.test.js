@@ -51,3 +51,23 @@ test('video thumbnails persist across restart and imports without losing names; 
  assert.equal((await f.api.detailCatalog({...context,action:'import'})).items[1].thumbnail,thumbnail);
  for(const [id,data] of [['image_001',thumbnail],['video_001','data:image/svg+xml,<svg/>'],['video_001','data:image/jpeg;base64,YmFk']])await assert.rejects(f.api.detailCatalog({...context,action:'thumbnail',id,thumbnail:data}),{code:'DETAIL_THUMBNAIL'});
 });
+
+test('live inspection detects inserted content and resolves only new indices without rewriting historical mappings',async t=>{
+ const f=fixture(t);const saved=await f.api.detailCatalog({...context,action:'import'});
+ const changed=html.replace('<div><img ec-data-src=', '<div><img src="https://wemamang.mycafe24.com/detail/new-guide.jpg"><img ec-data-src=');f.set(changed);
+ const current=await f.api.detailCatalog({...context,action:'inspect'});
+ assert.equal(current.state,'insertions');assert.equal(current.savedCount,4);assert.equal(current.currentCount,5);
+ assert.deepEqual(current.supplementalItems.map(i=>[i.id,i.sourceId,i.filename]),[['image_003','image_002','dp05.jpg']]);
+ assert.deepEqual((await f.api.detailCatalog()).items,saved.items,'Inspect must never write new filenames over stored ordinal IDs');
+ await assert.rejects(f.api.detailCatalog({...context,action:'import'}),{code:'DETAIL_CATALOG_VERSION'});
+ f.set(changed.replace('dp01.jpg','replacement.jpg'));
+ assert.equal((await f.api.detailCatalog({...context,action:'inspect'})).supplementalItems.length,0,'Replacements or reordered history must not be inferred');
+});
+test('registered image previews preserve original section dimensions, persist locally and reject stale targets',async t=>{
+ const f=fixture(t);await f.api.detailCatalog({...context,action:'import'});
+ const input={...context,action:'image-preview',id:'image_001',url:'https://wemamang.mycafe24.com/detail/dp01.jpg',width:860,height:2000,data:'data:image/jpeg;base64,'+Buffer.from([255,216,255,217]).toString('base64')};
+ const saved=await f.api.detailCatalog(input);assert.equal(saved.items[0].imagePreview.height,2000);
+ assert.equal((await createGa4Service({baseDir:f.dir}).detailCatalog()).items[0].imagePreview.data,input.data);
+ assert.equal((await f.api.detailCatalog({...context,action:'import'})).items[0].imagePreview.width,860);
+ for(const bad of [{url:input.url+'?different'},{id:'video_001'},{height:1},{width:1},{data:'data:image/jpeg;base64,YmFk'},{height:Infinity}])await assert.rejects(f.api.detailCatalog({...input,...bad}),{code:'DETAIL_IMAGE_PREVIEW'});
+});

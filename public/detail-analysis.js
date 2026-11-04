@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var $ = function (id) { return document.getElementById(id); }, settings, connected = false, sequence = 0, catalog = null, lastReport = null;
+  var $ = function (id) { return document.getElementById(id); }, settings, connected = false, sequence = 0, catalog = null, liveCatalog = null, lastReport = null;
   function notice(id, message, error) { var e = $(id); e.textContent = message; e.hidden = false; e.dataset.error = String(!!error); }
   async function api(path, input) {
     var response = await fetch('/api/ga4/' + path, input === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-roas-local-action': 'yes' }, body: JSON.stringify(input) });
@@ -149,7 +149,9 @@
   }
   function assetFor(id, context) {
     if (!catalog || !context || catalog.productId !== context.productId || catalog.contentVersion !== context.contentVersion) return null;
-    return catalog.items.find(function (item) { return item.id === id.replace(/_p\d+$/, ''); }) || null;
+    var key = id.replace(/_p\d+$/, ''), saved = catalog.items.find(function (item) { return item.id === key; });
+    if (saved) return saved;
+    return liveCatalog && liveCatalog.productId === context.productId && liveCatalog.contentVersion === context.contentVersion ? (liveCatalog.supplementalItems || []).find(function (item) { return item.id === key; }) || null : null;
   }
   function orderedRows(report) {
     var rows = (report.rows || []).slice(), matching = catalog && catalog.productId === report.productId && catalog.contentVersion === report.contentVersion;
@@ -161,7 +163,9 @@
     });
   }
   function imagePreview(item, id) {
-    var link = document.createElement('a'), img = document.createElement('img'), message = document.createElement('small');
+    var holder = document.createElement('div'), link = document.createElement('a'), img = document.createElement('img'), message = document.createElement('small');
+    holder.className = 'image-preview-holder';
+    link.dataset.imageUrl = item.url;
     link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.title = '원본 이미지 열기';
     link.className = 'image-preview-link'; img.alt = item.name || item.alt || label(id); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
     message.className = 'image-preview-message'; message.textContent = '이미지 로딩 대기';
@@ -171,7 +175,8 @@
       img.hidden = false; fullImage();
       if (img.naturalWidth < 2 || img.naturalHeight < 2) { failed('실제 이미지 대신 임시 이미지가 응답했습니다.'); return; }
       if (!part) { message.textContent = ''; return; }
-      var count = Math.min(50, Math.max(1, Math.ceil(img.naturalHeight / 1000))), index = Number(part[1]) - 1;
+      var sourceHeight = item.imagePreview && item.imagePreview.url === item.url ? item.imagePreview.height : img.naturalHeight;
+      var count = Math.min(50, Math.max(1, Math.ceil(sourceHeight / 1000))), index = Number(part[1]) - 1;
       if (index >= count) {
         message.textContent = '구간 불일치 · 현재 원본 전체 표시. 상세 버전과 파일 연결을 확인하세요.';
         link.title = '현재 원본 전체 열기 · 기록된 구간과 크기가 다릅니다.'; return;
@@ -182,14 +187,36 @@
     });
     function failed(reason) { fullImage(); img.hidden = true; message.textContent = reason + ' 원본 열기 ↗'; }
     img.addEventListener('error', function () { failed('이미지 로딩 실패 · 서버 접근 제한 또는 파일 주소를 확인하세요.'); });
-    link.append(img, message); img.src = item.url;
-    link.__retryImage = function () { img.hidden = false; fullImage(); message.textContent = '이미지 다시 확인 중…'; img.src = item.url; };
-    return link;
+    function imageSource() { return item.imagePreview && item.imagePreview.url === item.url ? item.imagePreview.data : item.url; }
+    link.append(img, message); img.src = imageSource();
+    link.__retryImage = function () { img.hidden = false; fullImage(); message.textContent = '이미지 다시 확인 중…'; img.src = imageSource(); };
+    var upload = document.createElement('label'), input = document.createElement('input'), status = document.createElement('small');
+    upload.className = 'image-original-upload'; upload.textContent = '원본 이미지 등록 / 변경'; input.type = 'file'; input.accept = 'image/*'; input.setAttribute('aria-label',label(id) + ' 원본 이미지'); upload.appendChild(input);
+    status.className = 'image-original-status'; status.textContent = item.imagePreview ? '등록 원본 기준 미리보기' : '';
+    input.addEventListener('change', async function () {
+      var file = input.files[0]; if (!file) return;
+      if (file.size > 20 * 1024 * 1024) { status.textContent = '20MB 이하의 원본 이미지를 선택하세요.'; input.value = ''; return; }
+      var context = {productId:settings.productId,contentVersion:settings.contentVersion}, url = URL.createObjectURL(file);
+      input.disabled = true; status.textContent = '원본 확인 중…';
+      try {
+        var original = await new Promise(function (resolve,reject) { var image = new Image(); image.onload = function () { resolve(image); }; image.onerror = function () { reject(Error('원본 이미지 파일을 읽을 수 없습니다.')); }; image.src = url; });
+        var data = imageCanvas(original).toDataURL('image/jpeg',.8);
+        var result = await api('detail-catalog',Object.assign({action:'image-preview',id:item.sourceId || item.id,url:item.url,data:data,width:original.naturalWidth,height:original.naturalHeight},context));
+        if (!catalog || catalog.productId !== context.productId || catalog.contentVersion !== context.contentVersion) return;
+        var saved = result.items.find(function (entry) { return entry.url === item.url && entry.imagePreview; });
+        if (!saved) throw Error('저장된 원본 미리보기를 확인할 수 없습니다.');
+        catalog.items.concat(liveCatalog && liveCatalog.supplementalItems || []).forEach(function (entry) { if (entry.url === item.url) entry.imagePreview = saved.imagePreview; });
+        document.querySelectorAll('.image-preview-link').forEach(function (entry) { if (entry.dataset.imageUrl === item.url) entry.__retryImage(); });
+        status.textContent = '등록 완료 · ' + original.naturalWidth + '×' + original.naturalHeight + 'px · ' + Math.min(50,Math.ceil(original.naturalHeight / 1000)) + '구간';
+      } catch (error) { status.textContent = error.message; }
+      finally { URL.revokeObjectURL(url); input.disabled = false; input.value = ''; }
+    });
+    holder.append(link,upload,status); return holder;
   }
   var imageCheckSequence = 0;
   async function checkImages() {
     var current = ++imageCheckSequence, snapshot = catalog;
-    var items = snapshot ? snapshot.items.filter(function (item) { return item.type === 'image'; }) : [];
+    var items = snapshot ? snapshot.items.concat(liveCatalog && liveCatalog.supplementalItems || []).filter(function (item) { return item.type === 'image'; }) : [];
     var results = new Map(), next = 0, done = 0;
     $('image-check-list').replaceChildren(); $('image-check-retry').disabled = true;
     function show() {
@@ -199,7 +226,7 @@
       $('image-check-list').replaceChildren();
       failed.forEach(function (item) {
         var li = document.createElement('li'), result = results.get(item.url), text = label(item.id) + ' · ' + (item.filename || '파일 주소 없음') + ' — ';
-        li.textContent = text + (!item.url ? '파일 연결 없음' : result.state === 'timeout' ? '응답 시간 초과' : '이미지 응답 실패 · 서버 접근 제한 또는 파일 주소 확인 필요');
+        li.textContent = text + (!item.url ? '파일 연결 없음' : result.state === 'timeout' ? '응답 시간 초과' : '이미지 응답 실패 · 서버 접근 제한 또는 파일 주소 확인 필요') + (item.imagePreview ? ' · 등록 원본으로 미리보기 표시 중' : '');
         if (item.url) { var a = document.createElement('a'); a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = ' 원본 열기 ↗'; li.appendChild(a); }
         $('image-check-list').appendChild(li);
       });
@@ -230,7 +257,9 @@
     var text = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small'), file = document.createElement('small');
     title.textContent = item && item.name ? item.name : label(id); detail.textContent = label(id) + ' · ' + id;
     file.textContent = item ? (item.filename || '파일명 없음') + (!item.url ? ' · 파일 주소 없음 · 콘텐츠 목록을 확인하세요' : '') : '파일 연결 없음 · 콘텐츠 목록을 불러오세요';
-    text.append(title, detail, file); box.appendChild(text); parent.appendChild(box);
+    text.append(title, detail, file);
+    if (item && item.sourceId) { var note = document.createElement('small'); note.textContent = '현재 상세페이지에서 확인한 신규 번호 · 기존 파일 ' + item.sourceId; text.appendChild(note); }
+    box.appendChild(text); parent.appendChild(box);
   }
   function renderCatalog(value) {
     catalog = value; $('catalog-body').replaceChildren();
@@ -242,9 +271,21 @@
     $('catalog-save').disabled = !value.items.length;
     $('catalog-message').textContent = value.items.length ? value.items.length + '개 콘텐츠 · 상품 ' + value.productId + ' / ' + value.contentVersion + ' · 이름을 입력한 뒤 저장하세요.' : '아직 연결된 파일이 없습니다. 자사몰 콘텐츠 불러오기를 누르세요.';
   }
+  async function inspectCatalog() {
+    if (!settings || !catalog) return;
+    var context = {productId:settings.productId,contentVersion:settings.contentVersion};
+    try {
+      var value = await api('detail-catalog',Object.assign({action:'inspect'},context));
+      if (!catalog || settings.productId !== context.productId || settings.contentVersion !== context.contentVersion) return;
+      liveCatalog = value;
+      if ((value.supplementalItems || []).length) checkImages();
+      $('catalog-layout-status').textContent = value.state === 'matching' ? '' : '상세페이지 구성 변경 감지 · 저장 ' + value.savedCount + '개 / 현재 ' + value.currentCount + '개 콘텐츠. 기존 번호의 통계는 저장 목록을 유지합니다. 추가 삽입만 확인된 경우 새 번호의 파일만 연결하며, 변경 전후 통계가 섞일 수 있어 상세 버전을 분리해야 합니다.';
+      if (lastReport) render(lastReport);
+    } catch (error) { $('catalog-layout-status').textContent = '현재 상세페이지와 파일 목록을 대조하지 못했습니다. ' + error.message; }
+  }
   async function loadCatalog() {
-    imageCheckSequence++; catalog = null; $('catalog-body').replaceChildren(); $('catalog-save').disabled = true; $('image-check-retry').disabled = true; $('image-check-list').replaceChildren(); $('image-check-status').textContent = '콘텐츠 목록 확인 중…';
-    try { var value = await api('detail-catalog'); if (settings && value.productId === settings.productId && value.contentVersion === settings.contentVersion) { renderCatalog(value); if (lastReport) render(lastReport); checkImages(); } }
+    imageCheckSequence++; liveCatalog = null; $('catalog-layout-status').textContent = ''; catalog = null; $('catalog-body').replaceChildren(); $('catalog-save').disabled = true; $('image-check-retry').disabled = true; $('image-check-list').replaceChildren(); $('image-check-status').textContent = '콘텐츠 목록 확인 중…';
+    try { var value = await api('detail-catalog'); if (settings && value.productId === settings.productId && value.contentVersion === settings.contentVersion) { renderCatalog(value); if (lastReport) render(lastReport); checkImages(); inspectCatalog(); } }
     catch (error) { catalog = null; $('image-check-status').textContent = '콘텐츠 목록을 불러오지 못해 이미지 확인을 완료할 수 없습니다.'; notice('catalog-message', error.message, true); }
   }
   async function changeCatalog(action) {
@@ -256,7 +297,7 @@
     try {
       var result = await api('detail-catalog', Object.assign({ action:action, names:names }, context));
       if (settings.productId !== context.productId || settings.contentVersion !== context.contentVersion) return;
-      renderCatalog(result); if (lastReport) render(lastReport); if (action === 'import') checkImages();
+      renderCatalog(result); if (lastReport) render(lastReport); if (action === 'import') { checkImages(); inspectCatalog(); }
       notice('catalog-message', action === 'import' ? result.items.length + '개 콘텐츠를 불러왔습니다. 이름을 붙인 뒤 저장하세요.' : '이름을 저장했습니다. 통계에도 같은 이름으로 표시됩니다.');
     } catch (error) { notice('catalog-message', error.message, true); }
     finally { $('catalog-import').disabled = false; $('catalog-save').disabled = !catalog || !catalog.items.length; }
