@@ -151,11 +151,28 @@
     if (!catalog || !context || catalog.productId !== context.productId || catalog.contentVersion !== context.contentVersion) return null;
     return catalog.items.find(function (item) { return item.id === id.replace(/_p\d+$/, ''); }) || null;
   }
+  function orderedRows(report) {
+    var rows = (report.rows || []).slice(), matching = catalog && catalog.productId === report.productId && catalog.contentVersion === report.contentVersion;
+    var order = new Map(matching ? catalog.items.map(function (item, index) { return [item.id, index]; }) : []);
+    return rows.sort(function (a, b) {
+      var ai = order.has(a.id.replace(/_p\d+$/, '')) ? order.get(a.id.replace(/_p\d+$/, '')) : Infinity;
+      var bi = order.has(b.id.replace(/_p\d+$/, '')) ? order.get(b.id.replace(/_p\d+$/, '')) : Infinity;
+      return ai === bi ? a.id.localeCompare(b.id, 'en', {numeric:true}) : ai < bi ? -1 : 1;
+    });
+  }
   function mediaIdentity(parent, item, id) {
     var box = document.createElement('div'); box.className = 'content-preview';
     if (item && item.url && /^https:\/\//.test(item.url)) {
       var link = document.createElement('a'); link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.title = '원본 콘텐츠 열기';
-      if (item.type === 'image') { var img = document.createElement('img'); img.src = item.url; img.alt = item.name || item.alt || label(id); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; link.appendChild(img); }
+      if (item.type === 'image') { var img = document.createElement('img'); img.src = item.url; img.alt = item.name || item.alt || label(id); img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+        var part = /_p(\d+)$/.exec(id);
+        if (part) { link.className = 'image-part-preview'; img.addEventListener('load', function () {
+          var count = Math.min(50, Math.max(1, Math.ceil(img.naturalHeight / 1000))), index = Number(part[1]) - 1;
+          if (index >= count) { img.hidden = true; link.title = '현재 원본과 구간이 다릅니다. 상세 버전을 확인하세요.'; return; }
+          var height = img.naturalHeight / count * 110 / img.naturalWidth;
+          link.style.height = height + 'px'; img.style.top = (-index * height) + 'px';
+        }); }
+        link.appendChild(img); }
       else box.appendChild(videoThumbnail(item,id));
       if (item.type === 'image') box.appendChild(link);
     }
@@ -168,38 +185,11 @@
     catalog = value; $('catalog-body').replaceChildren();
     value.items.forEach(function (item) {
       var tr = document.createElement('tr'); mediaIdentity(cell(tr, ''), item, item.id);
-      var stats = cell(tr, ''); stats.className = 'catalog-stats'; stats.dataset.contentId = item.id;
       var input = document.createElement('input'); input.className = 'catalog-name'; input.value = item.name || ''; input.maxLength = 80; input.dataset.contentId = item.id;
       input.setAttribute('aria-label', label(item.id) + ' 분석 이름'); input.placeholder = item.alt || '예: 100℃ 가열 설명'; cell(tr, '').appendChild(input); $('catalog-body').appendChild(tr);
     });
     $('catalog-save').disabled = !value.items.length;
     $('catalog-message').textContent = value.items.length ? value.items.length + '개 콘텐츠 · 상품 ' + value.productId + ' / ' + value.contentVersion + ' · 이름을 입력한 뒤 저장하세요.' : '아직 연결된 파일이 없습니다. 자사몰 콘텐츠 불러오기를 누르세요.';
-    refreshCatalogMetrics();
-  }
-  function refreshCatalogMetrics(message) {
-    document.querySelectorAll('#catalog-body .catalog-stats').forEach(function (box) {
-      box.replaceChildren();
-      var report = lastReport, state = report && (report.trackingState || report.state);
-      var matched = report && catalog && report.productId === catalog.productId && report.contentVersion === catalog.contentVersion;
-      var rows = matched && state === 'ready' ? (report.rows || []).filter(function (r) { return r.id === box.dataset.contentId || r.id.replace(/_p\d+$/, '') === box.dataset.contentId; }) : [];
-      if (!rows.length) {
-        var empty = document.createElement('span'); empty.className = 'catalog-stat-empty';
-        empty.textContent = message || (!connected ? 'GA4 연결이 필요합니다.' : !report ? '기간 조회 후 표시됩니다.' : state === 'setup_required' ? '추적 설정이 필요합니다.' : state === 'error' || state === 'unavailable' ? '수치를 확인할 수 없습니다.' : '이 기간에 수집된 구간 데이터가 없습니다.');
-        box.appendChild(empty); return;
-      }
-      rows.forEach(function (r) {
-        var group = document.createElement('div'), title = document.createElement('strong'), values = document.createElement('div');
-        group.className = 'catalog-stat-part'; values.className = 'catalog-stat-values';
-        title.textContent = r.type === 'image' ? label(r.id) : '영상 성과'; group.appendChild(title);
-        var entries = [['도달', r.views, '회'], ['도달률', pct(r.reachRate), ''], ['평균 화면 체류', r.averageVisibleSeconds, '초'],
-          ['3초 이상', r.threeSeconds == null ? null : num(r.threeSeconds) + '회 (' + pct(r.threeRate) + ')', ''],
-          ['5초 이상', r.fiveSeconds == null ? null : num(r.fiveSeconds) + '회 (' + pct(r.fiveRate) + ')', ''], ['클릭·터치', r.clicks, '회']];
-        if (r.type !== 'image') entries.push(['영상 시작', r.starts, '회'], ['25% 재생', r.video25, '회'], ['50% 재생', r.video50, '회'], ['75% 재생', r.video75, '회'], ['완료율', pct(r.completionRate), '']);
-        entries.forEach(function (entry) { var span = document.createElement('span'), value = entry[1];
-          span.textContent = entry[0] + ' ' + (value == null || value === '—' ? '—' : typeof value === 'number' ? num(value) + entry[2] : value + entry[2]); values.appendChild(span); });
-        group.appendChild(values); box.appendChild(group);
-      });
-    });
   }
   async function loadCatalog() {
     catalog = null; $('catalog-body').replaceChildren(); $('catalog-save').disabled = true;
@@ -222,7 +212,6 @@
   }
   function render(report) {
     lastReport = report;
-    refreshCatalogMetrics();
     var pageAvailable = renderPage(report), tracking = report.trackingState || report.state;
     $('detail-results').hidden = true; $('detail-empty').hidden = pageAvailable;
     $('detail-tracking-note').hidden = tracking === 'ready';
@@ -231,7 +220,8 @@
     $('detail-warnings').replaceChildren(); (report.warnings || []).forEach(function (message) { var li = document.createElement('li'); li.textContent = message; $('detail-warnings').appendChild(li); });
     $('detail-report-notes').hidden = !(report.warnings || []).length;
     notice('detail-status', (report.cached ? '저장 보고서' : 'GA4 조회 완료') + ' · ' + report.since + ' ~ ' + report.until + ' · 상품 ' + report.productId + ' / ' + report.contentVersion);
-    if (tracking !== 'ready') return;
+    $('detail-content-body').replaceChildren();
+    if (tracking !== 'ready') { var emptyRow = document.createElement('tr'), emptyCell = cell(emptyRow, '선택한 기간의 이미지·영상 구간 데이터가 없습니다. 추적 설정 및 집계 안내를 확인하세요.'); emptyCell.colSpan = 12; $('detail-content-body').appendChild(emptyRow); return; }
     $('detail-results').hidden = false; $('detail-empty').hidden = true;
     $('detail-views').textContent = num(report.views); $('detail-buy').textContent = num(report.buyClicks); $('detail-cart').textContent = num(report.cartClicks);
     $('detail-scroll').replaceChildren();
@@ -239,7 +229,7 @@
       title.textContent = n + '% 지점'; var count = (report.scroll || {})['scroll_' + n]; strong.textContent = pct(report.views > 0 && count !== null ? (count || 0) / report.views : null);
       a.append(title, strong); $('detail-scroll').appendChild(a); });
     $('detail-content-body').replaceChildren();
-    report.rows.forEach(function (r) {
+    orderedRows(report).forEach(function (r) {
       var tr = document.createElement('tr'); mediaIdentity(cell(tr, ''), assetFor(r.id, report), r.id); cell(tr, num(r.views)); var reach = cell(tr, pct(r.reachRate));
       var bar = document.createElement('div'), span = document.createElement('span'); bar.className = 'detail-bar'; span.style.width = Math.max(0, Math.min(100, (r.reachRate || 0) * 100)) + '%'; bar.appendChild(span); reach.appendChild(bar);
       cell(tr, r.averageVisibleSeconds === null ? '—' : num(r.averageVisibleSeconds) + '초');
@@ -254,9 +244,9 @@
     if (!connected) { notice('detail-status', '먼저 GA4 연결 관리에서 기존 속성을 연결하세요.', true); return; }
     var current = ++sequence; $('detail-query').disabled = $('detail-refresh').disabled = true;
     notice('detail-status', '상세페이지 기본 데이터와 구간별 추적 이벤트를 불러오고 있습니다…');
-    lastReport = null; refreshCatalogMetrics('수치를 불러오는 중입니다…'); $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
+    lastReport = null; $('detail-content-body').replaceChildren(); var loadingRow = document.createElement('tr'); cell(loadingRow, '구간별 수치를 불러오는 중입니다…').colSpan = 12; $('detail-content-body').appendChild(loadingRow); $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
     try { var report = await api('detail-report?' + new URLSearchParams({ since: $('detail-since').value, until: $('detail-until').value, scope: $('detail-scope').value, device: $('detail-device').value, refresh: refresh ? '1' : '0' })); if (current === sequence) render(report); }
-    catch (error) { if (current === sequence) { refreshCatalogMetrics('수치를 불러오지 못했습니다.'); notice('detail-status', error.message, true); } }
+    catch (error) { if (current === sequence) { $('detail-content-body').replaceChildren(); var errorRow = document.createElement('tr'); cell(errorRow, '구간별 수치를 불러오지 못했습니다.').colSpan = 12; $('detail-content-body').appendChild(errorRow); notice('detail-status', error.message, true); } }
     finally { if (current === sequence) $('detail-query').disabled = $('detail-refresh').disabled = false; }
   }
   $('detail-settings-form').addEventListener('submit', async function (e) {

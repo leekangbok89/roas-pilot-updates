@@ -132,3 +132,15 @@ test('a failing optional metadata/report does not discard successful page or tra
   f.setMetadataFailure(false);f.setPageFailure(true);result=await f.api.detailReport({...period,refresh:true});
   assert.equal(result.state,'ready');assert.equal(result.views,10);assert.equal(result.pageAnalytics.state,'error');
 });
+
+test('content table follows mixed catalog order, numeric image sections and keeps unmatched history without mutating report',()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../public/detail-analysis.js'),'utf8');
+ const fn=source.slice(source.indexOf('  function orderedRows('),source.indexOf('  function mediaIdentity('));
+ const context={catalog:{productId:'458',contentVersion:'v1',items:[{id:'image_001'},{id:'video_001'},{id:'image_002'}]}};
+ vm.createContext(context);vm.runInContext(fn,context);
+ const report={productId:'458',contentVersion:'v1',rows:['image_002_p01','image_001_p10','video_001','image_001_p02','embed_001'].map(id=>({id}))};
+ assert.deepEqual(Array.from(context.orderedRows(report),r=>r.id),['image_001_p02','image_001_p10','video_001','image_002_p01','embed_001']);
+ assert.equal(report.rows[0].id,'image_002_p01');
+ assert.deepEqual(Array.from(context.orderedRows({...report,contentVersion:'old'}),r=>r.id),['embed_001','image_001_p02','image_001_p10','image_002_p01','video_001']);
+});

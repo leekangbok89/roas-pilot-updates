@@ -44,6 +44,8 @@
     body[data-app-page="detail"] #app-main .detail-grid :is(label,input){min-width:0;max-width:100%}
     @media screen and (min-width:1000px) and (hover:hover) and (pointer:fine){body[data-app-page="detail"] #app-main{zoom:.9;margin-left:calc(var(--app-rail-width) / .9);min-height:calc(100vh / .9)}}
     @media(max-width:800px){.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-kpis{grid-template-columns:1fr}.detail-scroll{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .content-preview a.image-part-preview{display:block;position:relative;width:110px;height:88px;overflow:hidden;flex:none;background:var(--app-surface-soft)}
+    .content-preview a.image-part-preview img{position:absolute;left:0;width:110px;height:auto;max-height:none;border-radius:0}
   </style>
 </head>
 <body data-app-page="detail">
@@ -75,6 +77,10 @@
       <p class="helper">오늘을 제외한 최근 7일이 기본입니다. 최대 93일을 조회하며, 5분 동안 같은 보고서를 재사용합니다.</p>
       <div class="detail-links"><a id="clarity-dashboard" class="detail-link-disabled" target="_blank" rel="noopener noreferrer">Clarity 히트맵 · 녹화 열기 ↗</a></div>
     </section>
+      <section class="panel" id="detail-content-results"><h2>이미지 · 영상 구간별 성과</h2><p>실제 상세페이지의 콘텐츠 배치 순서로 표시합니다. 긴 이미지는 각 행에 해당 구간만 미리보기로 표시합니다. 도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
+        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>3초 이상</th><th>5초 이상</th><th>클릭·터치</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
+        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 3초·5초는 조회별 누적 화면 노출 횟수이며, 클릭·터치는 반복 횟수입니다. 새 추적 코드를 자사몰에 적용한 뒤부터 수집되며 —는 기록이 없거나 확인할 수 없는 값입니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
+      </section>
     <section id="detail-page-results" hidden>
       <div class="detail-page-head"><h2>상세페이지 기본 데이터</h2><details id="detail-metric-settings"><summary>표시 지표 선택</summary><div id="detail-metric-options" class="detail-metric-options"></div></details></div>
       <p id="detail-page-status" class="helper" role="status"></p>
@@ -88,20 +94,17 @@
     <div id="detail-results" hidden>
       <div class="detail-kpis"><article>추적 상세페이지 조회<strong id="detail-views">—</strong></article><article>구매 버튼 클릭 조회<strong id="detail-buy">—</strong></article><article>장바구니 버튼 클릭 조회<strong id="detail-cart">—</strong></article></div>
       <section class="panel"><h2>상세영역 스크롤 도달률</h2><div id="detail-scroll" class="detail-scroll"></div></section>
-      <section class="panel"><h2>이미지 · 영상 구간별 성과</h2><p>도달은 해당 구간의 절반 이상이 화면에 보인 시간이 누적 1초 이상인 조회입니다. 긴 이미지는 원본 높이 1,000px 기준으로 구간을 나눕니다.</p>
-        <div class="detail-table"><table><thead><tr><th>콘텐츠 구간</th><th>도달 조회</th><th>도달률</th><th>평균 화면 체류</th><th>3초 이상</th><th>5초 이상</th><th>클릭·터치</th><th>영상 시작</th><th>25% 재생</th><th>50% 재생</th><th>75% 재생</th><th>완료율</th></tr></thead><tbody id="detail-content-body"></tbody></table></div>
-        <p class="helper">체류시간은 해당 구간에 도달한 조회당 평균입니다. 여러 구간이 동시에 보일 수 있어 구간별 시간을 합쳐 페이지 시간을 계산할 수 없습니다. 3초·5초는 조회별 누적 화면 노출 횟수이며, 클릭·터치는 반복 횟수입니다. 새 추적 코드를 자사몰에 적용한 뒤부터 수집되며 —는 기록이 없거나 확인할 수 없는 값입니다. 영상 재생률은 화면에 보인 동안 실제 재생한 고유 분량 기준이며, 98% 이상을 완료로 봅니다.</p>
-      </section>
+
     </div>
     <details class="panel" id="detail-report-notes" hidden><summary>집계 안내</summary><ul id="detail-warnings"></ul><p>구간별 구매·장바구니 클릭은 상세 조회당 각 1회로 집계합니다. 결제 성공·구매 기여 분석은 현재 보고서에 포함되지 않습니다.</p></details>
     <details class="panel" id="content-catalog">
-      <summary>이미지 · 영상별 성과 및 이름 관리</summary>
+      <summary>이미지 · 영상 이름 관리</summary>
       <p>현재 자사몰에서 파일 목록을 불러온 뒤 ‘100℃ 가열 설명’, ‘세척 시연’처럼 이름을 붙여 저장하세요. 같은 이름이 통계에도 표시됩니다. GA4 연결 없이도 목록을 관리할 수 있습니다.</p>
       <p>영상은 재생창 대신 자동으로 추출한 장면을 표시합니다. 추출이 제한되면 ‘썸네일 등록 / 변경’에서 이미지 또는 원본 영상 파일을 선택하세요. 썸네일을 누르면 원본 영상이 열립니다.</p>
       <div class="detail-actions"><button id="catalog-import" type="button">자사몰 콘텐츠 불러오기</button><button id="catalog-save" type="button" disabled>이름 저장</button></div>
       <p id="catalog-message" role="status" aria-live="polite">콘텐츠 목록 확인 중…</p>
-      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>선택 기간의 성과</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
-      <p class="helper">위에서 선택한 기간·유입·기기에 해당하는 수치입니다. 긴 이미지는 중복 집계를 막기 위해 구간별로 나눠 표시하며, 구간 수치를 합산한 고유 방문자는 제공하지 않습니다. —는 자료가 없거나 확인할 수 없는 값입니다.</p>
+      <div class="detail-table"><table><thead><tr><th>미리보기 · 파일명</th><th>분석 이름</th></tr></thead><tbody id="catalog-body"></tbody></table></div>
+      <p class="helper">구간별 수치는 맨 위 성과표에서 확인하세요. 긴 이미지의 여러 구간은 서로 다른 분석 영역이며 고유 방문자로 합산하지 않습니다.</p>
       <p class="helper">이름은 상품번호·상세 버전별로 이 PC에 저장됩니다. 이미지 미리보기는 분할 구간이 아닌 원본 전체입니다. 콘텐츠 순서·파일을 바꾸면 상세 버전과 자사몰 설치코드도 함께 바꿔 새 목록을 불러오세요. 처음 불러온 목록은 현재 페이지 기준이므로 그 이전에 페이지 구성이 달랐다면 과거 통계와 대조가 필요합니다.</p>
     </details>
     <details class="panel" id="detail-reference">
