@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const detailInsights = require('./insights.cjs');
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DATA_URL = 'https://analyticsdata.googleapis.com/v1beta/properties/';
@@ -85,6 +86,7 @@ function validateDetailSettings(input = {}) {
       !/^G-[A-Z0-9]{4,20}$/.test(value.measurementId) || (value.clarityProjectId && !/^[a-z0-9]{4,32}$/.test(value.clarityProjectId))) {
     throw failure(400, '상품번호, 상세페이지 버전, G-로 시작하는 측정 ID와 Clarity 프로젝트 ID 형식을 확인해 주세요.', 'DETAIL_SETTINGS');
   }
+  if (input.insights !== undefined) { value.insights = detailInsights.options(input.insights); if (value.insights.bVersion === value.contentVersion) throw failure(400,'A/B 버전은 서로 달라야 합니다.','DETAIL_SETTINGS'); }
   return value;
 }
 function detailFilters(expressions, input) {
@@ -410,7 +412,7 @@ function assembleReport(responses, context) {
     metadata, warnings: [...new Set(warnings)], rowCounts, truncated };
 }
 
-function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now = Date.now, orderResolver } = {}) {
   // Constructor is deliberately lazy: Linux tests and existing installations can load the app without DPAPI.
   const filename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'ga4.dpapi');
   const detailFilename = path.join(path.resolve(baseDir || process.cwd()), '.roas-private', 'detail-settings.json');
@@ -695,7 +697,7 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
       } else { html = await response.text(); if (Buffer.byteLength(html) > 3*1024*1024) throw failure(413,'상세페이지 크기가 너무 큽니다.','DETAIL_CATALOG_SIZE'); }
       const items = parseDetailMedia(html);
       if (catalogContext().key !== context.key) throw failure(409,'조회 중 상품·버전이 변경됐습니다.','DETAIL_CATALOG_CHANGED');
-      if (input.action === 'inspect') { const current = {productId:context.productId,contentVersion:context.contentVersion,items}; return {...current,...reconcileDetailCatalog(previous,current)}; }
+      if (input.action === 'inspect') { const current = {productId:context.productId,contentVersion:context.contentVersion,items}; const b=/<template\b[^>]*\bid=["']roas-detail-b["'][^>]*>([\s\S]*?)<\/template\s*>/i.exec(html); let variantCatalog=null; const bVersion=detailSettings().insights?.bVersion; if(b&&bVersion){try{variantCatalog={productId:context.productId,contentVersion:bVersion,items:parseDetailMedia('<div id="prdDetail">'+b[1]+'</div>')};}catch(_){}} return {...current,...reconcileDetailCatalog(previous,current),variantCatalog}; }
       const signature = list => JSON.stringify(list.map(item=>[item.id,item.url]));
       if (previous && signature(previous.items) !== signature(items)) throw failure(409,'현재 페이지의 순서·파일이 저장된 목록과 다릅니다. 기존 통계를 보존하려면 상세 버전을 변경하고 자사몰 설치코드도 교체한 후 불러오세요.','DETAIL_CATALOG_VERSION');
       value = {productId:context.productId,contentVersion:context.contentVersion,importedAt:timestamp(),items};
@@ -732,7 +734,10 @@ function createGa4Service({ baseDir, protect, fetchImpl = globalThis.fetch, now 
     if (input.action === 'import') for (const item of value.items) { const old = latest.versions[context.key]?.items.find(old=>old.id===item.id); item.name = old?.name || ''; if (old?.thumbnail) item.thumbnail = old.thumbnail; if (old?.imagePreview && old.url === item.url) item.imagePreview = old.imagePreview; }
     latest.versions[context.key] = value; catalogWrite(latest); return value;
   }
-  return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport, detailCatalog };
+  const extendedReport = detailInsights.createReporter({runReport,requireConfig,settings:detailSettings,identity:configurationIdentity,now:currentTime,resolveOrders:orderResolver,
+    definitionCheck:async config=>{let token=await accessToken(config.credentials);let response=await request(DATA_URL+config.propertyId+'/metadata',{headers:{Authorization:'Bearer '+token}},'확장 맞춤 정의 확인');if(response.status===401){token=await accessToken(config.credentials,token);response=await request(DATA_URL+config.propertyId+'/metadata',{headers:{Authorization:'Bearer '+token}},'확장 맞춤 정의 확인');}if(!response.ok)throw failure(502,'GA4 맞춤 정의를 확인하지 못했습니다.','DETAIL_METADATA');const meta=await jsonResponse(response);const names=new Set((meta.dimensions||[]).map(x=>x.apiName));return DETAIL_DIMENSIONS.filter(name=>!names.has('customEvent:'+name));}});
+  async function detailInsightsReport(input={}) { validateDates(input.since,input.until);if(input.refresh!==undefined&&typeof input.refresh!=='boolean')throw failure(400,'새로고침 옵션을 확인하세요.','GA4_REFRESH');return extendedReport(input); }
+  return { status: () => safeStatus(readConfig()), save, test, remove, report, detailSettings, detailReport, detailCatalog, detailInsightsReport };
 }
 
 module.exports = { createGa4Service, validateDates, validateCredentials, jwtAssertion, buildReportRequests, assembleReport, METRICS, ACQUISITION_DIMENSIONS,

@@ -7,7 +7,7 @@ const path=require('node:path');
 const {Readable}=require('node:stream');
 const {spawnSync}=require('node:child_process');
 const project=path.resolve(__dirname,'..');
-const assets=['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js'];
+const assets=['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js','detail-insights-tracker.js','detail-insights.js'];
 
 function fixture(t){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'roas-ga4-integration-'));
@@ -132,6 +132,7 @@ test('GA4 bundle generator checks both client and assets and regenerates determi
  fs.mkdirSync(path.join(f.dir,'integrations','ga4'),{recursive:true});
  fs.copyFileSync(path.join(project,'scripts','bundle-ga4.cjs'),path.join(f.dir,'scripts','bundle-ga4.cjs'));
  fs.copyFileSync(path.join(project,'integrations','ga4','client.cjs'),path.join(f.dir,'integrations','ga4','client.cjs'));
+ fs.copyFileSync(path.join(project,'integrations','ga4','insights.cjs'),path.join(f.dir,'integrations','ga4','insights.cjs'));
  for(const name of assets)fs.copyFileSync(path.join(project,'public',name),path.join(f.dir,'public',name));
  const run=(...args)=>spawnSync(process.execPath,[path.join(f.dir,'scripts','bundle-ga4.cjs'),...args],{encoding:'utf8'});
  assert.equal(run('--check').status,0);
@@ -147,4 +148,12 @@ test('GA4 bundle generator checks both client and assets and regenerates determi
  assert.notEqual(regenerated,before);
  assert.equal(run().status,0);
  assert.equal(fs.readFileSync(file,'utf8'),regenerated);
+});
+
+
+test('hashed purchase matching uses only confirmed paid orders in the selected Cafe24 shop and never exposes order IDs',t=>{
+ const crypto=require('node:crypto'),f=fixture(t),context={productId:'458',measurementId:'G-ABC123'};const hash=id=>crypto.createHash('sha256').update(context.measurementId+'|458|'+id).digest('hex');
+ assert.equal(f.app.detailPaymentVerification([{digest:hash('paid')}],context).state,'unavailable');
+ f.write('.roas-data/cafe24-orders/orders.json',{orders:{a:{id:'paid',date:'2026-11-04',shop_no:1,paid:'T',unverified:false,net:399000,refund:0},b:{id:'pending',date:'2026-11-04',shop_no:1,paid:'F',unverified:true,net:399000},c:{id:'refunded',date:'2026-11-04',shop_no:1,paid:'T',unverified:false,net:0,refund:399000},z:{id:'zero',date:'2026-11-04',shop_no:1,paid:'T',unverified:false,net:0,refund:0},d:{id:'other-shop',date:'2026-11-04',shop_no:7,paid:'T',unverified:false,net:399000}}});
+ const result=f.app.detailPaymentVerification(['paid','pending','refunded','zero','other-shop','missing'].map(id=>({digest:hash(id)})),context);assert.deepEqual(result.matched.map(x=>x.status),['paid','unverified','fully_refunded','zero_payment']);assert.equal(result.unmatched,2);assert.equal(result.matched.some(x=>Object.hasOwn(x,'id')),false);
 });

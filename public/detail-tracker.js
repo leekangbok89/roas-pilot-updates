@@ -69,6 +69,7 @@
       position = m.player ? m.player.getCurrentTime() : m.el.currentTime;
       duration = m.player ? m.player.getDuration() : m.el.duration;
     } catch (_) { return; }
+    if (m.player && w.ROAS_DETAIL && typeof w.ROAS_DETAIL.sampleExternalVideo === 'function') w.ROAS_DETAIL.sampleExternalVideo(m.el,position,duration,playing || ended);
     if ((!playing && !ended) || !onScreen(m.part) || !Number.isFinite(duration) || duration <= 0 || d.hidden || !enabled()) { m.previous = null; return; }
     if (ended) position = duration;
     once('rp_video_start', m.part);

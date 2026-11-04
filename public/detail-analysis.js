@@ -8,6 +8,7 @@
   }
   function fill(value) {
     settings = value;
+    var insights = value.insights || {}; $('insight-enabled').checked = insights.enabled !== false; $('insight-experiment').value = insights.experimentId || ''; $('insight-b-version').value = insights.bVersion || ''; $('insight-item-ids').value = (insights.itemIds || []).join(', '); $('insight-time-zone').value = insights.timeZone || 'Asia/Seoul'; window.ROASDetailInsights?.configure(value);
     $('detail-product').value = value.productId; $('detail-version').value = value.contentVersion;
     $('detail-measurement').value = value.measurementId; $('detail-clarity').value = value.clarityProjectId; $('detail-consent').checked = value.requireConsent;
     var clarity = $('clarity-dashboard'); clarity.classList.toggle('detail-link-disabled', !value.clarityProjectId);
@@ -15,8 +16,9 @@
     $('detail-visit').href = 'https://wemamang.com/product/detail.html?product_no=' + encodeURIComponent(value.productId);
   }
   async function installCode() {
-    var response = await fetch('/detail-tracker.js'); if (!response.ok) throw Error('설치코드를 불러오지 못했습니다.');
-    var source = await response.text();
+    var responses = await Promise.all([fetch('/detail-tracker.js'),fetch('/detail-insights-tracker.js')]); if (responses.some(function (response) { return !response.ok; })) throw Error('설치코드를 불러오지 못했습니다.');
+    var sources = await Promise.all(responses.map(function (response) { return response.text(); }));
+    var source = sources[1] + '\n' + sources[0];
     $('install-code').value = '<script>\nwindow.ROAS_DETAIL_CONFIG = ' + JSON.stringify(settings) + ';\n' + source.replace(/<\/script/gi, '<\\/script') + '\n</script>';
     $('install-output').hidden = false;
   }
@@ -262,7 +264,7 @@
     box.appendChild(text); parent.appendChild(box);
   }
   function renderCatalog(value) {
-    catalog = value; $('catalog-body').replaceChildren();
+    catalog = value; window.ROASDetailInsights?.catalog(value); $('catalog-body').replaceChildren();
     value.items.forEach(function (item) {
       var tr = document.createElement('tr'); mediaIdentity(cell(tr, ''), item, item.id);
       var input = document.createElement('input'); input.className = 'catalog-name'; input.value = item.name || ''; input.maxLength = 80; input.dataset.contentId = item.id;
@@ -277,7 +279,7 @@
     try {
       var value = await api('detail-catalog',Object.assign({action:'inspect'},context));
       if (!catalog || settings.productId !== context.productId || settings.contentVersion !== context.contentVersion) return;
-      liveCatalog = value;
+      liveCatalog = value; window.ROASDetailInsights?.catalog(value);
       if ((value.supplementalItems || []).length) checkImages();
       $('catalog-layout-status').textContent = value.state === 'matching' ? '' : '상세페이지 구성 변경 감지 · 저장 ' + value.savedCount + '개 / 현재 ' + value.currentCount + '개 콘텐츠. 기존 번호의 통계는 저장 목록을 유지합니다. 추가 삽입만 확인된 경우 새 번호의 파일만 연결하며, 변경 전후 통계가 섞일 수 있어 상세 버전을 분리해야 합니다.';
       if (lastReport) render(lastReport);
@@ -303,7 +305,7 @@
     finally { $('catalog-import').disabled = false; $('catalog-save').disabled = !catalog || !catalog.items.length; }
   }
   function render(report) {
-    lastReport = report;
+    lastReport = report; window.ROASDetailInsights?.load(report);
     var pageAvailable = renderPage(report), tracking = report.trackingState || report.state;
     $('detail-results').hidden = true; $('detail-empty').hidden = pageAvailable;
     $('detail-tracking-note').hidden = tracking === 'ready';
@@ -334,6 +336,7 @@
   }
   async function query(refresh) {
     if (!connected) { notice('detail-status', '먼저 GA4 연결 관리에서 기존 속성을 연결하세요.', true); return; }
+    window.ROASDetailInsights?.reset(refresh);
     var current = ++sequence; $('detail-query').disabled = $('detail-refresh').disabled = true;
     notice('detail-status', '상세페이지 기본 데이터와 구간별 추적 이벤트를 불러오고 있습니다…');
     lastReport = null; $('detail-content-body').replaceChildren(); var loadingRow = document.createElement('tr'); cell(loadingRow, '구간별 수치를 불러오는 중입니다…').colSpan = 12; $('detail-content-body').appendChild(loadingRow); $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false;
@@ -344,7 +347,7 @@
   $('detail-settings-form').addEventListener('submit', async function (e) {
     e.preventDefault(); $('settings-save').disabled = true;
     try {
-      var value = await api('detail-settings', { productId: $('detail-product').value, contentVersion: $('detail-version').value, measurementId: $('detail-measurement').value, clarityProjectId: $('detail-clarity').value, requireConsent: $('detail-consent').checked });
+      var value = await api('detail-settings', { productId: $('detail-product').value, contentVersion: $('detail-version').value, measurementId: $('detail-measurement').value, clarityProjectId: $('detail-clarity').value, requireConsent: $('detail-consent').checked, insights:{enabled:$('insight-enabled').checked,experimentId:$('insight-experiment').value.trim(),bVersion:$('insight-b-version').value.trim(),itemIds:$('insight-item-ids').value.split(',').map(function(x){return x.trim();}).filter(Boolean),timeZone:$('insight-time-zone').value.trim()} });
       sequence++; $('detail-query').disabled = $('detail-refresh').disabled = false;
       $('detail-results').hidden = $('detail-page-results').hidden = $('detail-report-notes').hidden = $('detail-tracking-note').hidden = true; $('detail-empty').hidden = false; lastReport = null; catalog = null; fill(value); if (connected) query(false); await loadCatalog(); await installCode();
       notice('settings-message', '설정을 저장했습니다. 생성된 코드를 카페24에 적용해야 수집이 시작됩니다.');

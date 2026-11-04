@@ -71,3 +71,5 @@ test('registered image previews preserve original section dimensions, persist lo
  assert.equal((await f.api.detailCatalog({...context,action:'import'})).items[0].imagePreview.width,860);
  for(const bad of [{url:input.url+'?different'},{id:'video_001'},{height:1},{width:1},{data:'data:image/jpeg;base64,YmFk'},{height:Infinity}])await assert.rejects(f.api.detailCatalog({...input,...bad}),{code:'DETAIL_IMAGE_PREVIEW'});
 });
+
+test('live B template metadata is available read-only without replacing the saved A catalog',async t=>{const f=fixture(t);f.api.detailSettings({...DETAIL_DEFAULTS,insights:{bVersion:'v3B',experimentId:'trial'}});await f.api.detailCatalog({...context,action:'import'});f.set(html+'<template id="roas-detail-b"><img src="https://wemamang.mycafe24.com/detail/version-b.jpg"></template>');const inspected=await f.api.detailCatalog({...context,action:'inspect'});assert.equal(inspected.variantCatalog.contentVersion,'v3B');assert.equal(inspected.variantCatalog.items[0].filename,'version-b.jpg');assert.equal((await f.api.detailCatalog()).items[0].filename,'dp01.jpg');});

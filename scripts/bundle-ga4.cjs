@@ -16,9 +16,10 @@ function main(){
   const start=source.indexOf(begin),finish=source.indexOf(end);
   if(start<0||finish<start||source.indexOf(begin,start+begin.length)>=0||source.indexOf(end,finish+end.length)>=0)throw Error('Expected one generated GA4 runtime block in server.js');
   const client=fs.readFileSync(path.join(project,'integrations','ga4','client.cjs'),'utf8').trimEnd();
+  const insights=fs.readFileSync(path.join(project,'integrations','ga4','insights.cjs'),'utf8').trimEnd();
   const assets={};
-  for(const name of ['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
-  const block=begin+'\nconst bundledGa4=(()=>{const module={exports:{}};\n'+client+'\nreturn module.exports;})();\nconst bundledGa4Assets=Object.freeze('+JSON.stringify(assets,null,2)+');\n'+end;
+  for(const name of ['ga4.html','ga4.js','ga4.css','detail-analysis.html','detail-analysis.js','detail-tracker.js','detail-insights-tracker.js','detail-insights.js'])assets['/'+name]=fs.readFileSync(path.join(project,'public',name),'utf8');
+  const block=begin+'\nconst bundledGa4Insights=(()=>{const module={exports:{}};\n'+insights+'\nreturn module.exports;})();\nconst bundledGa4=((require)=>{const module={exports:{}};\n'+client+'\nreturn module.exports;})(name=>name===\'./insights.cjs\'?bundledGa4Insights:require(name));\nconst bundledGa4Assets=Object.freeze('+JSON.stringify(assets,null,2)+');\n'+end;
   const output=source.slice(0,start)+block+source.slice(finish+end.length);
   if(args[0]==='--check'){
     if(output!==source)throw Error('GA4 runtime bundle is stale. Run node scripts/bundle-ga4.cjs and commit server.js.');
