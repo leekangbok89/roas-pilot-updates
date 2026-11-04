@@ -38,7 +38,7 @@
     <section class="panel" aria-labelledby="cpm-title">
       <div class="ca-panel-head"><div><h2 id="cpm-title">상품·옵션 목록</h2><p class="helper">상품을 펼쳐 옵션별 원가·수수료·배송비를 수정하세요.</p></div><div class="ca-toolbar"><button id="cth-refresh" type="button" disabled>상품 이미지 새로고침</button><button id="cpm-expand" type="button">옵션 모두 펼치기</button><a class="ca-text-link" href="/coupang.html#cp-catalog">상품현황 엑셀 가져오기 ↗</a></div></div>
       <p id="cth-status" class="helper cth-status" role="status" aria-live="polite">저장한 상품 이미지를 확인합니다.</p>
-      <div class="cpm-selection ca-toolbar"><strong id="cpm-selected">선택 0개 옵션</strong><label>선택 옵션을 담을 그룹<select id="cpm-assign"><option value="">그룹 선택</option></select></label><button id="cpm-add-members" type="button" disabled>그룹에 추가</button><button id="cpm-remove-members" type="button" disabled>그룹에서 제외</button><button id="cpm-clear-selection" type="button" disabled>선택 해제</button></div>
+      <div class="cpm-selection ca-toolbar"><strong id="cpm-selected">선택 0개 옵션</strong><button id="cpm-bulk-selected" type="button" disabled>선택 옵션 비용 수정</button><label>선택 옵션을 담을 그룹<select id="cpm-assign"><option value="">그룹 선택</option></select></label><button id="cpm-add-members" type="button" disabled>그룹에 추가</button><button id="cpm-remove-members" type="button" disabled>그룹에서 제외</button><button id="cpm-clear-selection" type="button" disabled>선택 해제</button></div>
       <p id="cpm-count" class="helper" role="status"></p>
       <div class="ca-scroll cpm-scroll" tabindex="0" aria-label="상품 관리 표 가로 스크롤"><table class="ca-table cpm-table"><thead><tr><th><input id="cpm-select-visible" type="checkbox" aria-label="조회된 옵션 모두 선택"></th><th class="ca-name">상품 / 옵션</th><th>배송 방식</th><th>판매가</th><th>개당 원가</th><th>수수료율</th><th>입출고 요금</th><th>배송비</th><th>원가 기준일</th><th>관리</th></tr></thead><tbody id="cpm-body"><tr><td colspan="10" class="ca-empty">저장 자료를 불러옵니다.</td></tr></tbody></table></div>
     </section>
@@ -51,6 +51,24 @@
       <form id="cpm-edit-form"><h2 id="cpm-editor-title">옵션 비용 수정</h2><p id="cpm-editor-name" class="helper"></p><p class="helper">빈칸은 미등록으로 저장합니다. 비용이 없음을 확인했다면 0을 입력하세요.</p>
         <fieldset class="cpm-edit-grid"><label>개당 원가<input id="cpm-unit-cost" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>마켓 수수료율 (%)<input id="cpm-commission" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>개당 입출고 요금<input id="cpm-inbound" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>개당 배송비<input id="cpm-delivery" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="미등록"></label><label>원가 적용 시작일<input id="cpm-cost-since" type="date"></label></fieldset>
         <p id="cpm-edit-error" class="helper" role="alert"></p><div class="ca-toolbar cpm-dialog-actions"><button id="cpm-edit-save" type="submit" class="primary">비용 저장</button><button id="cpm-edit-cancel" type="button">취소</button></div>
+      </form>
+    </dialog>
+    <dialog id="cpm-bulk-editor" class="cpm-dialog cpm-bulk-dialog" aria-labelledby="cpm-bulk-title">
+      <form id="cpm-bulk-form"><h2 id="cpm-bulk-title">옵션 비용 일괄 수정</h2><p id="cpm-bulk-scope" class="helper"></p>
+        <p class="helper">적용할 항목만 선택하세요. 선택하지 않은 비용과 원가 기준일은 옵션별 기존 값을 유지합니다. 금액을 비워 둔 항목은 일괄 저장할 수 없습니다.</p>
+        <p id="cpm-bulk-mixed" class="helper ca-cost-warning" hidden>서로 다른 배송 방식이 포함되어 있습니다. 입출고 요금과 배송비는 배송 방식·상품 크기 등에 따라 다를 수 있으므로 적용 대상을 확인하세요.</p>
+        <fieldset class="cpm-edit-grid cpm-bulk-grid">
+          <div><label class="cpm-bulk-check"><input id="cpm-bulk-use-unitCost" type="checkbox" checked>개당 원가 적용</label><label class="cpm-bulk-value" for="cpm-bulk-unitCost">개당 원가<input id="cpm-bulk-unitCost" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="적용할 금액 입력"></label></div>
+          <div><label class="cpm-bulk-check"><input id="cpm-bulk-use-commissionRate" type="checkbox">수수료율 적용</label><label class="cpm-bulk-value" for="cpm-bulk-commissionRate">수수료율 (%)<input id="cpm-bulk-commissionRate" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="기존 값 유지" disabled></label></div>
+          <div><label class="cpm-bulk-check"><input id="cpm-bulk-use-inboundFee" type="checkbox">입출고 요금 적용</label><label class="cpm-bulk-value" for="cpm-bulk-inboundFee">개당 입출고 요금<input id="cpm-bulk-inboundFee" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="기존 값 유지" disabled></label></div>
+          <div><label class="cpm-bulk-check"><input id="cpm-bulk-use-deliveryFee" type="checkbox">배송비 적용</label><label class="cpm-bulk-value" for="cpm-bulk-deliveryFee">개당 배송비<input id="cpm-bulk-deliveryFee" type="number" min="0" max="1000000000000" step="0.01" inputmode="decimal" placeholder="기존 값 유지" disabled></label></div>
+          <div><label class="cpm-bulk-check"><input id="cpm-bulk-use-costSince" type="checkbox">원가 적용 시작일 변경</label><label class="cpm-bulk-value" for="cpm-bulk-costSince">원가 적용 시작일<input id="cpm-bulk-costSince" type="date" disabled></label><small>이 항목을 선택하고 날짜를 비우면 시작일 미지정으로 변경합니다.</small></div>
+        </fieldset>
+        <p class="helper">원가는 매입·제조비입니다. 수수료율·입출고 요금·배송비는 별도 기준이므로 원가만 바꾸면 함께 변경되지 않습니다. 등록 비용은 API 주문의 예상 이익에 반영합니다.</p>
+        <p id="cpm-bulk-fee-example" class="helper" hidden></p>
+        <p id="cpm-bulk-status" class="helper" role="status" aria-live="polite"></p>
+        <div id="cpm-bulk-preview" class="ca-scroll cpm-bulk-preview" tabindex="0" aria-label="옵션별 비용 변경 미리보기"></div>
+        <p id="cpm-bulk-error" class="helper" role="alert"></p><div class="ca-toolbar cpm-dialog-actions"><button id="cpm-bulk-save" type="submit" class="primary">선택 항목 일괄 저장</button><button id="cpm-bulk-cancel" type="button">취소</button></div>
       </form>
     </dialog>
     <dialog id="cpm-rename-dialog" class="cpm-dialog" aria-labelledby="cpm-rename-title"><form id="cpm-rename-form"><h2 id="cpm-rename-title">그룹 이름 변경</h2><fieldset><label>그룹 이름<input id="cpm-rename-name" maxlength="60" required></label></fieldset><p id="cpm-rename-error" class="helper" role="alert"></p><div class="ca-toolbar cpm-dialog-actions"><button id="cpm-rename-save" class="primary" type="submit">이름 저장</button><button id="cpm-rename-cancel" type="button">취소</button></div></form></dialog>

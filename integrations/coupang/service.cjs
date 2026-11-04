@@ -256,6 +256,31 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ ...s, products }));
     return workspaceState(c);
   }
+  function updateProducts(v) {
+    const { c, s } = editableWorkspace(v);
+    if (!Array.isArray(v.itemIds) || !v.itemIds.length || v.itemIds.length > 500 || Array.from(v.itemIds).some(itemId => !id(itemId))) throw fail(400, '수정할 옵션 ID를 1~500개 선택하세요.');
+    const itemIds = v.itemIds.map(String), selected = new Set(itemIds);
+    if (selected.size !== itemIds.length) throw fail(400, '수정할 옵션은 중복 없이 선택하세요.');
+    const current = new Set(s.products.map(p => p.itemId));
+    if (itemIds.some(itemId => !current.has(itemId))) throw fail(409, '선택한 옵션이 현재 집계 대상에 없습니다. 상품 목록을 다시 불러오세요.');
+    const allowed = ['unitCost', 'commissionRate', 'inboundFee', 'deliveryFee', 'costSince'];
+    if (!v.changes || typeof v.changes !== 'object' || Array.isArray(v.changes)) throw fail(400, '일괄 수정할 비용 항목을 선택하세요.');
+    const keys = Reflect.ownKeys(v.changes);
+    if (!keys.length || keys.some(key => !allowed.includes(key))) throw fail(400, '일괄 수정할 비용 항목을 확인하세요.');
+    const changes = {};
+    for (const key of keys) {
+      const value = v.changes[key];
+      if (key === 'costSince') {
+        if (value !== null && (!validDay(value) || value > kstDay(now()))) throw fail(400, '원가 기준일을 확인하세요. 미래 날짜는 사용할 수 없습니다.');
+      } else if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e12)) throw fail(400, '원가·수수료·배송비는 0 이상의 숫자 또는 미확인으로 입력하세요.');
+      if (key === 'commissionRate' && value !== null && value > 100) throw fail(400, '수수료율은 0~100%로 입력하세요.');
+      changes[key] = value;
+    }
+    const products = s.products.map(p => selected.has(p.itemId) ? { ...p, ...changes, ...(Object.hasOwn(changes, 'unitCost') ? { productCostSourceZero: false } : {}) } : p);
+    // Validate the whole batch before replacing only the catalog metadata once.
+    atomic(path.join(dir(c), 'scope.json'), JSON.stringify({ ...s, products }));
+    return workspaceState(c);
+  }
   function saveGroups(v) {
     const { c, current } = editableWorkspace(v);
     if (!Array.isArray(v.groups) || v.groups.length > 100) throw fail(400, '상품 그룹은 최대 100개까지 저장할 수 있습니다.');
@@ -1432,6 +1457,6 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     }
     return result;
   }
-  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, saveGroups, importSales, importSalesBatch, importAdvertising, advertisingReports, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
+  return { status, saveCredentials, diagnose, thumbnailStatus, startThumbnails, waitForThumbnails: () => thumbnailTask, saveScope, importCatalog, workspace, updateProduct, updateProducts, saveGroups, importSales, importSalesBatch, importAdvertising, advertisingReports, analytics, products, sync, saveLedger, report, startHistory, historyStatus, pauseHistory, refresh, automatic, waitForRefresh: () => refreshTask, waitForHistory: () => historyTask };
 }
 module.exports = { createService, safeThumbnailUrl, signature, normalize, money, apiMoney, orderDate, COSTS, range };
