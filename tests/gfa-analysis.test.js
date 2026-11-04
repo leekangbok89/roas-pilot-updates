@@ -29,11 +29,34 @@ test('comparison uses GFA-selected paths and independent attribution, combines a
  const fortnight=model.analyze([entry('ads',ads()),entry('channels',channels().rows),entry('ads',ads(),'2026-09-08','2026-09-14'),entry('channels',next,'2026-09-08','2026-09-14')],'2026-09-01','2026-09-14');
  assert.equal(fortnight.ready,true);assert.equal(fortnight.store.sales,1596000);assert.equal(fortnight.campaigns.length,1);assert.equal(fortnight.campaigns[0].spend,200000);
 });
-test('partial weeks, missing source days, no GFA selections and zero denominator cannot produce comparison ROAS',()=>{
- const entries=[entry('ads',ads()),entry('channels',channels().rows)];let r=model.analyze(entries,'2026-09-02','2026-09-07');assert.equal(r.ready,false);assert.equal(r.partial,2);assert.equal(r.lastRoas,null);
+test('partial channel totals, missing source days, no GFA selections and zero denominator cannot produce comparison ROAS',()=>{
+ const entries=[entry('ads',ads()),entry('channels',channels().rows)];let r=model.analyze(entries,'2026-09-02','2026-09-07');assert.equal(r.ready,false);assert.equal(r.partial,1);assert.equal(r.spendEstimated,true);assert.equal(r.lastRoas,null);
  r=model.analyze(entries,'2026-09-01','2026-09-08');assert.equal(r.ready,false);assert.equal(r.lastRoas,null);
  r=model.analyze([entries[0],entry('channels',channels().rows.map(r=>({...r,gfa:false})))],'2026-09-01','2026-09-07');assert.equal(r.ready,false);assert.equal(r.store.sales,null);
  r=model.analyze([entry('ads',ads().map(r=>({...r,spend:0}))),entries[1]],'2026-09-01','2026-09-07');assert.equal(r.lastRoas,null);
+});
+test('period spend is averaged over inclusive dates while daily direct sales remain actual',()=>{
+ const rows=Array.from({length:16},(_,i)=>{const date='2026-10-'+String(16+i);return {since:date,until:date,path1:'광고',gfa:true,visits:10,orders:i===15?1:0,sales:i===15?399000:0};});
+ const entries=[entry('ads',[{...ads()[0],spend:206115}],'2026-10-16','2026-10-31'),entry('channels',rows,'2026-10-16','2026-10-31')],before=JSON.stringify(entries);
+ const r=model.analyze(entries,'2026-10-21','2026-10-31');
+ assert.equal(r.ad.spend,206115*11/16);assert.equal(Math.round(r.ad.spend),141704);assert.equal(r.ads.covered,11);assert.equal(r.channels.covered,11);assert.equal(r.ready,true);assert.equal(r.spendEstimated,true);
+ assert.equal(r.store.sales,399000);assert.equal(r.store.orders,1);assert.equal(r.lastRoas,399000/r.ad.spend*100);assert.equal(r.partial,0);
+ for(const key of ['purchases','revenue','clicks','impressions','cpc','cpa','roas'])assert.equal(r.ad[key],null,'do not invent '+key);
+ assert.equal(r.campaigns[0].spend,r.ad.spend);assert.equal(r.campaigns[0].spendEstimated,true);assert.equal(JSON.stringify(entries),before,'querying never rewrites saved source totals');
+ const full=model.analyze(entries,'2026-10-16','2026-10-31');assert.equal(full.ad.spend,206115);assert.equal(full.spendEstimated,false);assert.equal(full.ad.purchases,5);assert.equal(full.lastRoas,399000/206115*100);
+ const daily=rows.map(row=>model.analyze(entries,row.since,row.until));assert.equal(daily.reduce((sum,r)=>sum+r.ad.spend,0),206115);assert.equal(daily[0].store.sales,0);assert.equal(daily[0].lastRoas,0);assert.equal(daily[0].ad.spend,206115/16);
+});
+test('averaging combines adjacent source periods and leaves missing dates and absent sales unknown',()=>{
+ const first=entry('ads',[{...ads()[0],spend:100000}],'2026-09-01','2026-09-10'),second=entry('ads',[{...ads()[0],spend:200000}],'2026-09-11','2026-09-20');
+ let r=model.analyze([first,second],'2026-09-06','2026-09-15');assert.equal(r.ad.spend,150000);assert.equal(r.ads.covered,10);assert.equal(r.ads.complete,true);assert.equal(r.store.sales,null);assert.equal(r.lastRoas,null);
+ r=model.analyze([first,second],'2026-09-01','2026-09-20');assert.equal(r.ad.spend,300000);assert.equal(r.spendEstimated,false);assert.equal(r.ad.purchases,10);
+ r=model.analyze([first],'2026-09-06','2026-09-15');assert.equal(r.ad.spend,50000);assert.equal(r.ads.covered,5);assert.equal(r.ads.complete,false);assert.equal(r.ready,false);
+ r=model.analyze([first],'2026-10-01','2026-10-01');assert.equal(r.ad.spend,null);assert.equal(r.ads.covered,0);assert.equal(r.spendEstimated,false);
+});
+test('actual one-day reports remain exact and averaging handles leap-month boundaries and zero spend',()=>{
+ const daily=entry('ads',ads(),'2026-09-01','2026-09-01');let r=model.analyze([daily],'2026-09-01','2026-09-01');assert.equal(r.ad.spend,100000);assert.equal(r.ad.purchases,5);assert.equal(r.spendEstimated,false);
+ const leap=entry('ads',[{...ads()[0],spend:300}],'2024-02-28','2024-03-01');r=model.analyze([leap],'2024-02-29','2024-02-29');assert.equal(r.ad.spend,100);assert.equal(r.ads.covered,1);
+ r=model.analyze([{...leap,rows:[{...ads()[0],spend:0}]}],'2024-02-29','2024-02-29');assert.equal(r.ad.spend,0);assert.equal(r.lastRoas,null);
 });
 test('file snapshots survive restart, same-period imports replace, overlaps and stale writes cannot mutate history',t=>{
  const f=fixture(t),input=entry('channels',channels().rows);f.save(input);f.save({...input,filename:'again.xlsx',replaceExisting:true});assert.equal(f.store.read().entries.length,1);assert.equal(f.store.read().entries[0].filename,'again.xlsx');assert.equal(createStore({baseDir:f.baseDir,model}).read().entries.length,1);

@@ -75,15 +75,20 @@
     function source(kind){
       const covered=new Set(),records=[];
       for(const e of entries.filter(e=>e.kind===kind)){
-        const matched=kind==='channels'?
-          e.rows.filter(r=>r.since>=since&&r.until<=until):
-          (e.since>=since&&e.until<=until?e.rows:[]);
+        const start=e.since>since?e.since:since,end=e.until<until?e.until:until;
+        const allocated=kind==='ads'&&start<=end&&(start!==e.since||end!==e.until);
+        // Only spend can be averaged. Keep the saved totals untouched, and never
+        // turn period purchases, revenue or traffic into invented daily results.
+        const fraction=allocated?((at(end)-at(start))/day+1)/((at(e.until)-at(e.since))/day+1):1;
+        const matched=kind==='channels'?e.rows.filter(r=>r.since>=since&&r.until<=until):
+          start>end?[]:allocated?e.rows.map(r=>({...r,spend:r.spend===null||r.spend===undefined?null:r.spend*fraction,
+            purchases:null,revenue:null,reported:null,impressions:null,clicks:null,cpc:null,ctr:null,revenueEstimated:false,spendEstimated:true})):e.rows;
         if(matched.length){
-          records.push({...e,rows:matched});
-          if(kind==='ads')for(let t=at(e.since);t<=at(e.until);t+=day)covered.add(t);
+          records.push({...e,rows:matched,spendEstimated:allocated});
+          if(kind==='ads')for(let t=at(start);t<=at(end);t+=day)covered.add(t);
           else for(const row of matched)for(let t=at(row.since);t<=at(row.until);t+=day)covered.add(t);
         }
-        const hasPartial=kind==='ads'?(e.since<=until&&e.until>=since&&!matched.length):
+        const hasPartial=kind==='channels'&&
           e.rows.some(r=>r.since<=until&&r.until>=since&&!(r.since>=since&&r.until<=until));
         if(hasPartial)partial.push(e);
       }
@@ -94,8 +99,8 @@
     const ad=metrics(adRows),store={visits:sum(gfaRows,'visits'),orders:sum(gfaRows,'orders'),sales:sum(gfaRows,'sales')};
     store.conversionRate=rate(store.orders,store.visits);
     const ready=ads.complete&&channels.complete&&gfaRows.length>0&&ad.spend!==null&&store.sales!==null;
-    const campaigns=Object.values(adRows.reduce((map,row)=>{const key=row.id||row.name;(map[key]??=[]).push(row);return map;},{})).map(rows=>({name:rows[0].name,id:rows[0].id,budget:rows.at(-1).budget??null,...metrics(rows),estimated:rows.some(r=>r.revenueEstimated)}));
-    return {since,until,ads,channels,ad,store,ready,partial:partial.length,campaigns,channelRows,estimated:adRows.some(r=>r.revenueEstimated),lastRoas:ready?rate(store.sales,ad.spend):null,revenueGap:ready&&ad.revenue!==null&&store.sales!==null?ad.revenue-store.sales:null};
+    const campaigns=Object.values(adRows.reduce((map,row)=>{const key=row.id||row.name;(map[key]??=[]).push(row);return map;},{})).map(rows=>({name:rows[0].name,id:rows[0].id,budget:rows.at(-1).budget??null,...metrics(rows),estimated:rows.some(r=>r.revenueEstimated),spendEstimated:rows.some(r=>r.spendEstimated)}));
+    return {since,until,ads,channels,ad,store,ready,partial:partial.length,campaigns,channelRows,spendEstimated:ads.records.some(e=>e.spendEstimated),estimated:adRows.some(r=>r.revenueEstimated),lastRoas:ready?rate(store.sales,ad.spend):null,revenueGap:ready&&ad.revenue!==null&&store.sales!==null?ad.revenue-store.sales:null};
   }
   return {number,sum,rate,dates,range,validDate,delimited,parseAds,adsFromGrid,parseChannels,metrics,analyze};
 });
