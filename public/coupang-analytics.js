@@ -10,9 +10,9 @@
     { key: 'sales', label: '매출', color: '#508fd1' },
     { key: 'profitBeforeAds', label: '이익금 · 광고비 차감 전', color: '#d75c78' },
     { key: 'advertising', label: '매출성장 광고비', color: '#c29b28' },
-    { key: 'sourceNetProfit', label: '매출성장 차감 순이익', color: '#25966c' },
+    { key: 'sourceNetProfit', label: '순이익', color: '#25966c' },
     { key: 'acquisitionAdvertising', label: '신규구매 광고비', color: '#dd874c' },
-    { key: 'netProfit', label: '전체 광고비 반영 순이익', color: '#166974' },
+    { key: 'netProfit', label: '신규구매 광고비 차감 순이익', color: '#166974' },
     { key: 'estimatedProfitBeforeAds', label: '예상 이익 · 광고비 차감 전', color: '#8a70c8' }
   ];
   const columns = [
@@ -117,7 +117,7 @@
     host.textContent = storage ? '선택 기간 저장 ' + (storage.storedDays || 0) + '/' + (storage.expectedDays || 0) + '일·배송방식 · 최근 저장 주문일 ' + (storage.latestOrderDate || '아직 없음') + ' · 마지막 저장 ' + localTimestamp(storage.lastSavedAt) : '선택 기간의 저장 범위를 확인합니다.';
     const note = $('ca-estimate-status'); if (!note) return;
     const summary = report?.summary || {};
-    note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(report?.dailyReportSummary?.advertising ?? summary.advertising) ? ' 매출성장 광고비가 연결되지 않아 순이익 계산을 기다립니다.' : ' 매출성장 차감 순이익과 신규구매 광고비까지 반영한 순이익을 구분해 표시합니다.');
+    note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(report?.dailyReportSummary?.advertising ?? summary.advertising) ? ' 매출성장 광고비가 연결되지 않아 순이익 계산을 기다립니다.' : ' 순이익과 신규구매 광고비까지 반영한 순이익을 구분해 표시합니다.');
     const costWarning = costWarningText(summary); if (costWarning) note.textContent += ' ' + costWarning;
   }
   function renderPipeline(status) {
@@ -269,9 +269,9 @@
       ['estimatedProfitBeforeAds', 'API 예상 이익 · 광고비 차감 전', '등록 원가·수수료·물류비 반영 · 광고·반품·추가 비용 미확정'],
       ['profitBeforeAds', '이익금', '매출성장 광고비 차감 전'],
       ['advertising', '매출성장 광고비', '저장된 손익 자료 또는 매출성장 보고서'],
-      ['sourceNetProfit', '매출성장 차감 순이익', '이익금 − 매출성장 광고비'],
+      ['sourceNetProfit', '순이익', '이익금 − 매출성장 광고비'],
       ['acquisitionAdvertising', '신규구매 광고비', '자동 수집 보고서 또는 일별 확인 비용'],
-      ['netProfit', '전체 광고비 반영 순이익', '매출성장 차감 순이익 − 신규구매 광고비']
+      ['netProfit', '신규구매 광고비 차감 순이익', '순이익 − 신규구매 광고비']
     ]) {
       const canonical = report.dailyReportSummary, canonicalKey = canonical && Object.hasOwn(canonical, key);
       const partial = canonicalKey ? canonical.partial?.[key] === true : isPartialValue(summary, key), amount = canonicalKey ? isNumber(canonical[key]) ? canonical[key] : isNumber(canonical.available?.[key]) ? canonical.available[key] : null : displayedValue(summary, key);
@@ -306,7 +306,7 @@
       const card = element('div',undefined,'ca-card'); card.append(element('small',label),element('strong',won(totals[key]))); cards.append(card);
     }
     panel.append(cards);
-    const label = coverage.profitScope === 'file-sales-minus-account-nca' ? '가져온 전체 파일 매출의 이익 − 계정 전체 신규구매 광고비. 파일이 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'api-scope-minus-account-nca' ? 'API 조회 범위의 추정 이익 − 계정 전체 신규구매 광고비. 조회 범위가 계정 전체 매출인지는 확인되지 않았습니다.' : '기존에 확인한 신규구매 광고비·비용 장부를 우선 적용하며 같은 광고비를 다시 차감하지 않습니다.';
+    const label = coverage.profitScope === 'reference-sales-minus-account-nca' ? '확인한 일별 순이익 − 계정 전체 신규구매 광고비. 기준표가 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'mixed-sales-minus-account-nca' ? '날짜별 확인 자료 또는 API 조회 범위의 이익 − 계정 전체 신규구매 광고비. 날짜별 자료 기준은 계산 근거에서 확인하세요.' : coverage.profitScope === 'file-sales-minus-account-nca' ? '가져온 전체 파일 매출의 이익 − 계정 전체 신규구매 광고비. 파일이 계정 전체 매출인지는 확인되지 않았습니다.' : coverage.profitScope === 'api-scope-minus-account-nca' ? 'API 조회 범위의 추정 이익 − 계정 전체 신규구매 광고비. 조회 범위가 계정 전체 매출인지는 확인되지 않았습니다.' : '기존에 확인한 신규구매 광고비·비용 장부를 우선 적용하며 같은 광고비를 다시 차감하지 않습니다.';
     const note = element('p',label + ' 신규구매 보고서 ' + (coverage.collectedDays || 0) + '/' + (coverage.totalDays || report.daily.length) + '일 · 자동 반영 ' + (coverage.appliedDays || 0) + '일. 상품 그룹과 검색 필터는 이 전체 합계를 변경하지 않습니다.','helper');
     if (!isNumber(totals.netProfit)) note.append(document.createTextNode(' 비용 또는 집계 범위가 확인되지 않은 날짜가 있어 전체 기간 이익은 —로 표시합니다.'));
     if (coverage.differenceDays) note.append(document.createTextNode(' 기존 입력과 수집 보고서의 신규구매 광고비가 다른 날짜가 '+coverage.differenceDays+'일 있습니다. 기존 확인 금액을 우선 적용했습니다.'));
@@ -394,9 +394,9 @@
     host.append(svg); $('ca-chart-detail').textContent = '그래프에 마우스를 올리거나 Tab과 방향키로 날짜별 값을 확인할 수 있습니다. 자료가 없는 날짜의 선은 연결하지 않습니다. 일부 미수집일은 수집된 매출만 표시합니다.';
   }
   const dailyDetailColumns = [
-    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['estimatedProductCost', '예상 상품원가'], ['estimatedCommission', '예상 수수료'], ['estimatedFulfillment', '예상 입출고·배송비'], ['estimatedProfitBeforeAds', '예상 이익 · 광고비 차감 전'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '매출성장 차감 순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '전체 광고비 반영 순이익']
+    ['quantity', '판매량'], ['adQuantity', '광고 판매량'], ['organicQuantity', '일반 판매량'], ['sales', '매출'], ['estimatedProductCost', '예상 상품원가'], ['estimatedCommission', '예상 수수료'], ['estimatedFulfillment', '예상 입출고·배송비'], ['estimatedProfitBeforeAds', '예상 이익 · 광고비 차감 전'], ['profitBeforeAds', '이익금'], ['nonAdvertisingCosts', '광고 외 비용 합계'], ['otherCosts', '확인한 기타비용'], ['advertising', '매출성장 광고비'], ['sourceNetProfit', '순이익'], ['adSales', '광고 집행 매출'], ['adProfitBeforeAds', '광고 집행 이익금'], ['adNetProfit', '광고 집행 순이익'], ['roas', '광고 ROAS'], ['adReturnOnSpend', '광고 집행 순이익률'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '신규구매 광고비 차감 순이익']
   ];
-  const dailyColumns = [['sales', '매출'], ['profitBeforeAds', '이익금'], ['advertising', '매출성장 광고비'], ['otherCosts', '기타비용'], ['sourceNetProfit', '매출성장 차감 순이익'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '전체 광고비 반영 순이익']];
+  const dailyColumns = [['sales', '매출'], ['profitBeforeAds', '이익금'], ['advertising', '매출성장 광고비'], ['otherCosts', '기타비용'], ['sourceNetProfit', '순이익'], ['acquisitionAdvertising', '신규구매 광고비'], ['netProfit', '신규구매 광고비 차감 순이익']];
   let dailyDetails = false;
   let dailySort = { key: 'date', ascending: false };
   function dailyValue(row, key) {
@@ -478,7 +478,7 @@
         group.titles.push(title); groups.set(counts, group);
       }
       const partial = [...groups.values()].map(group => group.titles.join('·') + ' 전체 확인 ' + group.known + '일 · 부분 확인 ' + group.partial + '일 / 조회 ' + report.daily.length + '일');
-      note.textContent = '매출성장 차감 순이익 = 이익금 − 매출성장 광고비. 전체 광고비 반영 순이익 = 매출성장 차감 순이익 − 신규구매 광고비. 기타비용은 이익금에 이미 반영되어 있습니다. 신규구매 광고비가 미수집인 날은 최종 순이익을 계산하지 않습니다.' + (report.daily.some(row => ['pa', 'nca'].some(type => row.dailyReport?.advertisingSources?.[type]?.scope === 'account')) ? ' 계정 전체로 표시한 광고비는 보고서 원본 금액 전액을 현재 선택 상품의 이익에서 차감합니다. 상품별·배송 방식별로 배분하지 않으며 임의 부가세 보정을 하지 않습니다.' : '') + (partial.length ? ' 합계는 확인분 기준 (' + partial.join(' · ') + ').' : '') + (dailyColumns.some(([key]) => totals.estimated[key]) ? ' 예상 표시는 등록 원가·요금으로 계산한 값입니다.' : '');
+      note.textContent = '순이익 = 이익금 − 매출성장 광고비. 신규구매 광고비 차감 순이익 = 순이익 − 신규구매 광고비. 기타비용은 이익금에 이미 반영되어 있습니다. 신규구매 광고비가 미수집인 날은 최종 순이익을 계산하지 않습니다.' + (report.daily.some(row => ['pa', 'nca'].some(type => row.dailyReport?.advertisingSources?.[type]?.scope === 'account')) ? ' 계정 전체로 표시한 광고비는 보고서 원본 금액 전액을 현재 선택 상품의 이익에서 차감합니다. 상품별·배송 방식별로 배분하지 않으며 임의 부가세 보정을 하지 않습니다.' : '') + (partial.length ? ' 합계는 확인분 기준 (' + partial.join(' · ') + ').' : '') + (dailyColumns.some(([key]) => totals.estimated[key]) ? ' 예상 표시는 등록 원가·요금으로 계산한 값입니다.' : '');
     }
     renderDailyCalculation();
   }
@@ -499,8 +499,8 @@
     const sourceNote = source === 'reconciled' ? '이 날짜에 저장한 전체 배송·선택 상품의 확인 합계입니다. 상품별 비용을 이 합계에서 역산하거나 배분하지 않습니다.' : source === 'sellha' ? '표의 이익금은 원본 손익 자료를 사용합니다. 등록 비용으로 다시 계산한 값은 아래에서 따로 비교합니다.' : hasApi ? '주문금액은 반품·할인·정산이 확정되기 전의 참고 매출입니다. 등록된 비용으로 예상 이익을 계산합니다.' : source === 'ledger' ? '직접 확인해 저장한 매출과 비용을 사용합니다.' : '날짜별 저장 자료와 적용 비용을 확인해 주세요.';
     const advertising = dailyValue(row, 'advertising'), net = dailyValue(row, 'sourceNetProfit'), acquisition = dailyValue(row, 'acquisitionAdvertising'), finalNet = dailyValue(row, 'netProfit');
     return { sourceLabel, sourceNote, components, sourceProfit, calculatedProfit, difference, hasApi,
-      advertisingNote: !isNumber(advertising) ? '광고비 자료 없음 · 순이익 계산 대기' : !isNumber(net) ? '이익금 미확인 · 순이익 계산 대기' : '매출성장 차감 순이익은 이익금에서 매출성장 광고비를 한 번 차감한 값입니다.',
-      acquisitionNote: !isNumber(acquisition) ? '신규구매 광고비 자료 없음 · 전체 광고비 반영 순이익 계산 대기' : !isNumber(finalNet) ? '매출성장 차감 순이익 미확인 · 전체 광고비 반영 순이익 계산 대기' : '전체 광고비 반영 순이익은 매출성장 차감 순이익에서 신규구매 광고비를 한 번 차감한 값입니다.',
+      advertisingNote: !isNumber(advertising) ? '광고비 자료 없음 · 순이익 계산 대기' : !isNumber(net) ? '이익금 미확인 · 순이익 계산 대기' : '순이익은 이익금에서 매출성장 광고비를 한 번 차감한 값입니다.',
+      acquisitionNote: !isNumber(acquisition) ? '신규구매 광고비 자료 없음 · 신규구매 광고비 차감 순이익 계산 대기' : !isNumber(finalNet) ? '순이익 미확인 · 신규구매 광고비 차감 순이익 계산 대기' : '신규구매 광고비 차감 순이익은 순이익에서 신규구매 광고비를 한 번 차감한 값입니다.',
       advertisingSources: ['pa', 'nca'].map(type => advertisingSourceText(row, type)).filter(Boolean),
       reasons: Array.isArray(row?.dailyReport?.reasons) ? row.dailyReport.reasons.filter(value => typeof value === 'string') : [],
       accountCostNote: ['pa', 'nca'].some(type => row?.dailyReport?.advertisingSources?.[type]?.scope === 'account') ? '계정 전체 광고 보고서의 원본 금액을 현재 선택 상품의 이익에서 전액 차감합니다. 상품별·배송 방식별 배분이나 임의 부가세 보정은 하지 않습니다.' : '',
@@ -519,7 +519,7 @@
     if (evidence.referenceNote) host.append(element('p', evidence.referenceNote, 'helper ca-cost-warning'));
     if (evidence.hasApi && row.source === 'reconciled') host.append(element('p', '아래 등록 비용 계산은 현재 저장 주문 기준 참고값입니다. 위 확인 합계와 자료 기준이 다를 수 있습니다.', 'helper'));
     const list = element('dl', undefined, 'ca-calculation-values');
-    for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['매출성장 광고비', dailyValue(row, 'advertising')], ['매출성장 차감 순이익', dailyValue(row, 'sourceNetProfit')], ['신규구매 광고비', dailyValue(row, 'acquisitionAdvertising')], ['전체 광고비 반영 순이익', dailyValue(row, 'netProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
+    for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['매출성장 광고비', dailyValue(row, 'advertising')], ['순이익', dailyValue(row, 'sourceNetProfit')], ['신규구매 광고비', dailyValue(row, 'acquisitionAdvertising')], ['신규구매 광고비 차감 순이익', dailyValue(row, 'netProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
     host.append(list);
     if (isNumber(evidence.components.otherCostsRaw)) host.append(element('p', '등록 비용의 기타비용 합계 · 반올림 전 ' + evidence.components.otherCostsRaw.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원', 'helper'));
     if (isNumber(evidence.difference)) host.append(element('p', '등록 비용 계산 − 저장 자료 이익금: ' + (evidence.difference > 0 ? '+' : '') + won(evidence.difference) + '. 차이를 자동 보정률로 적용하지 않습니다.', 'helper'));
@@ -740,6 +740,18 @@
         const tr = element('tr', undefined, row.date === '합계' ? 'ca-totals-row' : undefined); addCell(tr, row.date); dailyColumns.forEach(([key]) => addCell(tr, won(row[key]))); b.append(tr);
       }
       confirmed.append(h, b); host.append(element('p', '확인한 일별 합계' + ' · 전체 배송·현재 집계 상품 기준. 상품·배송 방식별 금액으로 배분하지 않습니다.'), confirmed);
+      const comparison = element('table', undefined, 'ca-table ca-reference-sales-comparison'), comparisonHead = element('thead'), comparisonBody = element('tbody'), comparisonTitles = element('tr');
+      for (const title of ['일자', '현재 저장 매출', '기준표 매출', '차이 · 기준표 − 현재']) comparisonTitles.append(element('th', title));
+      comparisonHead.append(comparisonTitles);
+      for (const row of dailyTotals) {
+        const current = report?.channel === 'all' ? report.daily?.find(day => day.date === row.date) : null;
+        const sales = current ? dailyValue(current, 'sales') : null, tr = element('tr');
+        addCell(tr, row.date); addCell(tr, current ? won(sales) + (isPartialValue(current, 'sales') ? ' · 수집분' : '') : report?.channel && report.channel !== 'all' ? '전체 배송 조회 필요' : '현재 조회 범위 밖');
+        const difference = isNumber(sales) ? row.sales - sales : null;
+        addCell(tr, won(row.sales)); addCell(tr, isNumber(difference) ? (difference > 0 ? '+' : '') + won(difference) : '—'); comparisonBody.append(tr);
+      }
+      comparison.append(comparisonHead, comparisonBody);
+      host.append(element('p', '매출 기준 비교 · 같은 판매자·상품·배송 범위의 기준표인지 확인해 주세요. 저장하면 해당 날짜의 매출·이익금·광고비·기타비용을 기준표 값으로 표시합니다. 원본 주문·상품별 금액은 유지하며 신규구매 광고비는 별도 수집 자료로 계산합니다.', 'helper'), comparison);
     }
     if (catalog) host.append(element('p', '원가 설정 ' + number(catalog.total) + '개 · 양수 원가 ' + number(catalog.positive) + '개 · 원본 0원 ' + number(catalog.zero) + '개 · 기존 옵션 매칭 ' + number(catalog.matched) + '개 · 신규 ' + number(catalog.added) + '개. 저장하면 해당 옵션의 원가·수수료·배송비를 파일 값으로 갱신합니다. 원본 0원은 실제 원가 확인이 필요한 참고값입니다.', 'helper ca-catalog-preview'));
     if (!reports.length) { host.hidden = false; return; }
@@ -803,7 +815,7 @@
       if (sequence !== parseSequence) return;
       pendingImport = { reports, dailyTotals, ...(products ? { products } : {}) };
       renderImportPreview(reports, dailyTotals, catalog); configureImportAcquisition(reports);
-      $('ca-import-scope-note').textContent = products ? '이 파일의 원가 설정을 한 번 저장하면 이후 자동 수집한 주문 계산에 계속 적용합니다. 파일에 포함된 옵션의 기존 원가·수수료·배송비는 위 미리보기 기준으로 갱신합니다.' : '새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.';
+      $('ca-import-scope-note').textContent = products ? '이 파일의 원가 설정을 한 번 저장하면 이후 자동 수집한 주문 계산에 계속 적용합니다. 파일에 포함된 옵션의 기존 원가·수수료·배송비는 위 미리보기 기준으로 갱신합니다.' : !reports.length && dailyTotals.length ? '확인 합계만 반영합니다. 현재 집계 상품·전체 배송 기준이며 상품별 원가나 원본 주문은 변경하지 않습니다. 기준표와 같은 집계 상품이 선택되어 있는지 확인해 주세요.' : '새 옵션은 쿠팡 집계에 추가하고, 기존에 등록한 원가·수수료는 유지합니다. 다른 분석 메뉴의 브랜드 범위는 바뀌지 않습니다.';
       $('ca-import-status').textContent = dates.length + '일 · ' + dates[0] + ' ~ ' + dates.at(-1) + ' · 옵션 행 ' + number(reports.reduce((n, r) => n + r.rows.length, 0)) + '개' + (dailyTotals.length ? ' · 확인 합계 ' + dailyTotals.length + '일' : '') + (products ? ' · 원가 설정 포함' : '') + '. 아래 수치를 확인한 뒤 저장하세요. 같은 날짜는 교체하여 중복 합산하지 않습니다.'; $('ca-save').disabled = false;
     } catch (error) { if (sequence === parseSequence) { $('ca-import-status').textContent = error.message; message(error.message, true); } }
     finally { if (sequence === parseSequence) $('ca-preview').disabled = false; }
@@ -834,7 +846,7 @@
       if (pendingImport === payload) pendingImport = null;
       const results = Array.isArray(result.reports) ? result.reports : Array.isArray(result.results) ? result.results : [];
       const excluded = results.reduce((n, r) => n + (r.excluded || 0), 0);
-      $('ca-import-status').textContent = dates.length + '일 손익 자료 저장 완료. ' + (products ? '원가·수수료·배송비 ' + number(result.catalogImported ?? products.length) + '개 갱신 · 원본 0원 ' + number(result.catalogZeroCosts ?? products.filter(product => product.unitCost === 0).length) + '개. 이후 자동 수집 주문에 적용합니다.' : includeProducts ? '파일의 옵션을 쿠팡 집계에 포함했습니다. 기존 등록 원가는 유지합니다.' : '기존 집계 대상만 반영합니다.') + (excluded ? ' 집계 제외 옵션 행 ' + number(excluded) + '개.' : '');
+      $('ca-import-status').textContent = dates.length + '일 손익 자료 저장 완료. ' + (products ? '원가·수수료·배송비 ' + number(result.catalogImported ?? products.length) + '개 갱신 · 원본 0원 ' + number(result.catalogZeroCosts ?? products.filter(product => product.unitCost === 0).length) + '개. 이후 자동 수집 주문에 적용합니다.' : !reports.length && dailyTotals.length ? '매출·이익금·광고비·기타비용을 확인 합계로 반영했습니다. 신규구매 광고비는 저장된 보고서에서 별도로 차감합니다.' : includeProducts ? '파일의 옵션을 쿠팡 집계에 포함했습니다. 기존 등록 원가는 유지합니다.' : '기존 집계 대상만 반영합니다.') + (excluded ? ' 집계 제외 옵션 행 ' + number(excluded) + '개.' : '');
       $('ca-since').value = dates[0]; $('ca-until').value = dates.at(-1); $('ca-channel').value = 'all'; $('ca-month').value = ''; markPreset(null); await load();
     } catch (error) { message(error.message, true); $('ca-import-status').textContent = error.message; }
     finally { importSaving = false; lockedInputs.forEach(({ input, disabled }) => { input.disabled = disabled; }); $('ca-preview').disabled = false; $('ca-save').disabled = !pendingImport; }

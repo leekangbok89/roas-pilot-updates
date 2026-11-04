@@ -1098,6 +1098,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     summary.roas = Number.isFinite(summary.adSales) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adSales / summary.advertising * 100 : null;
     summary.adReturnOnSpend = Number.isFinite(summary.adNetProfit) && Number.isFinite(summary.advertising) && summary.advertising > 0 ? summary.adNetProfit / summary.advertising * 100 : null;
     const acquisitionDays = daily.map(day => day.acquisitionCoverage);
+    const acquisitionProfitScopes = [...new Set(acquisitionDays.filter(day => day.applied).map(day => day.profitScope))];
     summary.acquisitionCoverage = { accountScopeVerified: false, totalDays: days.length,
       collectedDays: acquisitionDays.filter(day => day.collected).length,
       appliedDays: acquisitionDays.filter(day => day.applied).length,
@@ -1105,7 +1106,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       ledgerDays: acquisitionDays.filter(day => day.source === 'confirmed-ledger').length,
       differenceDays: acquisitionDays.filter(day => Number.isFinite(day.difference) && day.difference !== 0).length,
       availableAccountSpend: acquisitionDays.some(day => Number.isFinite(day.accountSpend)) ? acquisitionDays.reduce((total, day) => total + (Number.isFinite(day.accountSpend) ? day.accountSpend : 0), 0) : null,
-      profitScope: acquisitionDays.some(day => day.applied) ? 'file-sales-minus-account-nca' : 'selected-scope',
+      profitScope: acquisitionProfitScopes.length === 1 ? acquisitionProfitScopes[0] : acquisitionProfitScopes.length > 1 ? 'mixed-sales-minus-account-nca' : 'selected-scope',
       reasons: [...new Set(acquisitionDays.map(day => day.reason).filter(Boolean))] };
     if (view) for (const item of itemTotals.values()) {
       item.roas = item.advertising > 0 && Number.isFinite(item.adSales) ? item.adSales / item.advertising * 100 : null;
@@ -1146,7 +1147,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     day.acquisitionCoverage = coverage;
     const ledgerIncluded = day.source !== 'reconciled' && day.channels.some(part => part.source === 'ledger');
     const apiScope = !scope.group && day.channels.every(part => part.source === 'api');
-    const eligibleScope = channel === 'all' && !scope.group && (scope.fileScoped && scope.fullFile && !scope.fileSelectionChanged || apiScope);
+    const referenceScope = day.source === 'reconciled' && day.dailyTotalsApplied === true && day.dailyTotals?.verified === true && day.dailyTotals.channel === 'all';
+    const eligibleScope = channel === 'all' && !scope.group && (referenceScope || scope.fileScoped && scope.fullFile && !scope.fileSelectionChanged || apiScope);
     if (channel !== 'all') {
       if (reports.nca) {
         coverage.reason = '저장된 신규구매 광고비는 계정 전체 금액입니다. 배송 방식별로 배분하지 않아 이 조회에는 적용하지 않았습니다.';
@@ -1176,8 +1178,8 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     } else {
       day.acquisitionAdvertising = accountSpend; day.advertisingSources.nca = reports.nca;
       coverage.applied = true; coverage.source = 'nca-report';
-      coverage.profitScope = apiScope ? 'api-scope-minus-account-nca' : 'file-sales-minus-account-nca';
-      coverage.reason = (apiScope ? '현재 선택 상품의 API 매출 추정 이익' : '가져온 전체 파일 매출의 이익') + '에서 계정 전체 신규구매 광고비를 한 번 차감했습니다. 이 매출이 계정 전체 범위인지는 확인되지 않았습니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.';
+      coverage.profitScope = referenceScope ? 'reference-sales-minus-account-nca' : apiScope ? 'api-scope-minus-account-nca' : 'file-sales-minus-account-nca';
+      coverage.reason = (referenceScope ? '현재 집계 상품의 확인한 일별 순이익' : apiScope ? '현재 선택 상품의 API 매출 추정 이익' : '가져온 전체 파일 매출의 이익') + '에서 계정 전체 신규구매 광고비를 한 번 차감했습니다. 이 매출이 계정 전체 범위인지는 확인되지 않았습니다. 상품·배송 방식별로 배분하지 않으며 부가세를 추정해 가산하지 않았습니다.';
     }
     day.advertisingReasons.push(coverage.reason);
   }
