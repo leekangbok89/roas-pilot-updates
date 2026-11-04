@@ -119,6 +119,8 @@
     const summary = report?.summary || {};
     note.textContent = (isNumber(summary.estimatedProfitBeforeAds) ? '예상 이익 = 저장된 판매금액 − 등록 상품원가 − 예상 수수료 − 예상 입출고·배송비. 광고비·반품·보관비·추가 정산비용은 미확정입니다.' : estimateMissingText(summary)) + (!isNumber(report?.dailyReportSummary?.advertising ?? summary.advertising) ? ' 매출성장 광고비가 연결되지 않아 순이익 계산을 기다립니다.' : ' 순이익과 신규구매 광고비까지 반영한 순이익을 구분해 표시합니다.');
     const costWarning = costWarningText(summary); if (costWarning) note.textContent += ' ' + costWarning;
+    const legacySellerDays = (report?.daily || []).filter(row => row.apiOrderAdjustments?.some(part => part.channel === 'seller' && !part.current)).length;
+    if (legacySellerDays) note.textContent += ' 판매자배송 ' + legacySellerDays + '일은 이전 수집 기준입니다. 최근 7일 수집 또는 전체 다시 수집으로 취소·할인 정보를 확인하세요.';
   }
   function renderPipeline(status) {
     pipelineStatus = status;
@@ -506,6 +508,12 @@
       accountCostNote: ['pa', 'nca'].some(type => row?.dailyReport?.advertisingSources?.[type]?.scope === 'account') ? '계정 전체 광고 보고서의 원본 금액을 현재 선택 상품의 이익에서 전액 차감합니다. 상품별·배송 방식별 배분이나 임의 부가세 보정은 하지 않습니다.' : '',
       referenceNote: row?.dailyTotalsStatus?.reason || '', costWarning: costWarningText(row), missingCost: !isNumber(calculatedProfit) ? estimateMissingText(row) : '' };
   }
+  function orderAdjustmentEvidence(row) {
+    const parts = row?.dailyReport?.apiOrderAdjustments || row?.apiOrderAdjustments || [];
+    return parts.filter(part => part.channel === 'seller').map(part => ({ ...part,
+      title: part.current ? '판매자배송 주문·취소 확인' : '판매자배송 이전 수집 자료',
+      values: [['원주문 수량', part.orderedQuantity, false], ['원주문 금액', part.orderedGross, true], ['확정 취소 수량', part.confirmedCancelledQuantity, false], ['확정 취소의 주문단가 합계', part.confirmedCancellationGross, true], ['환불 예정 수량 · 미차감', part.pendingCancelledQuantity, false], ['원본 총 할인액 · 미차감', part.discountPrice, true], ['즉시할인 쿠폰', part.instantCouponDiscount, true], ['다운로드 쿠폰', part.downloadableCouponDiscount, true], ['쿠팡 지원 할인', part.coupangDiscount, true]] }));
+  }
   function renderDailyCalculation() {
     const select = $('ca-calculation-date'), host = $('ca-calculation-body'); if (!select || !host) return;
     const selected = select.value, rows = [...(report?.daily || [])].sort((a, b) => b.date.localeCompare(a.date));
@@ -521,6 +529,13 @@
     const list = element('dl', undefined, 'ca-calculation-values');
     for (const [label, value, raw] of [['자료에 저장된 이익금', evidence.sourceProfit], ['등록 비용으로 계산한 이익금', evidence.calculatedProfit], ['상품원가 합계', evidence.components.productCost, true], ['판매수수료', evidence.components.commission, true], ['입출고·배송비', evidence.components.fulfillment, true], ['표 기타비용', dailyValue(row, 'otherCosts')], ['매출성장 광고비', dailyValue(row, 'advertising')], ['순이익', dailyValue(row, 'sourceNetProfit')], ['신규구매 광고비', dailyValue(row, 'acquisitionAdvertising')], ['신규구매 광고비 차감 순이익', dailyValue(row, 'netProfit')]]) { list.append(element('dt', label), element('dd', raw && isNumber(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원' : won(value))); }
     host.append(list);
+    for (const part of orderAdjustmentEvidence(row)) {
+      host.append(element('strong', part.title));
+      const inputs = element('dl', undefined, 'ca-calculation-values');
+      for (const [label, value, money] of part.values) inputs.append(element('dt', label), element('dd', money ? won(value) : isNumber(value) ? number(value) + '개' : '—'));
+      host.append(inputs);
+      for (const reason of part.reasons || []) host.append(element('p', reason, 'helper'));
+    }
     if (isNumber(evidence.components.otherCostsRaw)) host.append(element('p', '등록 비용의 기타비용 합계 · 반올림 전 ' + evidence.components.otherCostsRaw.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '원', 'helper'));
     if (isNumber(evidence.difference)) host.append(element('p', '등록 비용 계산 − 저장 자료 이익금: ' + (evidence.difference > 0 ? '+' : '') + won(evidence.difference) + '. 차이를 자동 보정률로 적용하지 않습니다.', 'helper'));
     host.append(element('p', evidence.advertisingNote, 'helper' + (!isNumber(dailyValue(row, 'advertising')) ? ' ca-cost-warning' : '')));

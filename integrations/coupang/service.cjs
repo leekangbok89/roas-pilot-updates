@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const CHANNELS = ['growth', 'seller'];
 const COSTS = ['netSales', 'productCost', 'commission', 'advertising', 'inbound', 'delivery', 'storage', 'returns', 'other'];
 const DAY = 86400000;
+const SELLER_ORDER_BASIS = 'seller-confirmed-cancellations-v1';
 const fail = (status, message) => Object.assign(Error(message), { status });
 const kstDay = ms => new Date(ms + 9 * 3600000).toISOString().slice(0, 10);
 const validDay = s => typeof s === 'string' && /^\d{4}-\d\d-\d\d$/.test(s) && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -44,14 +45,59 @@ function normalize(raw, channel, date) {
   if (paidDay !== date) throw fail(502, '쿠팡 주문 날짜가 조회 날짜와 다릅니다. 기존 자료를 유지합니다.');
   return raw.orderItems.map(item => {
     if (!item || !id(item.vendorItemId)) throw fail(502, '쿠팡 옵션 ID를 확인할 수 없습니다.');
-    const quantity = money(channel === 'growth' ? item.salesQuantity : item.shippingCount);
-    const gross = channel === 'growth' ? money(item.unitSalesPrice) : apiMoney(item.orderPrice);
+    let quantity = money(channel === 'growth' ? item.salesQuantity : item.shippingCount);
+    let gross = channel === 'growth' ? money(item.unitSalesPrice) : apiMoney(item.orderPrice);
     if (quantity === null || !Number.isInteger(quantity) || gross === null || (channel === 'growth' && item.currency !== 'KRW')) throw fail(502, '쿠팡 주문 금액·수량·통화를 확인할 수 없습니다.');
     if (channel === 'seller' && !id(raw.shipmentBoxId)) throw fail(502, '쿠팡 배송번호를 확인할 수 없습니다.');
+    let orderAdjustments;
+    if (channel === 'seller') {
+      const orderedQuantity = quantity, orderedGross = gross;
+      const count = key => {
+        if (item[key] == null) return null;
+        const value = money(item[key]);
+        if (!Number.isSafeInteger(value) || value > orderedQuantity) throw fail(502, '쿠팡 취소·환불 수량을 확인할 수 없습니다. 기존 자료를 유지합니다.');
+        return value;
+      };
+      const confirmedCancelledQuantity = count('cancelCount'), pendingCancelledQuantity = count('holdCountForCancel');
+      if ((confirmedCancelledQuantity ?? 0) + (pendingCancelledQuantity ?? 0) > orderedQuantity) throw fail(502, '쿠팡 취소·환불 수량이 주문 수량보다 큽니다. 기존 자료를 유지합니다.');
+      const amount = key => {
+        if (item[key] == null) return null;
+        const value = apiMoney(item[key]);
+        if (value === null) throw fail(502, '쿠팡 판매단가·할인 금액의 통화를 확인할 수 없습니다. 기존 자료를 유지합니다.');
+        return value;
+      };
+      const suppliedUnitPrice = amount('salesPrice');
+      const unitSalesPrice = suppliedUnitPrice ?? (orderedQuantity > 0 ? orderedGross / orderedQuantity : null);
+      if (orderedQuantity === 0 && orderedGross !== 0 || suppliedUnitPrice !== null && Math.abs(suppliedUnitPrice * orderedQuantity - orderedGross) > 1e-6) throw fail(502, '쿠팡 판매단가와 주문 금액이 일치하지 않습니다. 기존 자료를 유지합니다.');
+      const confirmedCancellationGross = confirmedCancelledQuantity === null ? null : confirmedCancelledQuantity === 0 ? 0 : unitSalesPrice * confirmedCancelledQuantity;
+      quantity = orderedQuantity - (confirmedCancelledQuantity ?? 0);
+      gross = quantity === 0 ? 0 : orderedGross - (confirmedCancellationGross ?? 0);
+      // orderPrice is unit price times original quantity. Only confirmed
+      // cancellations change this gross-sales basis; pending refunds and the
+      // combined discount (which includes Coupang-funded coupons) are not netted.
+      orderAdjustments = { basis: SELLER_ORDER_BASIS, orderedQuantity, orderedGross, confirmedCancelledQuantity, pendingCancelledQuantity,
+        confirmedCancellationGross, unitSalesPrice, unitPriceBasis: suppliedUnitPrice !== null ? 'api-unit-price' : orderedQuantity > 0 ? 'order-price-divided-by-quantity' : 'unavailable',
+        ...Object.fromEntries(['discountPrice', 'instantCouponDiscount', 'downloadableCouponDiscount', 'coupangDiscount'].map(key => [key, amount(key)])),
+        cancelled: typeof item.canceled === 'boolean' ? item.canceled : null, refundAmountVerified: false };
+    }
+    const lineGross = channel === 'growth' ? gross * quantity : gross;
+    if (money(lineGross) === null) throw fail(502, '쿠팡 주문 계산 금액이 유효하지 않습니다. 기존 자료를 유지합니다.');
     return { key: String(raw.orderId) + ':' + String(raw.shipmentBoxId || '') + ':' + String(item.vendorItemId), orderId: String(raw.orderId),
       itemId: String(item.vendorItemId), name: String(item.productName || item.vendorItemName || '').slice(0, 300), quantity,
-      gross: channel === 'growth' ? gross * quantity : gross };
+      gross: lineGross, ...(orderAdjustments ? { orderAdjustments } : {}) };
   });
+}
+function sellerAdjustmentSummary(snap, itemIds) {
+  if (!snap || snap.channel !== 'seller') return null;
+  const rows = snap.rows.filter(row => itemIds.has(row.itemId)), current = snap.calculationBasis === SELLER_ORDER_BASIS && rows.every(row => row.orderAdjustments?.basis === SELLER_ORDER_BASIS);
+  const knownSum = key => current && rows.every(row => Number.isFinite(row.orderAdjustments[key])) ? rows.reduce((sum, row) => sum + row.orderAdjustments[key], 0) : null;
+  const reasons = current ? ['판매자배송 주문단가 기준으로 확정 취소 수량만 매출·판매량에서 제외했습니다. 실제 환불액·할인 부담·반품 비용은 별도 확인이 필요합니다.'] : ['이 판매자배송 자료는 이전 수집 기준입니다. 최근 7일 수집 또는 전체 다시 수집으로 취소·할인 정보를 다시 확인하세요.'];
+  if (current && rows.some(row => row.orderAdjustments.confirmedCancelledQuantity === null)) reasons.push('원본에 확정 취소 수량이 없는 주문은 취소 여부를 확인하지 못했습니다.');
+  if (current && rows.some(row => row.orderAdjustments.pendingCancelledQuantity > 0)) reasons.push('환불 예정 수량은 확정 취소와 구분해 보관하며 매출에서 미리 차감하지 않았습니다.');
+  if (current && rows.some(row => row.orderAdjustments.discountPrice > 0 || row.orderAdjustments.instantCouponDiscount > 0 || row.orderAdjustments.downloadableCouponDiscount > 0 || row.orderAdjustments.coupangDiscount > 0)) reasons.push('할인 구성은 원본대로 보관했습니다. 쿠팡 부담 할인 등이 포함될 수 있어 총 할인액을 판매자 매출에서 일괄 차감하지 않았습니다.');
+  if (current && rows.some(row => row.orderAdjustments.cancelled === true && !row.orderAdjustments.confirmedCancelledQuantity)) reasons.push('취소 표시와 확정 취소 수량을 함께 확인할 수 없는 주문이 있습니다.');
+  return { channel: 'seller', basis: current ? SELLER_ORDER_BASIS : 'legacy-orders', current, rows: rows.length, refundAmountVerified: false,
+    ...Object.fromEntries(['orderedQuantity', 'orderedGross', 'confirmedCancelledQuantity', 'pendingCancelledQuantity', 'confirmedCancellationGross', 'discountPrice', 'instantCouponDiscount', 'downloadableCouponDiscount', 'coupangDiscount'].map(key => [key, knownSum(key)])), reasons };
 }
 // API CDN paths are public image metadata. Relative vendor_inventory paths use
 // Coupang's image CDN convention; browser load errors retain the placeholder.
@@ -514,13 +560,16 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
           const all = new Map();
           for (const state of ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY', 'NONE_TRACKING']) {
             const part = await pages(c, '/v2/providers/openapi/apis/api/v5/vendors/' + c.vendorId + '/ordersheets', { createdAtFrom: v.since + '+09:00', createdAtTo: v.until + '+09:00', status: state, maxPerPage: '50' }, 'seller', days);
-            for (const row of part) all.set(row.key, row);
+            for (const row of part) {
+              if (all.has(row.key) && JSON.stringify(all.get(row.key)) !== JSON.stringify(row)) throw fail(502, '쿠팡 주문 상태별 중복 자료가 일치하지 않습니다. 기존 자료를 유지합니다.');
+              all.set(row.key, row);
+            }
           }
           rows = [...all.values()];
         }
         rows.sort((a, b) => a.key.localeCompare(b.key));
         for (const date of days) {
-        const snap = { date, channel: v.channel, vendorId: c.vendorId, fetchedAt: new Date(now()).toISOString(), rows: rows.filter(row => row.date === date).map(({ date: ignored, ...row }) => row) };
+        const snap = { date, channel: v.channel, vendorId: c.vendorId, fetchedAt: new Date(now()).toISOString(), ...(v.channel === 'seller' ? { calculationBasis: SELLER_ORDER_BASIS } : {}), rows: rows.filter(row => row.date === date).map(({ date: ignored, ...row }) => row) };
         const previous = snapshot(c, date, v.channel);
         const kind = !previous || previous.vendorId !== c.vendorId || !Array.isArray(previous.rows) ? 'newDays'
           : hash(previous.rows) === hash(snap.rows) ? 'unchangedDays' : 'changedDays';
@@ -995,9 +1044,10 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const acquisitionScopeKey = fileScoped ? hash(effectiveFileIds) : s.key;
       const fileSelectionChanged = fileScoped && imported.acquisitionScopeKey !== acquisitionScopeKey;
       const sourceScope = fileScoped ? { mode: 'file', fileProducts: reportItemIds.size, selectedFileProducts: effectiveFileIds.length, outsideFileProducts: chosen.size - effectiveFileIds.length } : { mode: 'selected' };
-      const parts = [];
+      const parts = [], apiOrderAdjustments = [];
       for (const ch of selectedChannels) {
         const ledger = ledgerRows.get(date + ':' + ch), snap = snapshot(c, date, ch);
+        const adjustment = sellerAdjustmentSummary(snap, new Set(chosen.keys())); if (adjustment) apiOrderAdjustments.push(adjustment);
         const importedRows = (imported?.rows || []).filter(r => r.channel === ch && chosen.has(r.itemId));
         // Export rows identify an option's delivery type even for older catalog
         // imports that did not yet persist channel metadata.
@@ -1061,7 +1111,7 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
       const roas = row => Number.isFinite(row.adSales) && Number.isFinite(row.advertising) && row.advertising > 0 ? row.adSales / row.advertising * 100 : null;
       const adReturnOnSpend = row => Number.isFinite(row.adNetProfit) && Number.isFinite(row.advertising) && row.advertising > 0 ? row.adNetProfit / row.advertising * 100 : null;
       for (const part of parts) { part.fetchedAt = ledgerRows.get(date + ':' + part.channel)?.fetchedAt || null; if (!part.available) part.available = available([part]); part.roas = roas(part); part.adReturnOnSpend = adReturnOnSpend(part); }
-      const day = { date, source, sourceScope, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), ...aggregateEstimates(parts), available: available(parts), complete: parts.every(p => p.complete), channels: parts };
+      const day = { date, source, sourceScope, ...Object.fromEntries(fields.map(k => [k, sum(parts, k)])), ...aggregateEstimates(parts), available: available(parts), complete: parts.every(p => p.complete), channels: parts, apiOrderAdjustments };
       const totals = channel === 'all' ? read(path.join(dir(c), 'daily-totals', date + '.json'), null) : null;
       if (totals) {
         let state = 'current', reason = '저장한 일일 합계와 현재 계산 원본이 일치합니다.';
@@ -1227,10 +1277,11 @@ function createService({ baseDir, protect, fetchImpl = (...args) => fetch(...arg
     if (!finite(acquisitionAdvertising) && !finite(netProfit)) reasons.push('신규구매 광고비 미확인 · 전체 광고비 반영 순이익 계산 대기');
     reasons.push(...(day.advertisingReasons || []));
     if (!finite(profitBeforeAds) || !finite(otherCosts)) reasons.push(...(day.missingInputReasons || []));
-    if (apiUnconfirmed) reasons.push('주문 API 매출은 취소·반품·할인 반영이 미확정입니다.');
+    if (apiUnconfirmed) reasons.push('주문 API 매출은 실제 환불·할인·정산 금액이 미확정입니다. 로켓그로스 주문은 출고 이후 조회 자료이며 반품·실물류비를 모두 제공하지 않습니다.');
+    if (apiUnconfirmed) reasons.push(...(day.apiOrderAdjustments || []).flatMap(part => part.reasons));
     if (day.dailyTotalsStatus?.state !== 'current' && day.dailyTotalsStatus?.reason) reasons.push(day.dailyTotalsStatus.reason);
     if (otherEstimated || estimated.profitBeforeAds) reasons.push(...(day.costWarnings || []));
-    return { ...values, estimated, partial, source: day.source, basis, missing, reasons: [...new Set(reasons)], apiUnconfirmed,
+    return { ...values, estimated, partial, source: day.source, basis, missing, reasons: [...new Set(reasons)], apiUnconfirmed, apiOrderAdjustments: day.apiOrderAdjustments || [],
       advertisingSources: day.advertisingSources,
       costMissingInputs: [...(day.missingInputs || [])],
       components: { productCost: finite(day.estimatedProductCost) ? day.estimatedProductCost : null,

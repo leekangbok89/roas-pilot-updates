@@ -26,6 +26,7 @@ async function main() {
     day.dailyReport = { ...Object.fromEntries(moneyKeys.map(key => [key, day[key]])), source: day.source, basis: day.source === 'missing' ? 'missing' : 'saved-daily-report',
       estimated: Object.fromEntries(moneyKeys.map(key => [key, index === 1 && ['profitBeforeAds','sourceNetProfit','netProfit'].includes(key)])), partial: {},
       advertisingSources: { pa: { source: 'saved-sales', scope: 'selected' }, nca: { source: index === 2 ? 'missing' : 'nca-report', scope: 'account', basis: 'report-original-amount', filename: 'synthetic-nca.xlsx', importedAt: '2026-10-28T01:00:00Z' } },
+      apiOrderAdjustments: index === 1 ? [{ channel: 'seller', current: true, rows: 1, orderedQuantity: 3, orderedGross: 15000, confirmedCancelledQuantity: 1, confirmedCancellationGross: 5000, pendingCancelledQuantity: null, discountPrice: null, instantCouponDiscount: null, downloadableCouponDiscount: null, coupangDiscount: 0, refundAmountVerified: false, reasons: ['환불 예정 수량은 매출에서 미리 차감하지 않았습니다.', '원본 총 할인액은 일괄 차감하지 않았습니다.'] }] : [],
       components: { productCost: index === 1 ? 40000 : null, commission: index === 1 ? 13000 : null, fulfillment: index === 1 ? 15000 : null, estimatedProfitBeforeAds: index === 1 ? 82000 : null }, differences: { profitBeforeAds: index === 1 ? 0 : null } };
   });
   const dailyReportSummary = { ...Object.fromEntries(moneyKeys.map(key => [key, null])), available: Object.fromEntries(moneyKeys.map(key => [key, daily.slice(0, 2).reduce((total, day) => total + day.dailyReport[key], 0)])),
@@ -81,6 +82,12 @@ async function main() {
   assert.match(await page.locator('#ca-calculation-body').innerText(), /40,000원/);
   assert.match(await page.locator('#ca-calculation-body').innerText(), /신규구매 보고서 · 계정 전체 · 원본 금액/);
   assert.match(await page.locator('#ca-calculation-body').innerText(), /synthetic-nca.xlsx/);
+  const orderEvidence = page.locator('#ca-calculation-body dl').nth(1);
+  assert.match(await page.locator('#ca-calculation-body').innerText(), /판매자배송 주문·취소 확인/);
+  const evidenceValue = label => orderEvidence.locator('dt').filter({ hasText: new RegExp('^' + label + '$') }).locator('xpath=following-sibling::dd[1]').textContent();
+  assert.equal(await evidenceValue('원주문 금액'), '15,000원'); assert.equal(await evidenceValue('확정 취소 수량'), '1개'); assert.equal(await evidenceValue('확정 취소의 주문단가 합계'), '5,000원');
+  assert.equal(await evidenceValue('환불 예정 수량 · 미차감'), '—'); assert.equal(await evidenceValue('원본 총 할인액 · 미차감'), '—'); assert.equal(await evidenceValue('쿠팡 지원 할인'), '0원');
+  assert.match(await page.locator('#ca-calculation-body').innerText(), /매출에서 미리 차감하지 않았습니다/); assert.match(await page.locator('#ca-calculation-body').innerText(), /총 할인액은 일괄 차감하지 않았습니다/);
   assert.match(await page.locator('#ca-daily-note').innerText(), /계정 전체로 표시한 광고비/);
   await page.locator('.growth-supplemental > summary').click();
   assert.match(await page.locator('.ca-card-netProfit').innerText(), /103,000원/);

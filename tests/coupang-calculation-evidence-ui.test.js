@@ -8,7 +8,7 @@ function declaration(name) {
 }
 function context() {
   const context = vm.createContext({});
-  const names = ['displayedValue','dailyValue','dailyEstimated','dailyTotal','costWarningText','estimateMissingText','advertisingSourceText','dailyCalculationEvidence','openReferenceImport'];
+  const names = ['displayedValue','dailyValue','dailyEstimated','dailyTotal','costWarningText','estimateMissingText','advertisingSourceText','dailyCalculationEvidence','orderAdjustmentEvidence','openReferenceImport'];
   const constants = ['sourceNames','isNumber','dailyColumns'].map(name => source.split('\n').find(line => line.trim().startsWith('const ' + name + ' ='))).join('\n');
   vm.runInContext(constants + '\n' + names.map(declaration).join('\n') + '\nglobalThis.h={' + names.join(',') + '};', context);
   return context;
@@ -77,4 +77,18 @@ test('NCA report evidence identifies account-wide original cost and one further 
   assert.deepEqual(Array.from(evidence.reasons), ['계정 전체 비용']);
   const unknown = h.dailyCalculationEvidence({ ...row, dailyReport: { ...row.dailyReport, acquisitionAdvertising: null, netProfit: null } });
   assert.match(unknown.acquisitionNote, /신규구매 광고비 자료 없음/);
+});
+test('seller order evidence uses canonical selected-scope metadata and preserves unknowns beside confirmed zero values', () => {
+  const { h } = context(), part = { channel: 'seller', current: true, rows: 1, orderedQuantity: 3, orderedGross: 15000, confirmedCancelledQuantity: 1, confirmedCancellationGross: 5000, pendingCancelledQuantity: null, discountPrice: null, instantCouponDiscount: 0, downloadableCouponDiscount: null, coupangDiscount: 0, reasons: ['할인 합계는 일괄 차감하지 않았습니다.'] };
+  const row = { apiOrderAdjustments: [{ ...part, orderedGross: 999999 }], dailyReport: { apiOrderAdjustments: [{ channel: 'growth', orderedGross: 888888 }, part] } }, before = JSON.stringify(row);
+  const evidence = Array.from(h.orderAdjustmentEvidence(row)); assert.equal(evidence.length, 1); assert.equal(evidence[0].title, '판매자배송 주문·취소 확인'); assert.equal(evidence[0].rows, 1);
+  const values = new Map(evidence[0].values.map(([label, value, money]) => [label, { value, money }]));
+  assert.equal(values.get('원주문 금액').value, 15000); assert.equal(values.get('확정 취소 수량').value, 1); assert.equal(values.get('확정 취소의 주문단가 합계').value, 5000);
+  assert.equal(values.get('환불 예정 수량 · 미차감').value, null); assert.equal(values.get('원본 총 할인액 · 미차감').value, null); assert.equal(values.get('즉시할인 쿠폰').value, 0); assert.equal(values.get('쿠팡 지원 할인').value, 0); assert.equal(values.get('원주문 금액').money, true); assert.equal(values.get('확정 취소 수량').money, false);
+  assert.equal(JSON.stringify(row), before, 'Presenting order diagnostics must not mutate saved financial values');
+});
+test('legacy seller evidence labels older collection data and keeps unknown amounts unknown', () => {
+  const { h } = context(), row = { apiOrderAdjustments: [{ channel: 'seller', current: false, orderedQuantity: null, orderedGross: null, confirmedCancelledQuantity: null, confirmedCancellationGross: null, pendingCancelledQuantity: null, discountPrice: null, reasons: ['전체 다시 수집으로 확인하세요.'] }] };
+  const evidence = Array.from(h.orderAdjustmentEvidence(row)); assert.equal(evidence.length, 1); assert.equal(evidence[0].title, '판매자배송 이전 수집 자료'); assert.match(evidence[0].reasons[0], /다시 수집/); assert.equal(evidence[0].values.find(([label]) => label === '원주문 금액')[1], null);
+  assert.equal(h.orderAdjustmentEvidence({ dailyReport: { apiOrderAdjustments: [] } }).length, 0);
 });
